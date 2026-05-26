@@ -1,0 +1,15 @@
+环境：
+（第一次）conda create -n gis-agent python=3.11 -y
+conda activate gis-agent
+
+安装：
+conda install -c conda-forge gdal -y
+
+验证：
+ogr2ogr --version
+
+其它说明：
+# 先安装基础版
+conda install -c conda-forge gdal
+# 如果添加完整驱动
+conda install -c conda-forge libgdal libgdal-arrow-parquet

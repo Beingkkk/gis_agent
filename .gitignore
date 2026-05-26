@@ -219,3 +219,6 @@ __marimo__/
 
 # Project-specific: Document resources (not committed)
 Document/Resource/
+
+# CodeGraph index (generated locally)
+.codegraph/

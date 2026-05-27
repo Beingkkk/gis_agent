@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GIS Agent (`gis-agent`) is a command-line assistant for GIS data processing using GDAL tools. It accepts natural language requests in Chinese, maps them to predefined Jinja2 templates, generates batch scripts, and executes them only after explicit user confirmation within a sandboxed workspace.
 
-**Current phase**: Design documents are complete (7 plans committed). Source code implementation has not yet started. The project strictly follows Specification-Driven Design: no code without a preceding design document.
+**Current phase**: config module and RAG module are implemented. llm/, core/, cli/, and templates/ modules are pending. The project strictly follows Specification-Driven Design: no code without a preceding design document.
 
 ## Development Workflow (Specification-Driven)
 
@@ -46,7 +46,7 @@ Infra layer             → anthropic SDK, chromadb, jinja2, GDAL CLI
 - `cli/` may depend on `core/`, `llm/`, `rag/`
 - `core/` may depend on `llm/`, `rag/`
 - `llm/` may depend on `rag/`
-- `rag/` has no upward dependencies
+- `rag/` may depend on `config/` (configuration infrastructure)
 - External library types must not leak upward through layer boundaries
 
 **Key design patterns**:
@@ -54,6 +54,29 @@ Infra layer             → anthropic SDK, chromadb, jinja2, GDAL CLI
 - Workspace paths are validated through a security layer (`core/workspace.py`) — **never** `os.path.join` with raw user input
 - LLM calls (`anthropic`) are encapsulated in `llm/` only
 - ChromaDB operations are encapsulated in `rag/` only
+
+## Implemented Modules
+
+### config (`SourceCode/src/config/`)
+
+Configuration loading with validation and environment variable overrides.
+
+- `load_config(path)` → `Config` dataclass
+- `get_config()` → global singleton
+- Supports `GISAGENT_*` env overrides
+- **Note**: Module uses `from config import ...` imports (not `from src.config`), because `SourceCode/src/` is added to `PYTHONPATH` at runtime.
+
+### rag (`SourceCode/src/rag/`)
+
+GDAL document retrieval pipeline.
+
+- `rag.preprocess` — HTML parsing, semantic chunking, JSON output (development-only)
+- `rag.retriever` — ChromaDB vector retrieval with hash-based cache detection
+  - `DocumentRetriever.search(query, top_k)` → `List[RetrievedDocument]`
+  - `get_retriever()` → singleton, auto-loads/builds index on first call
+- **RAG data**: `SourceCode/data/gdal-docs-chunks.json` (9706 chunks, preprocessed from GDAL HTML docs)
+- **Embedding model**: `SourceCode/model/embedding/` (`paraphrase-multilingual-MiniLM-L12-v2`)
+- **ChromaDB cache**: `~/.cache/gis-agent/chroma/` (persistent, hash-detected rebuilds)
 
 ## CodeGraph
 
@@ -88,23 +111,38 @@ conda activate gis-agent
 ogr2ogr --version
 ```
 
-**Production dependencies** (locked): `anthropic`, `chromadb`, `jinja2` — no others without explicit approval per constitution.md P5.
+**Important**: In the bash shell used by Claude Code, `conda activate` does not work. Always invoke the environment's Python directly by full path:
+
+```bash
+"/c/Users/PC/.conda/envs/gis-agent/python" --version
+"/c/Users/PC/.conda/envs/gis-agent/python" -c "import sentence_transformers"
+```
+
+**Production dependencies** (locked): `anthropic`, `chromadb`, `jinja2` — no others without explicit approval per constitution.md P5. `sentence-transformers` is accepted as an extended dependency for embedding model loading.
 
 ## Commands
 
 The project uses `ruff` for formatting/linting, `mypy --strict` for type checking, and `pytest` for testing. These are defined as quality gates in `Document/constitution.md` §8.
 
+All commands assume `SourceCode/` as working directory with `PYTHONPATH=src`:
+
 ```bash
+cd SourceCode
+export PYTHONPATH=src
+
 # Format code
-ruff format src/ tests/
+ruff format src/ tests/ scripts/
 
 # Check style and errors
-ruff check src/ tests/
+ruff check src/ tests/ scripts/
 
 # Type check (strict)
 mypy --strict src/
 
-# Run all unit tests with coverage
+# Run all unit tests
+pytest tests/unit/ -v
+
+# Run all unit tests with coverage (may fail on Windows due to numpy + pytest-cov conflict)
 pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 
 # Run a single test file
@@ -112,6 +150,9 @@ pytest tests/unit/test_something.py -v
 
 # Run a single test function
 pytest tests/unit/test_something.py::test_function_name -v
+
+# Quick RAG end-to-end test
+PYTHONPATH=src python -c "from rag.retriever import get_retriever; r = get_retriever(); print(r.search('ogr2ogr GeoJSON', top_k=3))"
 ```
 
 ## Coding Standards
@@ -130,7 +171,7 @@ Hard constraints from `Document/spec.md`:
 - **P2 (Show before execute)**: The CLI must display the full script and require explicit `Y/N` confirmation before execution
 - **P3 (Sandbox)**: All file operations are restricted to the configured workspace; output files get timestamps to prevent silent overwrites
 - **P4 (Local docs only)**: RAG retrieves only from local GDAL documentation in `SourceCode/data/` — no web sources
-- **P5 (Minimal deps)**: Production dependencies are locked to `anthropic`, `chromadb`, `jinja2`
+- **P5 (Minimal deps)**: Production dependencies are locked to `anthropic`, `chromadb`, `jinja2`; `sentence-transformers` is accepted as an extended dependency for embedding model loading
 
 ## Important Files
 
@@ -138,14 +179,21 @@ Hard constraints from `Document/spec.md`:
 |------|---------------|
 | `Document/spec.md` | Source of all requirements; every design decision must trace back to a requirement ID (e.g., `F1`, `F3`) |
 | `Document/constitution.md` | Development constitution; defines specification-driven workflow, coding standards, quality gates, security red lines |
+| `Document/plan-rag.md` | RAG module design (DC-0020~0025) — preprocessing, ChromaDB, embedding, cache strategy |
+| `SourceCode/config/config.json` | LLM and embedding configuration (base_url, auth_key, model_name, model_path) |
+| `SourceCode/src/config/loader.py` | Config loading with validation and env overrides |
+| `SourceCode/src/rag/preprocess.py` | HTML→JSON chunks pipeline (development-only, tested) |
+| `SourceCode/src/rag/retriever.py` | ChromaDB retriever with hash cache + semantic search |
+| `SourceCode/data/gdal-docs-chunks.json` | Preprocessed GDAL documentation for RAG (5.9MB, 9706 chunks) |
+| `SourceCode/model/embedding/` | `paraphrase-multilingual-MiniLM-L12-v2` embedding model |
+| `SourceCode/scripts/preprocess_docs.py` | CLI to regenerate chunks JSON from GDAL HTML docs |
+| `SourceCode/tasks/tasks-rag.md` | RAG implementation task breakdown (R-01~R-15) |
 | `SourceCode/env-install.txt` | Conda environment setup instructions for GDAL |
-| `SourceCode/config/config.json` | LLM configuration (base_url, auth_key, model_name) |
-| `SourceCode/model/download_embedding.cmd` | Windows script to download the `paraphrase-multilingual-MiniLM-L12-v2` embedding model into `SourceCode/model/` |
-| `SourceCode/src/templates/` | Jinja2 templates for GDAL command generation (to be created during implementation) |
-| `SourceCode/data/` | Preprocessed GDAL documentation chunks (JSON) for RAG |
+| `SourceCode/model/download_embedding.cmd` | Windows script to download the embedding model |
 
 ## When Working on This Repo
 
 - Before implementing any feature, check if a corresponding `plan-{module}.md` exists in `Document/`. If not, the feature is not yet ready for coding.
 - When modifying code, verify the change aligns with the locked plan. If the plan needs updating, follow the change control process in `Document/constitution.md`.
 - The `Document/Resource/` directory is gitignored; do not commit its contents.
+- The `SourceCode/model/embedding/` directory contains large model files and should not be committed. It is rebuilt from `download_embedding.cmd`.

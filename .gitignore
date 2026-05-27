@@ -226,6 +226,9 @@ CLAUDE.local.md
 # CodeGraph index (generated locally)
 .codegraph/
 
+# Claude Code working directory
+.claude/
+
 # Embedding model files — use SourceCode/model/download_embedding.cmd to fetch
 # Do not commit large binary model files to git
 SourceCode/model/**

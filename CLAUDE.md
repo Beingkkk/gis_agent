@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GIS Agent (`gis-agent`) is a command-line assistant for GIS data processing using GDAL tools. It accepts natural language requests in Chinese, maps them to predefined Jinja2 templates, generates batch scripts, and executes them only after explicit user confirmation within a sandboxed workspace.
 
-**Current phase**: config module and RAG module are implemented. llm/, core/, cli/, and templates/ modules are pending. The project strictly follows Specification-Driven Design: no code without a preceding design document.
+**Current phase**: config, rag, llm, and core/workspace modules are implemented. cli/, core/templates, and core/security modules are pending. The project strictly follows Specification-Driven Design: no code without a preceding design document.
 
 ## Development Workflow (Specification-Driven)
 
@@ -65,6 +65,7 @@ Configuration loading with validation and environment variable overrides.
 - `get_config()` → global singleton
 - Supports `GISAGENT_*` env overrides
 - **Note**: Module uses `from config import ...` imports (not `from src.config`), because `SourceCode/src/` is added to `PYTHONPATH` at runtime.
+- **Security**: `config.json` is gitignored; use `config.json.template` as reference and set real credentials via environment variables or local file.
 
 ### rag (`SourceCode/src/rag/`)
 
@@ -77,6 +78,27 @@ GDAL document retrieval pipeline.
 - **RAG data**: `SourceCode/data/gdal-docs-chunks.json` (9706 chunks, preprocessed from GDAL HTML docs)
 - **Embedding model**: `SourceCode/model/embedding/` (`paraphrase-multilingual-MiniLM-L12-v2`)
 - **ChromaDB cache**: `~/.cache/gis-agent/chroma/` (persistent, hash-detected rebuilds)
+- **Known limitation**: Chinese queries against English GDAL docs have embedding drift; English queries yield precise matches.
+
+### llm (`SourceCode/src/llm/`)
+
+LLM interaction layer — the only module allowed to call the anthropic SDK (CODE-3).
+
+- `LLMClient` — Anthropic SDK wrapper with exponential backoff retry (max 3), token budget truncation (FIFO, 8000 token limit), and structured error types
+- `PromptBuilder` — Dynamic system prompt assembly: fixed safety constraints + Agents.md + RAG context + task context
+- `classify_intent()` — Maps user input to predefined template ID with confidence, JSON parsing, and validation against available templates
+- `extract_params()` — Extracts template parameters, merges with current state, identifies missing required fields with follow-up questions
+- `answer_question()` — RAG-enhanced document Q&A; feeds retrieved docs into LLM prompt and returns natural language answer
+
+### core/workspace (`SourceCode/src/core/workspace.py`)
+
+Workspace anchor point — path normalization, output filename generation with timestamps, Agents.md loading.
+
+- `Workspace(root)` — validates directory exists, resolves to absolute path
+- `resolve_path(user_input)` — normalizes paths; relative paths resolved against workspace root; no scope restriction (v2.0.0)
+- `generate_output_path()` — appends `%Y%m%d_%H%M%S` timestamp to prevent silent overwrites
+- `load_agents_md()` — reads `Agents.md` from workspace root for project-level persistent memory
+- `initialize()` / `get_workspace()` — process-level singleton pattern
 
 ## CodeGraph
 
@@ -142,7 +164,7 @@ mypy --strict src/
 # Run all unit tests
 pytest tests/unit/ -v
 
-# Run all unit tests with coverage (may fail on Windows due to numpy + pytest-cov conflict)
+# Run all unit tests with coverage (use --cov=llm for single module; may fail on Windows due to numpy + pytest-cov conflict)
 pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 
 # Run a single test file
@@ -153,6 +175,9 @@ pytest tests/unit/test_something.py::test_function_name -v
 
 # Quick RAG end-to-end test
 PYTHONPATH=src python -c "from rag.retriever import get_retriever; r = get_retriever(); print(r.search('ogr2ogr GeoJSON', top_k=3))"
+
+# Quick LLM end-to-end test (requires valid API key in config.json or GISAGENT_LLM_AUTH_KEY env var)
+PYTHONPATH=src python scripts/test_e2e_qa.py
 ```
 
 ## Coding Standards
@@ -180,10 +205,17 @@ Hard constraints from `Document/spec.md`:
 | `Document/spec.md` | Source of all requirements; every design decision must trace back to a requirement ID (e.g., `F1`, `F3`) |
 | `Document/constitution.md` | Development constitution; defines specification-driven workflow, coding standards, quality gates, security red lines |
 | `Document/plan-rag.md` | RAG module design (DC-0020~0025) — preprocessing, ChromaDB, embedding, cache strategy |
-| `SourceCode/config/config.json` | LLM and embedding configuration (base_url, auth_key, model_name, model_path) |
+| `SourceCode/config/config.json.template` | LLM and embedding configuration template; copy to `config.json` and set credentials |
 | `SourceCode/src/config/loader.py` | Config loading with validation and env overrides |
 | `SourceCode/src/rag/preprocess.py` | HTML→JSON chunks pipeline (development-only, tested) |
 | `SourceCode/src/rag/retriever.py` | ChromaDB retriever with hash cache + semantic search |
+| `SourceCode/src/llm/client.py` | Anthropic SDK wrapper with retry and token truncation |
+| `SourceCode/src/llm/intent.py` | Intent classification (`classify_intent`) |
+| `SourceCode/src/llm/params.py` | Parameter extraction (`extract_params`) |
+| `SourceCode/src/llm/qa.py` | RAG-enhanced Q&A (`answer_question`) |
+| `SourceCode/src/core/workspace.py` | Workspace management: path normalization, timestamps, Agents.md |
+| `Document/plan-llm.md` | LLM module design (DC-0030~0035) |
+| `Document/plan-workspace.md` | Workspace module design (DC-0010~0014) |
 | `SourceCode/data/gdal-docs-chunks.json` | Preprocessed GDAL documentation for RAG (5.9MB, 9706 chunks) |
 | `SourceCode/model/embedding/` | `paraphrase-multilingual-MiniLM-L12-v2` embedding model |
 | `SourceCode/scripts/preprocess_docs.py` | CLI to regenerate chunks JSON from GDAL HTML docs |
@@ -197,3 +229,5 @@ Hard constraints from `Document/spec.md`:
 - When modifying code, verify the change aligns with the locked plan. If the plan needs updating, follow the change control process in `Document/constitution.md`.
 - The `Document/Resource/` directory is gitignored; do not commit its contents.
 - The `SourceCode/model/embedding/` directory contains large model files and should not be committed. It is rebuilt from `download_embedding.cmd`.
+- `SourceCode/config/config.json` is gitignored; never commit credentials. Use `config.json.template` as reference.
+- The `llm/` module is the **only** code allowed to import `anthropic` (CODE-3). Never add anthropic imports outside `llm/`.

@@ -220,6 +220,9 @@ __marimo__/
 # Project-specific: Document resources (not committed)
 Document/Resource/
 
+# Local user-specific Claude configuration (not committed)
+CLAUDE.local.md
+
 # CodeGraph index (generated locally)
 .codegraph/
 

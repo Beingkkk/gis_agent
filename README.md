@@ -52,7 +52,7 @@ gis-agent/
 
 ## 开发规范
 
-本项目遵循 SDD（软件设计文档）驱动开发流程。编码前必须先完成对应模块的 SDD 设计文档，详见 [Document/constitution.md](Document/constitution.md)。
+本项目遵循规范驱动设计（Specification-Driven Design）流程。编码前必须先完成对应模块的 plan 设计文档，详见 [Document/constitution.md](Document/constitution.md)。
 
 ---
 

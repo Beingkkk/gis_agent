@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GIS Agent 场景-需求映射图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: #f5f7fa;
+    padding: 40px 20px;
+    min-height: 100vh;
+  }
+  .container {
+    max-width: 1300px;
+    margin: 0 auto;
+  }
+  h1 {
+    text-align: center;
+    color: #1a202c;
+    margin-bottom: 8px;
+    font-size: 28px;
+  }
+  .subtitle {
+    text-align: center;
+    color: #718096;
+    margin-bottom: 40px;
+    font-size: 14px;
+  }
+
+  /* 场景卡片 */
+  .scenario {
+    background: #fff;
+    border-radius: 14px;
+    padding: 24px 28px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    border-left: 4px solid;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .scenario:hover {
+    transform: translateX(4px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  }
+
+  /* 场景类型颜色 */
+  .scenario.type-basic { border-left-color: #667eea; }
+  .scenario.type-vector { border-left-color: #11998e; }
+  .scenario.type-raster { border-left-color: #ed8936; }
+  .scenario.type-doc { border-left-color: #9f7aea; }
+  .scenario.type-advanced { border-left-color: #e53e3e; }
+  .scenario.type-safety { border-left-color: #38a169; }
+
+  .scenario-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .scenario-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+  }
+  .type-basic .scenario-icon { background: #ebf4ff; }
+  .type-vector .scenario-icon { background: #e6fffa; }
+  .type-raster .scenario-icon { background: #fffaf0; }
+  .type-doc .scenario-icon { background: #faf5ff; }
+  .type-advanced .scenario-icon { background: #fff5f5; }
+  .type-safety .scenario-icon { background: #f0fff4; }
+
+  .scenario-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: #2d3748;
+    flex: 1;
+  }
+  .scenario-type-badge {
+    font-size: 11px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .type-basic .scenario-type-badge { background: #ebf4ff; color: #4c51bf; }
+  .type-vector .scenario-type-badge { background: #e6fffa; color: #0987a0; }
+  .type-raster .scenario-type-badge { background: #fffaf0; color: #c05621; }
+  .type-doc .scenario-type-badge { background: #faf5ff; color: #6b46c1; }
+  .type-advanced .scenario-type-badge { background: #fff5f5; color: #c53030; }
+  .type-safety .scenario-type-badge { background: #f0fff4; color: #276749; }
+
+  .scenario-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 900px) {
+    .scenario-body { grid-template-columns: 1fr; }
+  }
+
+  /* 对话模拟 */
+  .dialogue {
+    background: #f7fafc;
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .dialogue-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #a0aec0;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 12px;
+  }
+  .msg {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+    align-items: flex-start;
+  }
+  .msg-user .msg-avatar {
+    width: 28px;
+    height: 28px;
+    background: #667eea;
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .msg-agent .msg-avatar {
+    width: 28px;
+    height: 28px;
+    background: #38a169;
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .msg-content {
+    background: #fff;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    color: #4a5568;
+    line-height: 1.5;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    flex: 1;
+  }
+  .msg-user .msg-content { border-bottom-left-radius: 2px; }
+  .msg-agent .msg-content { border-bottom-right-radius: 2px; background: #f0fff4; }
+  .msg-script {
+    background: #1a202c;
+    color: #68d391;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    margin: 6px 0;
+  }
+  .msg-confirm {
+    background: #fffaf0;
+    border: 1px solid #ed8936;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #c05621;
+    font-weight: 600;
+  }
+
+  /* 需求映射 */
+  .mapping {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .mapping-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #a0aec0;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  .req-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    background: #f7fafc;
+    border-radius: 8px;
+  }
+  .req-id {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .req-id.func { background: #ebf4ff; color: #4c51bf; }
+  .req-id.principle { background: #fff5f5; color: #c53030; }
+  .req-id.workspace { background: #e6fffa; color: #0987a0; }
+  .req-id.accept { background: #faf5ff; color: #6b46c1; }
+  .req-desc {
+    font-size: 12px;
+    color: #4a5568;
+    line-height: 1.5;
+  }
+
+  /* 流程状态 */
+  .state-flow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .state-badge {
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: #e2e8f0;
+    color: #4a5568;
+    font-weight: 500;
+  }
+  .state-badge.active {
+    background: #667eea;
+    color: #fff;
+  }
+
+  /* 底部汇总表 */
+  .summary-table {
+    background: #fff;
+    border-radius: 14px;
+    padding: 28px;
+    margin-top: 32px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  }
+  .summary-table h2 {
+    font-size: 18px;
+    color: #2d3748;
+    margin-bottom: 20px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th {
+    text-align: left;
+    padding: 10px 12px;
+    background: #f7fafc;
+    color: #4a5568;
+    font-weight: 600;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #edf2f7;
+    color: #4a5568;
+    line-height: 1.5;
+  }
+  tr:hover td { background: #f7fafc; }
+  .tid { font-family: monospace; font-weight: 600; }
+
+  /* 图例 */
+  .legend-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    margin-top: 28px;
+    padding: 16px;
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #4a5568;
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>GIS Agent 场景-需求映射对齐图</h1>
+  <p class="subtitle">用户视角 · 场景预设 · 功能映射 · 需求追溯 | 基于 spec.md</p>
+
+  <!-- 场景1: 初次启动配置 -->
+  <div class="scenario type-basic">
+    <div class="scenario-header">
+      <div class="scenario-icon">🚀</div>
+      <div class="scenario-title">场景一：初次启动与配置</div>
+      <div class="scenario-type-badge">基础配置</div>
+    </div>
+    <div class="scenario-body">
+      <div class="dialogue">
+        <div class="dialogue-label">会话流程</div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">python -m gis_agent --workspace /data/gis</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">欢迎使用 GIS Agent！<br>工作空间: /data/gis<br>可用模板: 12 个<br>输入 /help 查看帮助</div>
+        </div>
+        <div class="state-flow">
+          <span class="state-badge active">IDLE</span>
+          <span class="state-badge">→ 启动初始化</span>
+          <span class="state-badge">→ 就绪</span>
+        </div>
+      </div>
+      <div class="mapping">
+        <div class="mapping-label">需求映射</div>
+        <div class="req-row">
+          <span class="req-id func">F7</span>
+          <span class="req-desc">启动时指定工作空间（<code>--workspace</code>），所有操作限制在此目录内</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id func">F6</span>
+          <span class="req-desc">支持 <code>--dry-run</code> 空跑模式，只展示不执行</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id workspace">W1-W3</span>
+          <span class="req-desc">工作空间初始化、路径校验、沙箱隔离</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id func">F12</span>
+          <span class="req-desc">配置持久化（<code>--config</code> 指定配置文件）</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景2: 矢量格式转换 -->
+  <div class="scenario type-vector">
+    <div class="scenario-header">
+      <div class="scenario-icon">🗺️</div>
+      <div class="scenario-title">场景二：Shapefile 转 GeoJSON</div>
+      <div class="scenario-type-badge">矢量处理</div>
+    </div>
+    <div class="scenario-body">
+      <div class="dialogue">
+        <div class="dialogue-label">会话流程</div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">把 roads.shp 转成 GeoJSON</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">已识别任务：Shapefile 转 GeoJSON。<br>请输入输出文件路径（output）：</div>
+        </div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">输出叫 roads_out.json</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">
+            脚本预览：
+            <div class="msg-script">@echo off<br>ogr2ogr -f "GeoJSON" 'roads_out.json' 'roads.shp'<br>REM Done</div>
+            <div class="msg-confirm">确认执行？(Y/N)</div>
+          </div>
+        </div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">Y</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">执行完成！输出: roads_out_20260526_143052.json</div>
+        </div>
+        <div class="state-flow">
+          <span class="state-badge">IDLE</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge active">PARAM_COLLECT</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge active">SCRIPT_PREVIEW</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge">EXECUTING → IDLE</span>
+        </div>
+      </div>
+      <div class="mapping">
+        <div class="mapping-label">需求映射</div>
+        <div class="req-row">
+          <span class="req-id func">F2</span>
+          <span class="req-desc">意图分类：自然语言 → 模板 ID（shp2geojson）</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id func">F3</span>
+          <span class="req-desc">参数抽取：提取 input、output 路径，追问缺失字段</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id func">F4</span>
+          <span class="req-desc">Jinja2 模板渲染生成 .bat 脚本</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id func">F5</span>
+          <span class="req-desc">先展示脚本内容，严格 Y/N 确认后执行</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id func">F8</span>
+          <span class="req-desc">会话内记忆：多轮对话保留上下文（已知任务不重复询问）</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id principle">P1</span>
+          <span class="req-desc">模板化命令：ogr2ogr 命令通过 Jinja2 模板渲染，禁止字符串拼接</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id principle">P2</span>
+          <span class="req-desc">先展后行：必须完整展示脚本并获得确认</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id principle">P3</span>
+          <span class="req-desc">沙箱：cwd 限定工作空间，输出文件加时间戳防覆盖</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景3: 栅格重投影 -->
+  <div class="scenario type-raster">
+    <div class="scenario-header">
+      <div class="scenario-icon">🖼️</div>
+      <div class="scenario-title">场景三：栅格重投影与格式转换</div>
+      <div class="scenario-type-badge">栅格处理</div>
+    </div>
+    <div class="scenario-body">
+      <div class="dialogue">
+        <div class="dialogue-label">会话流程</div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">把 dem.tif 重投影到 EPSG:4326，输出为 dem_wgs84.tif</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">已识别任务：栅格重投影。<br>
+            所需参数已完整，正在生成脚本...<br>
+            请确认以下脚本内容：
+            <div class="msg-script">gdalwarp -t_srs 'EPSG:4326' 'dem.tif' 'dem_wgs84.tif'</div>
+            <div class="msg-confirm">确认执行？(Y/N)</div>
+          </div>
+        </div>
+        <div class="state-flow">
+          <span class="state-badge">IDLE</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge active">PARAM_COLLECT</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge active">SCRIPT_PREVIEW</span>
+        </div>
+      </div>
+      <div class="mapping">
+        <div class="mapping-label">需求映射</div>
+        <div class="req-row">
+          <span class="req-id func">F2</span>
+          <span class="req-desc">意图分类：高置信度匹配栅格处理模板（warp_reproject）</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id func">F3</span>
+          <span class="req-desc">参数抽取：一轮对话提取 input/output/t_srs 三个参数</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id func">F4</span>
+          <span class="req-desc">模板渲染：gdalwarp 命令生成，跨平台 .bat/.sh 自适应</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id principle">P1</span>
+          <span class="req-desc">参数 CRS 类型校验：EPSG:数字 格式，通过 ParamValidator 校验链</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景4: 文档问答 -->
+  <div class="scenario type-doc">
+    <div class="scenario-header">
+      <div class="scenario-icon">📚</div>
+      <div class="scenario-title">场景四：GDAL 工具文档问答</div>
+      <div class="scenario-type-badge">文档检索</div>
+    </div>
+    <div class="scenario-body">
+      <div class="dialogue">
+        <div class="dialogue-label">会话流程</div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">ogr2ogr 能输出哪些格式？</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">基于 GDAL 官方文档，ogr2ogr 支持以下输出格式：<br>
+            • GeoJSON / GeoJSONSeq<br>
+            • ESRI Shapefile<br>
+            • GeoPackage<br>
+            • KML / CSV / SQLite...<br>
+            完整列表请参见文档。</div>
+        </div>
+        <div class="state-flow">
+          <span class="state-badge active">IDLE</span>
+          <span class="state-badge">→ RAG 检索</span>
+          <span class="state-badge">→ LLM 生成回答 → 保持 IDLE</span>
+        </div>
+      </div>
+      <div class="mapping">
+        <div class="mapping-label">需求映射</div>
+        <div class="req-row">
+          <span class="req-id func">F1</span>
+          <span class="req-desc">文档问答：基于本地 GDAL HTML 文档，通过 ChromaDB 向量检索</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id principle">P4</span>
+          <span class="req-desc">仅本地文档：RAG 只检索本地官方文档，不混合网络内容</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id accept">AC-1</span>
+          <span class="req-desc">中英跨语言检索：中文问题匹配英文文档片段（多语言 Embedding）</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id func">F11</span>
+          <span class="req-desc">Agents.md 内容注入系统提示词，提供项目级记忆</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景5: 意图澄清 -->
+  <div class="scenario type-advanced">
+    <div class="scenario-header">
+      <div class="scenario-icon">❓</div>
+      <div class="scenario-title">场景五：意图不明确时的清晰交互</div>
+      <div class="scenario-type-badge">高级交互</div>
+    </div>
+    <div class="scenario-body">
+      <div class="dialogue">
+        <div class="dialogue-label">会话流程</div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">处理一下那个文件</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">我无法确定您的意图，请选择：<br>
+            1. Shapefile 转 GeoJSON<br>
+            2. 合并 Shapefile<br>
+            3. 栅格裁剪<br>
+            或请重新描述您的需求。</div>
+        </div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">第一个</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">已选择：Shapefile 转 GeoJSON。<br>请输入输入文件路径：</div>
+        </div>
+        <div class="state-flow">
+          <span class="state-badge">IDLE</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge active">INTENT_CONFIRM</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge">PARAM_COLLECT → ...</span>
+        </div>
+      </div>
+      <div class="mapping">
+        <div class="mapping-label">需求映射</div>
+        <div class="req-row">
+          <span class="req-id func">F2</span>
+          <span class="req-desc">低置信度意图分类（confidence < 0.7）进入清晰状态</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id func">F8</span>
+          <span class="req-desc">会话记忆保持候选模板列表，用户选择后继续流程</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id principle">P1</span>
+          <span class="req-desc">LLM 不直接生成命令，只负责选择模板 ID</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景6: dry-run 验证 -->
+  <div class="scenario type-safety">
+    <div class="scenario-header">
+      <div class="scenario-icon">🔒</div>
+      <div class="scenario-title">场景六：Dry-run 安全验证模式</div>
+      <div class="scenario-type-badge">安全验证</div>
+    </div>
+    <div class="scenario-body">
+      <div class="dialogue">
+        <div class="dialogue-label">会话流程</div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">python -m gis_agent --workspace /data/gis --dry-run</div>
+        </div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">把 roads.shp 转成 GeoJSON</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">
+            脚本预览：
+            <div class="msg-script">@echo off<br>ogr2ogr -f "GeoJSON" 'roads_out.json' 'roads.shp'<br>REM Done</div>
+            <div class="msg-confirm" style="background:#f0fff4;border-color:#38a169;color:#276749;">
+              [dry-run 模式] 仅展示，跳过执行
+            </div>
+          </div>
+        </div>
+        <div class="state-flow">
+          <span class="state-badge">SCRIPT_PREVIEW</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge active">preview() 显示</span>
+          <span class="state-badge">→ 跳过执行 → IDLE</span>
+        </div>
+      </div>
+      <div class="mapping">
+        <div class="mapping-label">需求映射</div>
+        <div class="req-row">
+          <span class="req-id func">F6</span>
+          <span class="req-desc">--dry-run 空跑模式：只展示脚本，不执行任何 GDAL 命令</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id func">F5</span>
+          <span class="req-desc">完整展示脚本内容，便于审查和验证</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id principle">P2</span>
+          <span class="req-desc">先展后行的延伸：在安全环境下先验证再正式运行</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景7: 错误诊断与恢复 -->
+  <div class="scenario type-advanced">
+    <div class="scenario-header">
+      <div class="scenario-icon">⚠️</div>
+      <div class="scenario-title">场景七：执行失败与错误诊断</div>
+      <div class="scenario-type-badge">错误恢复</div>
+    </div>
+    <div class="scenario-body">
+      <div class="dialogue">
+        <div class="dialogue-label">会话流程</div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">Y</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">
+            ⚠️ 执行失败（退出码 1）：
+            <div class="msg-script" style="color:#fc8181;">ERROR: Unable to open datasource `roads.shp'...<br>File not found</div>
+            可能原因：输入文件不存在。请检查文件名或路径。<br>
+            您可以继续输入新的需求。
+          </div>
+        </div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">改用 data/roads.shp</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">已更新参数，请确认脚本...<br>
+            执行成功！</div>
+        </div>
+        <div class="state-flow">
+          <span class="state-badge">EXECUTING</span>
+          <span class="state-badge">→ 失败</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge active">IDLE</span>
+          <span class="state-badge">→ 用户继续输入</span>
+        </div>
+      </div>
+      <div class="mapping">
+        <div class="mapping-label">需求映射</div>
+        <div class="req-row">
+          <span class="req-id func">F10</span>
+          <span class="req-desc">错误诊断：捕获 stderr，结合 RAG 文档提供修复建议</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id func">F8</span>
+          <span class="req-desc">错误后保持会话连续性，用户可继续修改参数重试</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id principle">P3</span>
+          <span class="req-desc">错误不破坏工作空间，保持沙箱隔离</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景8: 多步任务（预留） -->
+  <div class="scenario type-advanced">
+    <div class="scenario-header">
+      <div class="scenario-icon">🔄</div>
+      <div class="scenario-title">场景八：多步任务链（预留扩展）</div>
+      <div class="scenario-type-badge">未来扩展</div>
+    </div>
+    <div class="scenario-body">
+      <div class="dialogue">
+        <div class="dialogue-label">会话流程</div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">先转换格式，然后重投影到 4326</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">
+            [v2.0 预设] 识别为 2 步任务链：<br>
+            Step 1: 格式转换 (shp → geojson)<br>
+            Step 2: 重投影 (EPSG:4326)<br>
+            正在依次执行... [v1.0 仅支持单步]
+          </div>
+        </div>
+        <div class="state-flow">
+          <span class="state-badge">IDLE</span>
+          <span class="state-badge">→ 任务梳解</span>
+          <span class="state-badge">→ 任务栈 → 循环执行</span>
+        </div>
+      </div>
+      <div class="mapping">
+        <div class="mapping-label">需求映射</div>
+        <div class="req-row">
+          <span class="req-id func">F9</span>
+          <span class="req-desc">多步任务链：连续操作支持（预留，v1.0 状态机可扩展为任务栈）</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 汇总表 -->
+  <div class="summary-table">
+    <h2>📋 需求完整清单与场景覆盖</h2>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:60px">类别</th>
+          <th style="width:70px">ID</th>
+          <th>需求描述</th>
+          <th style="width:180px">覆盖场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td rowspan="5" style="font-weight:700;color:#4c51bf;background:#ebf4ff;">功能</td>
+          <td class="tid">F1</td>
+          <td>基于本地 GDAL 文档的问答</td>
+          <td>场景四</td>
+        </tr>
+        <tr>
+          <td class="tid">F2</td>
+          <td>意图识别与分类（高/低置信度）</td>
+          <td>场景二、三、五</td>
+        </tr>
+        <tr>
+          <td class="tid">F3</td>
+          <td>参数抽取与追问</td>
+          <td>场景二、三、五</td>
+        </tr>
+        <tr>
+          <td class="tid">F4</td>
+          <td>模板 + 参数渲染生成脚本</td>
+          <td>场景二、三、六</td>
+        </tr>
+        <tr>
+          <td class="tid">F5</td>
+          <td>先展示脚本，Y/N 确认后执行</td>
+          <td>场景二、三、七</td>
+        </tr>
+        <tr>
+          <td class="tid">F6</td>
+          <td>--dry-run 空跑模式</td>
+          <td>场景六</td>
+        </tr>
+        <tr>
+          <td class="tid">F7</td>
+          <td>启动时指定工作空间</td>
+          <td>场景一</td>
+        </tr>
+        <tr>
+          <td class="tid">F8</td>
+          <td>会话内记忆 / 多轮追问</td>
+          <td>场景二、五、七</td>
+        </tr>
+        <tr>
+          <td class="tid">F9</td>
+          <td>多步任务链（预留）</td>
+          <td>场景八</td>
+        </tr>
+        <tr>
+          <td class="tid">F10</td>
+          <td>错误诊断与修复建议</td>
+          <td>场景七</td>
+        </tr>
+        <tr>
+          <td class="tid">F11</td>
+          <td>Agents.md 内容注入系统提示词</td>
+          <td>场景四（问答增强）</td>
+        </tr>
+        <tr>
+          <td class="tid">F12</td>
+          <td>用户配置持久化</td>
+          <td>场景一</td>
+        </tr>
+        <tr>
+          <td class="tid">F13</td>
+          <td>日志与审计</td>
+          <td>所有场景</td>
+        </tr>
+        <tr>
+          <td rowspan="5" style="font-weight:700;color:#c53030;background:#fff5f5;">原则</td>
+          <td class="tid">P1</td>
+          <td>模板化命令，禁止动态字符串拼接</td>
+          <td>所有生成场景</td>
+        </tr>
+        <tr>
+          <td class="tid">P2</td>
+          <td>先展后行，必须确认</td>
+          <td>所有执行场景</td>
+        </tr>
+        <tr>
+          <td class="tid">P3</td>
+          <td>工作空间沙箱，路径隔离</td>
+          <td>所有场景</td>
+        </tr>
+        <tr>
+          <td class="tid">P4</td>
+          <td>仅检索本地文档</td>
+          <td>场景四</td>
+        </tr>
+        <tr>
+          <td class="tid">P5</td>
+          <td>最小依赖（anthropic, chromadb, jinja2）</td>
+          <td>全部</td>
+        </tr>
+        <tr>
+          <td rowspan="3" style="font-weight:700;color:#0987a0;background:#e6fffa;">约束</td>
+          <td class="tid">W1</td>
+          <td>脚本输出文件放置在工作空间</td>
+          <td>所有执行场景</td>
+        </tr>
+        <tr>
+          <td class="tid">W2</td>
+          <td>GDAL 命令在工作空间内执行</td>
+          <td>所有执行场景</td>
+        </tr>
+        <tr>
+          <td class="tid">W3</td>
+          <td>路径沙箱隔离</td>
+          <td>所有场景</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 图例 -->
+  <div class="legend-bar">
+    <div class="legend-item"><div class="legend-dot" style="background:#667eea"></div>基础配置场景</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#11998e"></div>矢量处理场景</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ed8936"></div>栅格处理场景</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#9f7aea"></div>文档问答场景</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#e53e3e"></div>高级/扩展场景</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#38a169"></div>安全验证场景</div>
+    <div class="legend-item">U = 用户，A = Agent</div>
+  </div>
+</div>
+</body>
+</html>

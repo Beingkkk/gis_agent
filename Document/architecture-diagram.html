@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GIS Agent 技术架构图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: #f5f7fa;
+    padding: 40px 20px;
+    min-height: 100vh;
+  }
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  h1 {
+    text-align: center;
+    color: #1a202c;
+    margin-bottom: 8px;
+    font-size: 28px;
+  }
+  .subtitle {
+    text-align: center;
+    color: #718096;
+    margin-bottom: 40px;
+    font-size: 14px;
+  }
+
+  /* 架构分层 */
+  .layer {
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+    position: relative;
+  }
+  .layer-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    font-weight: 700;
+    font-size: 15px;
+    color: #fff;
+  }
+  .layer-badge {
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* CLI 层 */
+  .layer-cli {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+  }
+  .layer-cli .layer-badge { background: rgba(255,255,255,0.25); }
+
+  /* Core 层 */
+  .layer-core {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    box-shadow: 0 4px 15px rgba(17, 153, 142, 0.3);
+  }
+  .layer-core .layer-badge { background: rgba(255,255,255,0.25); }
+
+  /* App 层 */
+  .layer-app {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    box-shadow: 0 4px 15px rgba(240, 147, 251, 0.3);
+  }
+  .layer-app .layer-badge { background: rgba(255,255,255,0.25); }
+
+  /* Infra 层 */
+  .layer-infra {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+  }
+  .layer-infra .layer-badge { background: rgba(255,255,255,0.25); }
+
+  /* 模块卡片 */
+  .modules {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .module {
+    background: rgba(255,255,255,0.95);
+    border-radius: 10px;
+    padding: 14px 16px;
+    min-width: 200px;
+    flex: 1;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .module:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  }
+  .module-name {
+    font-weight: 700;
+    font-size: 14px;
+    color: #2d3748;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .module-name .icon {
+    font-size: 16px;
+  }
+  .module-desc {
+    font-size: 12px;
+    color: #718096;
+    line-height: 1.5;
+  }
+  .module-meta {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .tag {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: #edf2f7;
+    color: #4a5568;
+    font-weight: 500;
+  }
+  .tag.data {
+    background: #ebf8ff;
+    color: #3182ce;
+  }
+  .tag.security {
+    background: #fff5f5;
+    color: #c53030;
+  }
+
+  /* 依赖箭头 */
+  .arrow-down {
+    text-align: center;
+    color: #a0aec0;
+    font-size: 20px;
+    margin: 4px 0;
+    line-height: 1;
+  }
+  .dependency-note {
+    text-align: center;
+    font-size: 11px;
+    color: #a0aec0;
+    margin-bottom: 12px;
+  }
+
+  /* 数据流说明 */
+  .dataflow {
+    background: #fff;
+    border-radius: 12px;
+    padding: 24px;
+    margin-top: 32px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  }
+  .dataflow h2 {
+    font-size: 18px;
+    color: #2d3748;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .flow-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding: 14px 16px;
+    background: #f7fafc;
+    border-radius: 8px;
+    border-left: 3px solid #667eea;
+  }
+  .flow-num {
+    width: 28px;
+    height: 28px;
+    background: #667eea;
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .flow-content {
+    flex: 1;
+  }
+  .flow-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: #2d3748;
+    margin-bottom: 4px;
+  }
+  .flow-detail {
+    font-size: 12px;
+    color: #718096;
+    line-height: 1.6;
+  }
+
+  /* 安全边界 */
+  .security-box {
+    background: #fff;
+    border-radius: 12px;
+    padding: 24px;
+    margin-top: 24px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    border: 1px solid #fed7d7;
+  }
+  .security-box h2 {
+    font-size: 18px;
+    color: #c53030;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .security-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .security-item {
+    padding: 12px 14px;
+    background: #fff5f5;
+    border-radius: 8px;
+    border-left: 3px solid #fc8181;
+  }
+  .security-item .p-id {
+    font-size: 11px;
+    font-weight: 700;
+    color: #c53030;
+    margin-bottom: 4px;
+  }
+  .security-item .p-desc {
+    font-size: 12px;
+    color: #4a5568;
+    line-height: 1.5;
+  }
+
+  /* 图例 */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    justify-content: center;
+    margin-top: 32px;
+    padding: 16px;
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #4a5568;
+  }
+  .legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+  }
+
+  /* 响应式 */
+  @media (max-width: 768px) {
+    .modules { flex-direction: column; }
+    .module { min-width: auto; }
+    .security-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>GIS Agent 技术架构图</h1>
+  <p class="subtitle">分层架构设计 | plan v1.0.0 | 2026-05-26</p>
+
+  <!-- CLI 层 -->
+  <div class="layer layer-cli">
+    <div class="layer-header">
+      <span class="layer-badge">Layer 1</span>
+      <span>CLI 层 (cli/) — 用户交互入口</span>
+    </div>
+    <div class="modules">
+      <div class="module">
+        <div class="module-name"><span class="icon">&#9654;</span> REPL 主循环</div>
+        <div class="module-desc">Read-Eval-Print Loop，持续读取用户输入，状态分发</div>
+        <div class="module-meta">
+          <span class="tag">DC-0061</span>
+          <span class="tag">input()</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">/</span> 斜杠命令处理器</div>
+        <div class="module-desc">/quit /clear /workspace /templates /status /help</div>
+        <div class="module-meta">
+          <span class="tag">DC-0062</span>
+          <span class="tag">SlashCommandHandler</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">&#9889;</span> 脚本执行器</div>
+        <div class="module-desc">subprocess.run() 沙箱执行，cwd 限定工作空间，300s 超时</div>
+        <div class="module-meta">
+          <span class="tag security">DC-0063</span>
+          <span class="tag">ScriptExecutor</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">&#9874;</span> 启动参数解析</div>
+        <div class="module-desc">--workspace --config --dry-run，argparse 标准库</div>
+        <div class="module-meta">
+          <span class="tag">DC-0060</span>
+          <span class="tag">CLIArgs</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down">&#8595;</div>
+  <div class="dependency-note">CLI 层 &rarr; Core 层 + LLM 层 + RAG 层</div>
+
+  <!-- Core 层 -->
+  <div class="layer layer-core">
+    <div class="layer-header">
+      <span class="layer-badge">Layer 2</span>
+      <span>Core 层 (core/) — 业务逻辑核心</span>
+    </div>
+    <div class="modules">
+      <div class="module">
+        <div class="module-name"><span class="icon">&#9851;</span> 会话状态机</div>
+        <div class="module-desc">5 状态流转：IDLE &rarr; INTENT_CONFIRM &rarr; PARAM_COLLECT &rarr; SCRIPT_PREVIEW &rarr; EXECUTING</div>
+        <div class="module-meta">
+          <span class="tag">DC-0040</span>
+          <span class="tag data">SessionState</span>
+          <span class="tag data">Session</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">&#9881;</span> 会话处理器</div>
+        <div class="module-desc">封装状态机逻辑，将用户输入转化为状态转换和响应文本</div>
+        <div class="module-meta">
+          <span class="tag">DC-0043</span>
+          <span class="tag">SessionProcessor</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">&#128451;</span> 模板注册表</div>
+        <div class="module-desc">JSON 注册表运行时加载，模板 ID &rarr; 参数 Schema &rarr; .j2 文件路径映射</div>
+        <div class="module-meta">
+          <span class="tag">DC-0041</span>
+          <span class="tag">TemplateRegistry</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">&#9989;</span> 参数校验链</div>
+        <div class="module-desc">类型转换 &rarr; 格式校验 &rarr; 业务规则 &rarr; 路径安全，可扩展校验器</div>
+        <div class="module-meta">
+          <span class="tag security">DC-0042</span>
+          <span class="tag">ParamValidator</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down">&#8595;</div>
+  <div class="dependency-note">Core 层 &rarr; App 层 (LLM + RAG)</div>
+
+  <!-- App 层 -->
+  <div class="layer layer-app">
+    <div class="layer-header">
+      <span class="layer-badge">Layer 3</span>
+      <span>App 层 (llm/ + rag/) — 智能能力层</span>
+    </div>
+    <div class="modules">
+      <div class="module">
+        <div class="module-name"><span class="icon">&#129302;</span> LLM 客户端</div>
+        <div class="module-desc">anthropic SDK 封装，指数退避重试，Token 预算截断，纯业务接口</div>
+        <div class="module-meta">
+          <span class="tag">DC-0030</span>
+          <span class="tag">DC-0031</span>
+          <span class="tag">LLMClient</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">&#128172;</span> Prompt 构建器</div>
+        <div class="module-desc">动态组装系统提示词：安全约束 + Agents.md + RAG 上下文 + 任务上下文</div>
+        <div class="module-meta">
+          <span class="tag">DC-0032</span>
+          <span class="tag">DC-0035</span>
+          <span class="tag">PromptBuilder</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">&#128269;</span> 文档检索器</div>
+        <div class="module-desc">ChromaDB 向量检索，本地持久化，hash 懒构建，多语言 Embedding</div>
+        <div class="module-meta">
+          <span class="tag">DC-0021</span>
+          <span class="tag">DC-0024</span>
+          <span class="tag">DocumentRetriever</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">&#129504;</span> 业务接口函数</div>
+        <div class="module-desc">classify_intent() &middot; extract_params() &middot; answer_question()</div>
+        <div class="module-meta">
+          <span class="tag">DC-0031</span>
+          <span class="tag">IntentResult</span>
+          <span class="tag">ParamResult</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down">&#8595;</div>
+  <div class="dependency-note">App 层 &rarr; Infra 层 (外部库 + GDAL CLI)</div>
+
+  <!-- Infra 层 -->
+  <div class="layer layer-infra">
+    <div class="layer-header">
+      <span class="layer-badge">Layer 4</span>
+      <span>Infra 层 — 外部依赖与运行时</span>
+    </div>
+    <div class="modules">
+      <div class="module">
+        <div class="module-name"><span class="icon">&#128268;</span> anthropic SDK</div>
+        <div class="module-desc">Claude API 通信，流式响应，兼容 Kimi API (base_url 可配置)</div>
+        <div class="module-meta">
+          <span class="tag">P5 锁定</span>
+          <span class="tag">CODE-3</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">&#128193;</span> ChromaDB</div>
+        <div class="module-desc">本地持久化向量数据库，SQLite 后端，~/.cache/gis-agent/chroma/</div>
+        <div class="module-meta">
+          <span class="tag">P5 锁定</span>
+          <span class="tag">CODE-4</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">&#128209;</span> Jinja2 模板引擎</div>
+        <div class="module-desc">模板渲染 + 自定义过滤器 (quote / safe_path)，禁止字符串拼接</div>
+        <div class="module-meta">
+          <span class="tag">P5 锁定</span>
+          <span class="tag">CODE-1</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">&#127760;</span> GDAL CLI</div>
+        <div class="module-desc">ogr2ogr, gdalwarp, gdal_translate 等命令行工具，Conda 安装</div>
+        <div class="module-meta">
+          <span class="tag">外部</span>
+          <span class="tag">subprocess.run</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">&#129302;</span> Embedding 模型</div>
+        <div class="module-desc">paraphrase-multilingual-MiniLM-L12-v2，本地加载，中英跨语言检索</div>
+        <div class="module-meta">
+          <span class="tag">SourceCode/model/</span>
+          <span class="tag">SentenceTransformer</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 数据流 -->
+  <div class="dataflow">
+    <h2>&#128260; 典型数据流（成功路径）</h2>
+    <div class="flow-step">
+      <div class="flow-num">1</div>
+      <div class="flow-content">
+        <div class="flow-title">用户输入自然语言</div>
+        <div class="flow-detail">CLI 层 REPL 读取 "把 roads.shp 转成 GeoJSON" &rarr; 传递给 SessionProcessor.process()</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">2</div>
+      <div class="flow-content">
+        <div class="flow-title">意图分类</div>
+        <div class="flow-detail">LLM 层 classify_intent() &rarr; 高置信度(0.95)匹配 shp2geojson 模板 &rarr; 状态: IDLE &rarr; PARAM_COLLECT</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">3</div>
+      <div class="flow-content">
+        <div class="flow-title">参数收集与校验</div>
+        <div class="flow-detail">多轮对话中 extract_params() 提取参数 &rarr; ParamValidator 链校验 (路径安全/格式/EPSG) &rarr; 追问缺失字段</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">4</div>
+      <div class="flow-content">
+        <div class="flow-title">脚本渲染与安全校验</div>
+        <div class="flow-detail">TemplateEngine.render() &rarr; Jinja2 + quote/safe_path 过滤器 &rarr; ScriptSecurityChecker 二次正则检查</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">5</div>
+      <div class="flow-content">
+        <div class="flow-title">脚本展示与用户确认</div>
+        <div class="flow-detail">状态: SCRIPT_PREVIEW &rarr; 展示完整脚本 &rarr; 严格 Y/N 确认 (dry-run 模式跳过执行)</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">6</div>
+      <div class="flow-content">
+        <div class="flow-title">沙箱执行</div>
+        <div class="flow-detail">ScriptExecutor.execute() &rarr; subprocess.run(cwd=workspace.root, timeout=300) &rarr; 返回 ExecutionResult</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 安全红线 -->
+  <div class="security-box">
+    <h2>&#128683; 安全红线 (Security Principles)</h2>
+    <div class="security-grid">
+      <div class="security-item">
+        <div class="p-id">P1 — 模板化命令，杜绝幻觉</div>
+        <div class="p-desc">所有 GDAL 命令必须通过 Jinja2 模板渲染生成，严禁动态字符串拼接。LLM 只负责选择模板 ID 和填充参数。</div>
+      </div>
+      <div class="security-item">
+        <div class="p-id">P2 — 先展后行</div>
+        <div class="p-desc">任何脚本必须向用户完整展示内容，获得明确的 Y/N 确认后才可执行。不可跳过确认环节。</div>
+      </div>
+      <div class="security-item">
+        <div class="p-id">P3 — 工作空间沙箱</div>
+        <div class="p-desc">所有文件操作限制在配置的工作空间内。输出文件自动加时间戳防覆盖。路径通过 resolve()+relative_to() 校验。</div>
+      </div>
+      <div class="security-item">
+        <div class="p-id">P4 — 仅本地文档</div>
+        <div class="p-desc">RAG 仅检索本地 GDAL 官方文档，不混合网络随机内容。文档来源可控、可审计。</div>
+      </div>
+      <div class="security-item">
+        <div class="p-id">P5 — 最小依赖</div>
+        <div class="p-desc">生产依赖仅锁定 anthropic、chromadb、jinja2 三个库。零额外运行时依赖，降低供应链攻击面。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 图例 -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#667eea"></div>CLI 层</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#11998e"></div>Core 层</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f5576c"></div>App 层</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#4facfe"></div>Infra 层</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#c53030"></div>安全相关</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#3182ce"></div>数据模型</div>
+    <div class="legend-item">&#8595; 向下依赖</div>
+  </div>
+</div>
+</body>
+</html>

@@ -27,7 +27,7 @@
 | P1 | 所有 GDAL 命令必须通过 Jinja2 模板渲染生成，严禁动态字符串拼接 |
 | P2 | 向用户完整展示脚本内容，获得明确确认后才执行 |
 | P3 | 输出文件默认加时间戳防覆盖 |
-| CODE-1 | 所有 GDAL 命令字符串必须通过 `src/templates/` 下的 Jinja2 模板渲染 |
+| CODE-1 | 所有 GDAL 命令字符串必须通过 `data/templates/` 下的 Jinja2 模板渲染 |
 | CODE-6 | 模板文件 (*.j2) 中的参数必须做转义处理 |
 | SEC-5 | 模板渲染后的命令字符串必须经安全校验层二次检查后方可提交执行 |
 
@@ -37,19 +37,18 @@
 
 ### DC-0050: 模板文件按功能域子目录组织
 
-**决策**: 模板文件存放于 `SourceCode/src/templates/`，按 `vector/`、`raster/`、`general/` 子目录分类。
+**决策**: 模板文件（*.j2）存放于 `SourceCode/data/templates/`，按 `vector/`、`raster/`、`general/` 子目录分类。Python 源码（engine.py、__init__.py）保留在 `SourceCode/src/templates/`。
 
 **理由**:
 - GDAL 工具天然分为矢量处理（ogr2ogr 等）和栅格处理（gdalwarp 等）
 - 子目录便于模板管理和导航
-- 注册表中 `template_file` 字段使用相对路径（如 `"vector/shp2geojson.j2"`）
+- `.j2` 文件头部用注释声明元数据，模板体使用相对路径（如 `"vector/shp2geojson.j2"`）
 
 **目录结构**:
 ```
-SourceCode/src/templates/
-├── registry.json              # 模板注册表
+SourceCode/data/templates/      # 模板数据（用户可扩展）
 ├── vector/
-│   ├── shp2geojson.j2
+│   ├── shp2geojson.j2          # 注释头自描述：@id, @name, @param
 │   ├── merge_shp.j2
 │   └── shp_reproject.j2
 ├── raster/
@@ -58,6 +57,11 @@ SourceCode/src/templates/
 │   └── clip_raster.j2
 └── general/
     └── info_query.j2
+
+SourceCode/src/templates/       # Python 源码
+├── __init__.py
+├── engine.py                   # TemplateEngine
+└── scanner.py                  # scan_templates(), parse_j2_header()
 ```
 
 ### DC-0051: 参数转义采用"白名单 + shell 转义"双层策略
@@ -191,7 +195,7 @@ class TemplateEngine:
         """初始化 Jinja2 环境。
 
         Args:
-            template_dir: 模板根目录（`SourceCode/src/templates/`）。
+            template_dir: 模板数据根目录（`SourceCode/data/templates/`）。
             workspace: 用于 safe_path 过滤器（解析相对路径为绝对路径）。
         """
 
@@ -442,7 +446,7 @@ REM Done
 
 | 异常类型 | 触发条件 | 处理策略 |
 |---------|---------|---------|
-| `TemplateNotFoundError` | 注册表中的 `template_file` 路径不存在 | 内部错误（注册表与文件系统不一致），记录 ERROR 并提示"模板加载失败" |
+| `TemplateNotFoundError` | 扫描器记录的 `template_file` 路径不存在 | 内部错误（.j2 文件被删除但扫描缓存未更新），记录 ERROR 并提示"模板加载失败" |
 | `RenderError` | 参数缺失、模板语法错误 | 向用户展示具体错误，返回 PARAM_COLLECT 状态 |
 | `SecurityCheckError` | 渲染结果含危险字符 | 记录 ERROR（含原始参数用于审计），向用户展示"脚本生成异常，请检查参数" |
 | `jinja2.TemplateError` | Jinja2 内部错误 | 包装为 RenderError 后向上抛 |
@@ -463,12 +467,12 @@ REM Done
 | 安全校验通过 | 正常命令通过二次校验 |
 | 安全校验拦截 | 注入 `; rm -rf /` 被 SecurityCheckError 拦截 |
 | 平台格式 | Windows 输出含 `@echo off`，Unix 含 shebang |
-| 模板不存在 | 注册表指向缺失文件时抛 TemplateNotFoundError |
+| 模板不存在 | 扫描结果指向缺失文件时抛 TemplateNotFoundError |
 
 ### 7.2 集成测试场景
 
-- 端到端渲染：注册表 → 模板加载 → 参数渲染 → 安全校验 → 输出脚本
-- 所有注册表中的模板均可成功渲染（用 mock 参数冒烟测试）
+- 端到端渲染：扫描器 → 模板加载 → 参数渲染 → 安全校验 → 输出脚本
+- 所有扫描发现的模板均可成功渲染（用 mock 参数冒烟测试）
 
 ### 7.3 Mock 策略
 
@@ -483,10 +487,10 @@ REM Done
 | 需求 ID | 设计决策 | 代码文件/函数 | 说明 |
 |:-------:|:--------:|:-------------:|------|
 | F4 | DC-0050, DC-0054 | `TemplateEngine.render()` | Jinja2 模板渲染生成脚本 |
-| P1 | DC-0050, DC-0053 | 模板注册表 + Jinja2 过滤器 | 模板化命令，禁止字符串拼接 |
+| P1 | DC-0050, DC-0053 | 模板扫描器 + Jinja2 过滤器 | 模板化命令，禁止字符串拼接 |
 | P2 | DC-0054 | `RenderedScript.content` | 完整脚本展示 |
 | P3 | DC-0050 | 模板中使用时间戳路径 | 输出文件防覆盖 |
-| CODE-1 | DC-0050 | 模板目录结构 | 所有命令来自 `src/templates/` |
+| CODE-1 | DC-0050 | 模板目录结构 | 所有命令来自 `data/templates/` |
 | CODE-6 | DC-0051, DC-0053 | `quote_filter`, `safe_path_filter` | 参数转义 |
 | SEC-5 | DC-0052 | `ScriptSecurityChecker.check()` | 渲染后二次校验 |
 | CODE-2 | DC-0053 | `safe_path_filter` | 路径安全校验 |

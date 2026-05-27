@@ -102,7 +102,7 @@ gis-agent/
 | DIR-2 | **SourceCode 下绝不放置设计文档**。README 除外，但 README 仅用于说明如何构建/运行，不承载设计决策。 | 设计文档直接退回，要求迁移至 Document |
 | DIR-3 | **所有 plan 必须位于 Document/ 根目录**，命名格式为 `plan-{模块简称}.md`，如 `plan-rag.md`、`plan-security.md`。 | 不符合命名规范的 plan 视为无效 |
 | DIR-4 | **所有 ADR 必须位于 Document/ 根目录**，命名格式为 `ADR-{NNNN}-{决策简称}.md`，如 `ADR-0001-use-chromadb.md`。 | 不符合命名规范的 ADR 视为无效 |
-| DIR-5 | **Jinja2 模板文件 (*.j2) 必须位于 SourceCode/src/templates/**，按功能子目录组织。 | 散落的模板文件必须归集 |
+| DIR-5 | **Jinja2 模板文件 (*.j2) 必须位于 SourceCode/data/templates/**，按功能子目录组织。 | 散落的模板文件必须归集 |
 
 ---
 
@@ -472,7 +472,7 @@ pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 
 | 原则编号 | 原则名称 | 编码层面的体现 |
 |:----:|---------|--------------|
-| P1 | **模板化命令，杜绝幻觉** | 所有 GDAL 命令字符串必须通过 `src/templates/` 下的 Jinja2 模板渲染，严禁任何动态字符串拼接生成命令 |
+| P1 | **模板化命令，杜绝幻觉** | 所有 GDAL 命令字符串必须通过 `data/templates/` 下的 Jinja2 模板渲染，严禁任何动态字符串拼接生成命令 |
 | P2 | **先展后行** | CLI 层必须在调用执行层前打印完整脚本内容，并获得用户明确确认（Y/N） |
 | P3 | **最小权限** | 默认输出到工作空间内，输出文件加时间戳防覆盖；所有路径经规范化后使用 |
 | P4 | **文档知识只读** | RAG 模块仅读取 `SourceCode/data/` 下的本地文档 chunks，禁止调用外部 API 获取知识 |

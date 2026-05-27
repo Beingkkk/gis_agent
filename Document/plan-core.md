@@ -67,55 +67,32 @@ SCRIPT_PREVIEW ──→ 用户确认 Y/N
    └──→ N ──→ 返回 PARAM_COLLECT（修改参数）
 ```
 
-### DC-0041: 模板注册表采用 JSON 文件 + 运行时加载
+### DC-0041: 模板注册表采用 Jinja2 注释头 + 启动扫描
 
-**决策**: 模板元数据存储在 `SourceCode/src/templates/registry.json`，运行时一次性加载到内存字典。模板体为独立的 `.j2` 文件。
+**决策**: 模板元数据内联在每个 `.j2` 文件的 Jinja2 注释头中。Agent 启动时递归扫描 `SourceCode/data/templates/`，解析注释提取 `id`、`name`、`description` 和 `params`，构建内存注册表。
+
+**注释格式**:
+```jinja2
+{# @id shp2geojson #}
+{# @name Shapefile 转 GeoJSON #}
+{# @description 将 Shapefile 格式转换为 GeoJSON #}
+{# @param input file_path required 输入 Shapefile 路径 #}
+{# @param t_srs crs optional 目标坐标系 default=EPSG:4326 #}
+```
 
 **理由**:
-- JSON 注册表集中管理模板 ID、描述、参数 Schema，意图分类和参数校验都需要读取
-- `.j2` 模板文件独立，便于编辑和语法高亮
-- 运行时加载后只读，无需文件 IO 开销
+- 一个文件 = 模板体 + 元数据，消除 JSON 注册表与 `.j2` 的同步负担
+- 新增模板只需创建单个 `.j2` 文件，无需编辑 JSON
+- Jinja2 注释天然适合承载元数据，不干扰模板渲染
+- 扫描开销低（只读前 50 行），模板数量通常 < 100
 
-**注册表 Schema**:
-```json
-{
-  "templates": [
-    {
-      "id": "shp2geojson",
-      "name": "Shapefile 转 GeoJSON",
-      "description": "将 Shapefile 格式转换为 GeoJSON",
-      "template_file": "vector/shp2geojson.j2",
-      "params": [
-        {
-          "name": "input",
-          "type": "file_path",
-          "required": true,
-          "description": "输入 Shapefile 路径"
-        },
-        {
-          "name": "output",
-          "type": "file_path",
-          "required": true,
-          "description": "输出 GeoJSON 路径"
-        },
-        {
-          "name": "s_srs",
-          "type": "crs",
-          "required": false,
-          "default": null,
-          "description": "源坐标系 EPSG 代码"
-        },
-        {
-          "name": "t_srs",
-          "type": "crs",
-          "required": false,
-          "default": "EPSG:4326",
-          "description": "目标坐标系 EPSG 代码"
-        }
-      ]
-    }
-  ]
-}
+**替代方案**:
+- JSON 注册表（已否决）：文件分离导致维护负担，用户扩展时需同时编辑两个文件
+
+**扫描器 API**:
+```python
+def scan_templates(template_dir: Path) -> List[TemplateDef]:
+    """递归扫描 .j2 文件，解析注释头构建注册表。"""
 ```
 
 ### DC-0042: 参数校验采用"校验器链"模式

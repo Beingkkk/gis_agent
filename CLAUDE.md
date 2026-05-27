@@ -50,7 +50,7 @@ Infra layer             → anthropic SDK, chromadb, jinja2, GDAL CLI
 - External library types must not leak upward through layer boundaries
 
 **Key design patterns**:
-- GDAL commands are rendered via Jinja2 templates in `SourceCode/src/templates/` — **never** string-concatenated
+- GDAL commands are rendered via Jinja2 templates in `SourceCode/data/templates/` — **never** string-concatenated
 - Workspace paths are validated through a security layer (`core/workspace.py`) — **never** `os.path.join` with raw user input
 - LLM calls (`anthropic`) are encapsulated in `llm/` only
 - ChromaDB operations are encapsulated in `rag/` only
@@ -192,7 +192,7 @@ PYTHONPATH=src python scripts/test_e2e_qa.py
 
 Hard constraints from `Document/spec.md`:
 
-- **P1 (Template only)**: GDAL commands must be rendered from Jinja2 templates in `src/templates/` — dynamic string construction is prohibited
+- **P1 (Template only)**: GDAL commands must be rendered from Jinja2 templates in `data/templates/` — dynamic string construction is prohibited
 - **P2 (Show before execute)**: The CLI must display the full script and require explicit `Y/N` confirmation before execution
 - **P3 (Sandbox)**: All file operations are restricted to the configured workspace; output files get timestamps to prevent silent overwrites
 - **P4 (Local docs only)**: RAG retrieves only from local GDAL documentation in `SourceCode/data/` — no web sources

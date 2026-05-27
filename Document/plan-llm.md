@@ -130,6 +130,14 @@ class ParamResult:
 
 
 @dataclass(frozen=True)
+class TemplateInfo:
+    """轻量级模板元数据，用于意图分类。"""
+    id: str
+    name: str
+    description: str
+
+
+@dataclass(frozen=True)
 class Message:
     """对话消息。"""
     role: str                 # "user" | "assistant"
@@ -219,9 +227,16 @@ class PromptBuilder:
 from typing import List, Optional
 
 
+class TemplateInfo(NamedTuple):
+    """轻量级模板元数据，用于意图分类 Prompt。"""
+    id: str
+    name: str
+    description: str
+
+
 def classify_intent(
     user_input: str,
-    available_templates: List[str],
+    available_templates: List[TemplateInfo],
     history: List[Message],
     client: LLMClient,
     builder: PromptBuilder,
@@ -230,7 +245,8 @@ def classify_intent(
 
     Args:
         user_input: 当前用户输入。
-        available_templates: 可用模板 ID 列表（来自模板注册表）。
+        available_templates: 可用模板元数据列表（含 id、name、description），
+            供 LLM Prompt 中的意图分类参考。
         history: 对话历史。
         client: LLM 客户端。
         builder: Prompt 构建器。

@@ -6,7 +6,7 @@ Public API:
     classify_intent — Map user input to template
     extract_params — Extract template parameters from user input
     answer_question — RAG-enhanced document Q&A
-    Message, IntentResult, ParamResult — Data models
+    Message, IntentResult, ParamResult, TemplateInfo — Data models
     LLMError, LLMConnectionError, LLMRateLimitError, LLMContextError,
     LLMAuthError, LLMResponseError — Exceptions
 
@@ -23,7 +23,7 @@ from llm.exceptions import (
     LLMResponseError,
 )
 from llm.intent import classify_intent
-from llm.models import IntentResult, Message, ParamResult
+from llm.models import IntentResult, Message, ParamResult, TemplateInfo
 from llm.params import extract_params
 from llm.prompts import PromptBuilder
 from llm.qa import answer_question
@@ -37,6 +37,7 @@ __all__ = [
     "Message",
     "IntentResult",
     "ParamResult",
+    "TemplateInfo",
     "LLMError",
     "LLMConnectionError",
     "LLMRateLimitError",

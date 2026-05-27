@@ -9,15 +9,24 @@ from typing import List
 
 from llm.client import LLMClient
 from llm.exceptions import LLMResponseError
-from llm.models import IntentResult, Message
+from llm.models import IntentResult, Message, TemplateInfo
 from llm.prompts import PromptBuilder
 
 logger = logging.getLogger(__name__)
 
 
+def _format_templates(templates: List[TemplateInfo]) -> str:
+    """Format template list for LLM prompt."""
+    lines: List[str] = []
+    for t in templates:
+        line = f"- {t.id}: {t.name} — {t.description}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def classify_intent(
     user_input: str,
-    available_templates: List[str],
+    available_templates: List[TemplateInfo],
     history: List[Message],
     client: LLMClient,
     builder: PromptBuilder,
@@ -26,7 +35,7 @@ def classify_intent(
 
     Args:
         user_input: Current user input.
-        available_templates: Available template IDs from template registry.
+        available_templates: Available template metadata (id, name, description).
         history: Conversation history.
         client: LLM client.
         builder: Prompt builder.
@@ -37,11 +46,12 @@ def classify_intent(
     Design:
         F2, P1
     """
-    templates_str = ", ".join(available_templates)
+    templates_str = _format_templates(available_templates)
+    template_ids = [t.id for t in available_templates]
     task_context = (
         f"【意图分类任务】\n"
-        f"可用模板：[{templates_str}]\n"
-        f"请仅从以上模板中选择，禁止选择列表之外的模板。"
+        f"可用模板：\n{templates_str}\n"
+        f"请仅从以上模板中选择（按ID），禁止选择列表之外的模板。"
     )
     system_prompt = builder.build_system_prompt(task_context=task_context)
 
@@ -86,7 +96,7 @@ def classify_intent(
     reasoning = parsed["reasoning"]
 
     # Validate template_id is in available list
-    if template_id and template_id not in available_templates:
+    if template_id and template_id not in template_ids:
         logger.warning(
             "LLM returned unknown template_id '%s', setting confidence=0",
             template_id,

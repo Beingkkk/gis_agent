@@ -129,7 +129,7 @@ Hard constraints from `Document/spec.md`:
 - **P1 (Template only)**: GDAL commands must be rendered from Jinja2 templates in `src/templates/` — dynamic string construction is prohibited
 - **P2 (Show before execute)**: The CLI must display the full script and require explicit `Y/N` confirmation before execution
 - **P3 (Sandbox)**: All file operations are restricted to the configured workspace; output files get timestamps to prevent silent overwrites
-- **P4 (Local docs only)**: RAG retrieves only from local GDAL documentation in `Document/references/` — no web sources
+- **P4 (Local docs only)**: RAG retrieves only from local GDAL documentation in `SourceCode/data/` — no web sources
 - **P5 (Minimal deps)**: Production dependencies are locked to `anthropic`, `chromadb`, `jinja2`
 
 ## Important Files
@@ -142,7 +142,7 @@ Hard constraints from `Document/spec.md`:
 | `SourceCode/config/config.json` | LLM configuration (base_url, auth_key, model_name) |
 | `SourceCode/model/download_embedding.cmd` | Windows script to download the `paraphrase-multilingual-MiniLM-L12-v2` embedding model into `SourceCode/model/` |
 | `SourceCode/src/templates/` | Jinja2 templates for GDAL command generation (to be created during implementation) |
-| `Document/references/` | Local GDAL documentation for RAG (to be populated) |
+| `SourceCode/data/` | Preprocessed GDAL documentation chunks (JSON) for RAG |
 
 ## When Working on This Repo
 

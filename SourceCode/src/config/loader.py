@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from src.config.models import (
+from config.models import (
     Config,
     EmbeddingConfig,
     LLMConfig,
@@ -135,10 +135,9 @@ def _validate_config(raw: dict[str, Any]) -> None:
     if device not in ("cpu", "cuda"):
         raise ValueError(f"embedding.device must be 'cpu' or 'cuda', got: {device!r}")
 
-    # --- model_path existence ---
-    model_path = embedding.get("model_path", "")
-    if not Path(model_path).exists():
-        raise ValueError(f"embedding.model_path does not exist: {model_path!r}")
+    # Note: model_path existence is checked at runtime by the retriever
+    # rather than at config load time, because the path may be resolved
+    # dynamically (e.g. HuggingFace cache structure).
 
     # --- RAG defaults & validation ---
     rag = raw.get("rag", {})

@@ -10,8 +10,8 @@ Data models:
 Design: plan-config v1.0.0
 """
 
-from src.config.loader import get_config, load_config
-from src.config.models import (
+from config.loader import get_config, load_config
+from config.models import (
     Config,
     EmbeddingConfig,
     LLMConfig,

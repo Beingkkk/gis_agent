@@ -88,7 +88,7 @@
 
 ### DC-0025: JSON Chunks 文件作为提交资源
 
-**决策**: 预处理后的文档 chunks 以 JSON 文件形式存放在 `Document/references/`，纳入 Git 跟踪。
+**决策**: 预处理后的文档 chunks 以 JSON 文件形式存放在 `SourceCode/data/`，纳入 Git 跟踪。
 
 **理由**:
 - 文本文件可 diff、可 review
@@ -206,7 +206,7 @@ def get_retriever() -> DocumentRetriever:
 
 def preprocess_html(
     source_dir: Path,      # Document/Resource/gdal/build/doc/build/html/
-    output_path: Path,      # Document/references/gdal-docs-chunks.json
+    output_path: Path,      # SourceCode/data/gdal-docs-chunks.json
     include_patterns: List[str],  # ["programs/*.html", "drivers/**/*.html"]
     exclude_patterns: List[str],  # ["api/**", "_*/**"]
 ) -> None:
@@ -238,7 +238,7 @@ def preprocess_html(
     │
     ├──→ 初始化 ChromaDB PersistentClient（~/.cache/gis-agent/chroma/）
     │
-    ├──→ 计算 Document/references/gdal-docs-chunks.json 的 hash
+    ├──→ 计算 SourceCode/data/gdal-docs-chunks.json 的 hash
     │
     ├──→ 与缓存中记录的 hash 对比
     │       │
@@ -292,7 +292,7 @@ DocumentRetriever.search("ogr2ogr 怎么转成 GeoJSON？")
     │
     ├──→ 生成 chunk ID：{文件名}-{序号}
     │
-    └──→ 输出为 JSON 到 Document/references/gdal-docs-chunks.json
+    └──→ 输出为 JSON 到 SourceCode/data/gdal-docs-chunks.json
 ```
 
 ---
@@ -378,8 +378,39 @@ DocumentRetriever.search("ogr2ogr 怎么转成 GeoJSON？")
 
 ---
 
+## 9. 实现顺序
+
+本模块采用**先预处理后 RAG**的串行实现策略：
+
+### Phase 1: 预处理脚本（先行）
+
+| 步骤 | 任务 | 输出 | 说明 |
+|------|------|------|------|
+| 1 | 创建 `SourceCode/src/rag/preprocess.py` 单元测试 | `tests/unit/test_preprocess.py` | TDD：先写测试，验证 HTML 解析、标题切分、长度限制等 |
+| 2 | 实现 HTML 解析与 chunk 生成逻辑 | `SourceCode/src/rag/preprocess.py` | 核心库函数，使用 `html.parser`，可被 pytest 导入测试 |
+| 3 | 实现 CLI 入口脚本 | `scripts/preprocess_docs.py` | 调用 `preprocess.py`，不进入运行时 |
+| 4 | 运行脚本生成 JSON | `SourceCode/data/gdal-docs-chunks.json` | 纳入 Git 跟踪的文本资源 |
+| 5 | 质量检查 | — | ruff、mypy、pytest 通过；验证 JSON 结构符合 §3 格式 |
+
+### Phase 2: RAG 检索模块
+
+| 步骤 | 任务 | 输出 | 说明 |
+|------|------|------|------|
+| 6 | 创建 RAG 单元测试 | `tests/unit/test_rag.py` | 使用 Phase 1 生成的 JSON 作为测试 fixture |
+| 7 | 实现 `DocumentRetriever` | `SourceCode/src/rag/retriever.py` | ChromaDB 封装、索引构建、语义检索 |
+| 8 | 实现模块公开 API | `SourceCode/src/rag/__init__.py` | 暴露 `get_retriever()`、`DocumentRetriever` 等 |
+| 9 | 集成验证 | — | 端到端检索测试、缓存命中测试、hash 变更检测 |
+
+**关键约束**：
+- Phase 1 的 JSON chunks 是 Phase 2 的**必要输入**，必须先完成
+- `scripts/preprocess_docs.py` 为开发工具，不列入运行时依赖（P5 仍满足）
+- `SourceCode/src/rag/preprocess.py` 属于 `rag/` 包的一部分，但仅开发时使用；其公开函数不暴露给上层模块
+
+---
+
 ## 附录：变更记录
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.0.1 | 2026-05-27 | 新增 §9 实现顺序，明确"先预处理后 RAG"的串行策略 |
 | v1.0.0 | 2026-05-26 | 初版，定义 HTML 预处理、语义切分、ChromaDB 封装、懒加载策略 |

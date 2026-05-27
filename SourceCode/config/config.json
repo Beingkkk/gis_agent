@@ -1,11 +1,11 @@
 {
   "llm": {
     "base_url": "https://api.kimi.com/coding/",
-    "auth_key": "",
-    "model_name": "claude-sonnet-4-6"
+    "auth_key": "sk-kimi-bM3RSrbx51gAnZ3JEhbaKYMKBTevufGeIdGCLZpeYzMbYB2WkhNCxEGb0V0FOJrN",
+    "model_name": "K2.6"
   },
   "embedding": {
-    "model_path": "SourceCode/model/paraphrase-multilingual-MiniLM-L12-v2",
+    "model_path": "SourceCode/model/embedding",
     "device": "cpu"
   },
   "rag": {

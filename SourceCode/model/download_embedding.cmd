@@ -259,6 +259,54 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:: --- Copy to embedding/ (short path) ---
+echo.
+echo [INFO] Copying model to embedding/ directory ...
+
+python -c "
+import os
+import shutil
+import sys
+
+cache_dir = r'%MODEL_DIR%'
+model_name = '%MODEL_NAME%'
+embedding_dir = os.path.join(cache_dir, 'embedding')
+
+# Find the snapshot directory
+org, name = model_name.split('/', 1) if '/' in model_name else ('sentence-transformers', model_name)
+hf_cache = os.path.join(cache_dir, 'models--%s--%s' % (org.replace('/', '-'), name.replace('/', '-')))
+
+snapshot_dir = None
+snapshots_path = os.path.join(hf_cache, 'snapshots')
+if os.path.isdir(snapshots_path):
+    entries = [e for e in os.listdir(snapshots_path) if os.path.isdir(os.path.join(snapshots_path, e))]
+    if entries:
+        snapshot_dir = os.path.join(snapshots_path, entries[0])
+
+if not snapshot_dir or not os.path.isdir(snapshot_dir):
+    print('ERROR: Could not find downloaded model snapshot.')
+    sys.exit(1)
+
+# Remove old embedding dir if exists
+if os.path.exists(embedding_dir):
+    shutil.rmtree(embedding_dir)
+
+# Copy snapshot contents to embedding/
+shutil.copytree(snapshot_dir, embedding_dir, symlinks=False)
+print('Copied to: %s' % embedding_dir)
+print('Files: %s' % ', '.join(os.listdir(embedding_dir)[:5]) + ' ...')
+"
+
+if errorlevel 1 (
+    echo.
+    echo [WARN] Failed to copy model to embedding/ directory.
+    echo The model is still usable from the HF cache location.
+    echo.
+) else (
+    echo.
+    echo [INFO] Model copied to embedding/ successfully.
+)
+
 :: --- Done ---
 echo.
 echo ============================================
@@ -266,10 +314,11 @@ echo   Download and Verification Complete
 echo ============================================
 echo.
 echo Model: %MODEL_NAME%
-echo Location: %MODEL_DIR%
+echo Cache:  %MODEL_DIR%\models--sentence-transformers--paraphrase-multilingual-MiniLM-L12-v2
+echo Short:  %MODEL_DIR%\embedding
 echo.
 echo You can now use the RAG retrieval module.
-echo The model will be loaded from local path at runtime.
+echo The model will be loaded from the embedding/ path at runtime.
 echo.
 pause
 exit /b 0

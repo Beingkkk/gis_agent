@@ -73,7 +73,7 @@ gis-agent/
 │   ├── plan-*.md           # 模块设计计划（按模块），含设计 + 测试用例
 │   ├── ADR-*.md            # 架构决策记录（Architecture Decision Records）
 │   ├── assets/             # 文档引用的图片、图表等资源
-│   └── references/         # 外部参考资料、GDAL 文档副本等
+│   └── references/         # 外部参考资料（HTML 原始文档等），不纳入 Git
 │
 ├── SourceCode/             # 源码、开发资源
 │   ├── src/                # 源代码目录
@@ -375,7 +375,7 @@ def function_name(param: str, optional: int = 0) -> bool:
 | DEP-1 | CLI 层可依赖 core、llm、rag 层 |
 | DEP-2 | core 层可依赖 llm、rag 层（用于模板渲染和参数校验） |
 | DEP-3 | llm 层仅可依赖 rag 层（用于 RAG 增强问答） |
-| DEP-4 | rag 层不依赖任何上层模块 |
+| DEP-4 | rag 层不依赖任何上层模块，但可依赖 config/（配置基础设施） |
 | DEP-5 | 任何层都可通过接口抽象依赖外部库，但禁止直接暴露外部库类型到上层 |
 
 ### 6.3 设计模式约定
@@ -475,8 +475,8 @@ pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 | P1 | **模板化命令，杜绝幻觉** | 所有 GDAL 命令字符串必须通过 `src/templates/` 下的 Jinja2 模板渲染，严禁任何动态字符串拼接生成命令 |
 | P2 | **先展后行** | CLI 层必须在调用执行层前打印完整脚本内容，并获得用户明确确认（Y/N） |
 | P3 | **最小权限** | `core/workspace.py` 必须实现路径白名单校验，所有文件操作限定在工作空间内 |
-| P4 | **文档知识只读** | RAG 模块仅读取 `Document/references/` 下的本地文档，禁止调用外部 API 获取知识 |
-| P5 | **依赖极简** | `pyproject.toml` 的生产依赖仅限 `anthropic`、`chromadb`、`jinja2` |
+| P4 | **文档知识只读** | RAG 模块仅读取 `SourceCode/data/` 下的本地文档 chunks，禁止调用外部 API 获取知识 |
+| P5 | **依赖极简** | `pyproject.toml` 的生产依赖以 `anthropic`、`chromadb`、`jinja2` 为主；`sentence-transformers` 作为 embedding 模型加载的必要依赖，允许纳入生产依赖 |
 
 ### 9.2 安全编码红线
 

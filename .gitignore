@@ -234,3 +234,6 @@ CLAUDE.local.md
 SourceCode/model/**
 !SourceCode/model/download_embedding.cmd
 !SourceCode/model/README.md
+
+# Config file with sensitive credentials (use config.json.template as reference)
+SourceCode/config/config.json

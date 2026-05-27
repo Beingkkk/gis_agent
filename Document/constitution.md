@@ -276,7 +276,7 @@ gis-agent/
 | 规则编号 | 规范内容 | 说明 |
 |:--------:|---------|------|
 | CODE-1 | **所有 GDAL 命令必须通过 Jinja2 模板渲染生成** | 严禁在代码中拼接 GDAL CLI 字符串，参见 spec.md P1 |
-| CODE-2 | **所有文件路径操作必须经过安全校验层** | 调用 `workspace.resolve_path()` 或等效函数，禁止直接使用 `os.path.join` 处理用户输入路径 |
+| CODE-2 | **所有文件路径操作必须经过规范化层** | 调用 `workspace.resolve_path()` 或等效函数进行路径规范化，禁止直接使用 `os.path.join` 处理用户输入路径 |
 | CODE-3 | **所有 LLM 调用必须封装在 `llm/` 模块内** | 其他模块禁止直接调用 `anthropic` 客户端 |
 | CODE-4 | **所有 ChromaDB 操作必须封装在 `rag/` 模块内** | 其他模块禁止直接操作向量数据库 |
 | CODE-5 | **异常不得静默吞没** | 所有 `except` 块必须至少记录日志或向上转换异常 |
@@ -474,7 +474,7 @@ pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 |:----:|---------|--------------|
 | P1 | **模板化命令，杜绝幻觉** | 所有 GDAL 命令字符串必须通过 `src/templates/` 下的 Jinja2 模板渲染，严禁任何动态字符串拼接生成命令 |
 | P2 | **先展后行** | CLI 层必须在调用执行层前打印完整脚本内容，并获得用户明确确认（Y/N） |
-| P3 | **最小权限** | `core/workspace.py` 必须实现路径白名单校验，所有文件操作限定在工作空间内 |
+| P3 | **最小权限** | 默认输出到工作空间内，输出文件加时间戳防覆盖；所有路径经规范化后使用 |
 | P4 | **文档知识只读** | RAG 模块仅读取 `SourceCode/data/` 下的本地文档 chunks，禁止调用外部 API 获取知识 |
 | P5 | **依赖极简** | `pyproject.toml` 的生产依赖以 `anthropic`、`chromadb`、`jinja2` 为主；`sentence-transformers` 作为 embedding 模型加载的必要依赖，允许纳入生产依赖 |
 

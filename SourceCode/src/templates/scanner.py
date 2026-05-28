@@ -61,7 +61,7 @@ def scan_templates(template_dir: Path) -> List[TemplateDef]:
     results: List[TemplateDef] = []
     for j2_path in sorted(template_dir.rglob("*.j2")):
         try:
-            tdef = parse_j2_header(j2_path)
+            tdef = parse_j2_header(j2_path, template_dir)
         except ValueError as exc:
             logger.warning("Skipping %s: %s", j2_path, exc)
             continue
@@ -69,7 +69,10 @@ def scan_templates(template_dir: Path) -> List[TemplateDef]:
     return sorted(results, key=lambda t: t.id)
 
 
-def parse_j2_header(j2_path: Path) -> TemplateDef:
+def parse_j2_header(
+    j2_path: Path,
+    template_dir: Path | None = None,
+) -> TemplateDef:
     """Parse the comment header of a single ``.j2`` file.
 
     Reads only the first 50 lines to avoid loading large templates into
@@ -77,6 +80,10 @@ def parse_j2_header(j2_path: Path) -> TemplateDef:
 
     Args:
         j2_path: Path to the ``.j2`` file.
+        template_dir: Root directory of the template tree. When provided,
+            ``template_file`` is stored as a path relative to this root
+            (e.g. ``"vector/shp2geojson.j2"``). When omitted, only the
+            file name is stored.
 
     Returns:
         ``TemplateDef`` built from the header comments.
@@ -100,10 +107,12 @@ def parse_j2_header(j2_path: Path) -> TemplateDef:
     if not template_id:
         raise ValueError(f"Missing @id in {j2_path}")
 
-    # template_file is the relative path from template_dir root.
-    # We don't know the root here, so we store the file name and let the
-    # caller resolve relative to their root if needed.
-    template_file = str(j2_path.name)
+    # Store relative path when template_dir is known (scanning), otherwise
+    # fall back to the file name for backwards compatibility.
+    if template_dir is not None:
+        template_file = str(j2_path.relative_to(template_dir).as_posix())
+    else:
+        template_file = str(j2_path.name)
 
     name = data.get("name", template_id)
     description = data.get("description", "")

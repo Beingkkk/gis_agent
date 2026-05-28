@@ -147,6 +147,10 @@ def test_scan_multiple_files(template_dir: Path) -> None:
     ids = [t.id for t in results]
     assert ids == ["alpha", "beta", "charlie"]
 
+    # Sub-directory templates store relative path
+    charlie = next(t for t in results if t.id == "charlie")
+    assert charlie.template_file == "vector/c.j2"
+
 
 def test_scan_skips_bad_files(template_dir: Path, caplog) -> None:
     """Files without @id are skipped with a warning."""

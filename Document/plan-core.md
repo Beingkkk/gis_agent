@@ -190,14 +190,17 @@ class Session:
     def with_state(self, state: SessionState) -> "Session":
         """返回状态变更后的新 Session。"""
 
-    def with_template(self, template: TemplateDef) -> "Session":
-        """返回选定模板后的新 Session。"""
+    def with_template(self, template: Optional[TemplateDef]) -> "Session":
+        """返回选定模板后的新 Session（传 None 表示清空模板）。"""
 
     def with_param(self, name: str, value: str) -> "Session":
         """返回添加参数后的新 Session。"""
 
     def with_history(self, message: Message) -> "Session":
         """返回追加消息后的新 Session。"""
+
+    def with_candidates(self, candidates: List[TemplateDef]) -> "Session":
+        """返回更新澄清候选项后的新 Session。"""
 ```
 
 ### 3.2 模板注册表
@@ -206,18 +209,17 @@ class Session:
 class TemplateRegistry:
     """模板注册表。
 
-    运行时从 JSON 文件加载，提供模板查询和参数 Schema 访问。
-    进程内单例。
+    接收 ``templates.scanner.scan_templates()`` 的扫描结果构建，提供模板查询和参数 Schema 访问。进程内单例。
 
     Design:
         DC-0041
     """
 
-    def __init__(self, registry_path: Optional[Path] = None) -> None:
-        """加载注册表。
+    def __init__(self, templates: List[TemplateDef]) -> None:
+        """从扫描结果构建注册表。
 
         Args:
-            registry_path: registry.json 路径。默认使用包内路径。
+            templates: 扫描得到的 TemplateDef 列表（由 ``scan_templates`` 产出）。
         """
 
     def get_template(self, template_id: str) -> Optional[TemplateDef]:
@@ -255,7 +257,8 @@ class ParamValidator:
 
     def __init__(self, workspace: Workspace) -> None:
         """Args:
-            workspace: 用于 file_path 类型的路径安全校验。
+            workspace: 用于 file_path 类型的路径存在性校验（must_exist）。
+                Workspace v2.0 是记忆锚点，不是安全边界；绝对路径直接放行。
         """
 
     def validate(self, param_def: ParamDef, value: str) -> ValidationResult:
@@ -367,10 +370,13 @@ def _handle_script_preview(
     session: Session,
     user_input: str,
 ) -> tuple[Session, str]:
-    """脚本展示状态：等待用户 Y/N 确认。
+    """脚本展示状态：生成脚本展示文本。
 
-    - Y → EXECUTING（由 CLI 层处理实际执行）
-    - N → PARAM_COLLECT，提示修改哪些参数
+    本方法**不处理** Y/N 确认交互（由 CLI 层的 REPL 负责）。
+    仅负责调用模板引擎渲染脚本，并返回展示文本。
+
+    - 渲染成功 → 返回 (SCRIPT_PREVIEW, script_text)
+    - 渲染失败 → 返回 (PARAM_COLLECT, 错误提示)
     """
 
 
@@ -490,19 +496,19 @@ _process_intent_confirm()
 ```
 [PARAM_COLLECT]
   │
-  │ 用户："input: /etc/passwd"
+  │ 用户："input: /data/roads.shp"
   ▼
 _process_param_collect()
   │
-  ├──→ extract_params() → {input: "/etc/passwd"}
+  ├──→ extract_params() → {input: "/data/roads.shp"}
   │
-  ├──→ ParamValidator.validate(input="/etc/passwd")
-  │       └── Workspace.resolve_path("/etc/passwd", must_exist=True)
-  │           └── PathEscapeError → 返回错误"路径超出工作空间范围"
+  ├──→ ParamValidator.validate(input="/data/roads.shp")
+  │       └── Workspace.resolve_path("/data/roads.shp", must_exist=True)
+  │           └── PathNotFoundError → 返回错误"文件不存在"
   │
   └──→ 返回 (PARAM_COLLECT,
-              "参数 'input' 校验失败：路径超出工作空间范围。"
-              "请输入工作空间内的文件路径。")
+              "参数 'input' 校验失败：路径不存在。"
+              "请检查文件名是否正确。")
 ```
 
 ---
@@ -516,7 +522,7 @@ _process_param_collect()
 | `llm` | `classify_intent()` | 意图分类 |
 | `llm` | `extract_params()` | 参数抽取 |
 | `llm` | `LLMClient`, `PromptBuilder` | 传参给 classify/extract |
-| `workspace` | `Workspace` | file_path 参数安全校验 |
+| `workspace` | `Workspace` | file_path 参数存在性校验（must_exist） |
 | `config` | `get_config()` | 读取意图置信度阈值等配置 |
 
 ### 5.2 向下暴露
@@ -537,8 +543,7 @@ _process_param_collect()
 |---------|---------|---------|
 | `ValueError` | Session.state 为无效值 | 内部逻辑错误，打印堆栈后返回 IDLE |
 | `KeyError` | 模板注册表中 template_id 不存在 | 视为意图分类错误，返回 IDLE 并提示 |
-| `PathEscapeError` | 用户参数路径越界 | 参数校验器捕获，转为友好错误消息返回用户 |
-| `PathNotFoundError` | must_exist 文件不存在 | 同上，提示检查文件名 |
+| `PathNotFoundError` | must_exist 文件不存在 | 参数校验器捕获，转为友好错误消息返回用户，提示检查文件名 |
 | `LLMResponseError` | 意图分类/参数抽取返回非预期格式 | 向用户提示"理解失败，请重试"，保持在当前状态 |
 | `LLMConnectionError` | LLM 网络错误 | 向用户提示网络问题，保持在当前状态 |
 
@@ -584,7 +589,7 @@ _process_param_collect()
 | F9 | DC-0040 | 状态机预留扩展 | 多步任务栈（预留） |
 | P1 | DC-0041 | `TemplateRegistry` | 模板化命令映射 |
 | P2 | DC-0040 | SCRIPT_PREVIEW 状态 | 先展后行 |
-| CODE-2 | DC-0042 | `validate_file_path` | 路径安全校验 |
+| CODE-2 | DC-0042 | `validate_file_path` | 路径规范化 + must_exist 校验 |
 | CODE-3 | — | 仅依赖 llm/ 层 | LLM 调用不外泄 |
 
 ---

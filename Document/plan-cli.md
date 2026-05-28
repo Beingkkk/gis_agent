@@ -83,7 +83,7 @@ def repl_loop(session: Session) -> None:
 |------|------|
 | `/quit` 或 `/q` | 退出程序 |
 | `/clear` | 清除会话历史，重置为 IDLE 状态 |
-| `/workspace <path>` | 切换工作空间（需重新初始化） |
+| `/workspace` | 显示当前工作空间路径 |
 | `/templates` | 列出可用模板 |
 | `/status` | 显示当前状态、工作空间、历史轮数 |
 | `/help` | 显示帮助信息 |
@@ -157,9 +157,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     3. 初始化工作空间（workspace.initialize）
     4. 初始化 RAG 检索器（rag.get_retriever）
     5. 初始化 LLM 客户端和 Prompt 构建器
-    6. 加载模板注册表（core.TemplateRegistry）
-    7. 构建 SessionProcessor
-    8. 启动 REPL 循环
+    6. 定位模板目录（由包路径推导 ``{pkg_root}/data/templates/``）
+    7. 扫描模板文件并构建 TemplateRegistry
+    8. 构建 SessionProcessor（含 TemplateRegistry、ParamValidator、LLMClient、PromptBuilder、TemplateEngine）
+    9. 构建 ScriptExecutor（含 workspace）
+   10. 启动 REPL 循环（注入 SessionProcessor + ScriptExecutor）
 
     Args:
         argv: 命令行参数列表。默认为 sys.argv[1:]。
@@ -187,10 +189,16 @@ class REPL:
     def __init__(
         self,
         processor: SessionProcessor,
-        workspace: Workspace,
+        executor: ScriptExecutor,
         dry_run: bool = False,
     ) -> None:
-        """注入依赖。"""
+        """注入依赖。
+
+        Args:
+            processor: 会话状态处理器。
+            executor: 脚本执行器（用于 SCRIPT_PREVIEW 状态的执行/预览）。
+            dry_run: 是否空跑模式。
+        """
 
     def run(self) -> None:
         """启动 REPL 循环，直至用户退出。"""
@@ -322,6 +330,18 @@ get_retriever()  # RAG 初始化（可能触发首次索引构建）
     │
     ├──→ 成功 → 继续
     └──→ 失败（模型缺失）→ 打印错误，退出码 1
+    │
+    ▼
+模板目录定位
+    │
+    ├──→ 包内默认路径：``{pkg_root}/data/templates/``
+    │       （由 ``__file__`` 推导，无需用户配置）
+    │
+    ▼
+扫描模板文件（templates.scanner.scan_templates）
+    │
+    ▼
+构建 TemplateRegistry（扫描结果 + template_dir）
     │
     ▼
 构建 SessionProcessor（注入 TemplateRegistry、ParamValidator、LLMClient、PromptBuilder）
@@ -456,7 +476,7 @@ ScriptExecutor.execute(script)
 | `llm` | `LLMClient`, `PromptBuilder` | LLM 组件初始化 |
 | `core` | `TemplateRegistry`, `ParamValidator`, `SessionProcessor` | 核心组件初始化 |
 | `core` | `Session`, `SessionState` | 会话状态管理 |
-| `templates` | `TemplateEngine`, `RenderedScript` | 脚本渲染（在执行器中使用） |
+| `templates` | `scan_templates`, `TemplateEngine`, `RenderedScript` | 模板扫描与渲染（Registry 和 Processor 使用） |
 
 ### 5.2 向下暴露
 
@@ -493,6 +513,7 @@ CLI 层是顶层，不向下暴露接口给其他模块。
 | REPL 输入处理 | 正常输入传递给 processor |
 | 斜杠命令识别 | `/quit` 被正确分发，不传递给 processor |
 | 斜杠命令 `/clear` | 清除后 session 回到 IDLE，history 为空 |
+| 斜杠命令 `/workspace` | 显示当前工作空间路径 |
 | 斜杠命令未知 | 提示未知命令，继续循环 |
 | Y 确认执行 | 调用 ScriptExecutor.execute() |
 | N 取消执行 | 返回 PARAM_COLLECT 状态 |

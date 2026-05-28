@@ -286,7 +286,7 @@
 <body>
 <div class="container">
   <h1>GIS Agent 技术架构图</h1>
-  <p class="subtitle">分层架构设计 | plan v1.0.0 | 2026-05-26</p>
+  <p class="subtitle">分层架构设计 | plan v1.0.0 + core 落地 | 2026-05-27</p>
 
   <!-- CLI 层 -->
   <div class="layer layer-cli">
@@ -359,7 +359,7 @@
       </div>
       <div class="module">
         <div class="module-name"><span class="icon">&#128451;</span> 模板注册表</div>
-        <div class="module-desc">JSON 注册表运行时加载，模板 ID &rarr; 参数 Schema &rarr; .j2 文件路径映射</div>
+        <div class="module-desc">接收 templates.scanner 扫描结果，内存字典索引，ID &rarr; 参数 Schema &rarr; .j2 路径映射</div>
         <div class="module-meta">
           <span class="tag">DC-0041</span>
           <span class="tag">TemplateRegistry</span>
@@ -367,10 +367,18 @@
       </div>
       <div class="module">
         <div class="module-name"><span class="icon">&#9989;</span> 参数校验链</div>
-        <div class="module-desc">类型转换 &rarr; 格式校验 &rarr; 业务规则 &rarr; 路径安全，可扩展校验器</div>
+        <div class="module-desc">类型转换 &rarr; 格式校验 &rarr; must_exist 存在性检查，workspace 不是安全边界</div>
         <div class="module-meta">
           <span class="tag security">DC-0042</span>
           <span class="tag">ParamValidator</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">&#128193;</span> 工作空间管理</div>
+        <div class="module-desc">路径规范化、Agents.md 加载、输出文件时间戳防覆盖、进程级单例</div>
+        <div class="module-meta">
+          <span class="tag">DC-0010~0014</span>
+          <span class="tag data">Workspace</span>
         </div>
       </div>
     </div>
@@ -538,8 +546,8 @@
         <div class="p-desc">任何脚本必须向用户完整展示内容，获得明确的 Y/N 确认后才可执行。不可跳过确认环节。</div>
       </div>
       <div class="security-item">
-        <div class="p-id">P3 — 工作空间沙箱</div>
-        <div class="p-desc">所有文件操作限制在配置的工作空间内。输出文件自动加时间戳防覆盖。路径通过 resolve()+relative_to() 校验。</div>
+        <div class="p-id">P3 — 最小权限</div>
+        <div class="p-desc">默认输出到工作空间，输出文件自动加时间戳防覆盖。路径经规范化后使用。workspace v2.0 是记忆锚点，不是安全边界。</div>
       </div>
       <div class="security-item">
         <div class="p-id">P4 — 仅本地文档</div>

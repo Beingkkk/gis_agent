@@ -5,7 +5,13 @@ Design: DC-0040, DC-0043
 
 import pytest
 
-from core.models import ParamDef, Session, SessionState, TemplateDef
+from core.models import (
+    ExecutionErrorContext,
+    ParamDef,
+    Session,
+    SessionState,
+    TemplateDef,
+)
 
 # ---------------------------------------------------------------------------
 # SessionState Enum
@@ -13,16 +19,17 @@ from core.models import ParamDef, Session, SessionState, TemplateDef
 
 
 def test_session_state_enum_values() -> None:
-    """SessionState has exactly the 5 defined states."""
+    """SessionState has exactly the 6 defined states."""
     assert SessionState.IDLE.name == "IDLE"
     assert SessionState.INTENT_CONFIRM.name == "INTENT_CONFIRM"
     assert SessionState.PARAM_COLLECT.name == "PARAM_COLLECT"
     assert SessionState.SCRIPT_PREVIEW.name == "SCRIPT_PREVIEW"
     assert SessionState.EXECUTING.name == "EXECUTING"
+    assert SessionState.ERROR_RECOVERY.name == "ERROR_RECOVERY"
 
     # Verify all members are auto-generated unique values
     values = {s.value for s in SessionState}
-    assert len(values) == 5
+    assert len(values) == 6
 
 
 # ---------------------------------------------------------------------------
@@ -168,3 +175,96 @@ def test_with_param_preserves_other_fields() -> None:
     assert new_session.params == {"key": "value"}
     # Original unchanged
     assert original.params == {}
+
+
+# ---------------------------------------------------------------------------
+# error_context, with_error, clear_error
+# ---------------------------------------------------------------------------
+
+
+def test_session_defaults_no_error_context() -> None:
+    """Default Session has no error_context."""
+    session = Session()
+    assert session.error_context is None
+
+
+def test_with_error_attaches_context() -> None:
+    """with_error attaches ExecutionErrorContext to a new Session."""
+    session = Session()
+    ctx = ExecutionErrorContext(
+        returncode=1,
+        stdout="",
+        stderr="error",
+        duration_ms=100,
+    )
+    new_session = session.with_error(ctx)
+
+    assert session.error_context is None
+    assert new_session.error_context == ctx
+    assert new_session is not session
+
+
+def test_clear_error_removes_context() -> None:
+    """clear_error removes error_context while preserving other fields."""
+    template = TemplateDef(
+        id="t1",
+        name="Test",
+        description="D",
+        template_file="t.j2",
+    )
+    ctx = ExecutionErrorContext(
+        returncode=1,
+        stdout="",
+        stderr="error",
+        duration_ms=100,
+    )
+    session = Session(
+        state=SessionState.ERROR_RECOVERY,
+        template=template,
+        params={"input": "a.shp"},
+        error_context=ctx,
+    )
+    new_session = session.clear_error()
+
+    assert new_session.error_context is None
+    assert new_session.state == SessionState.ERROR_RECOVERY
+    assert new_session.template == template
+    assert new_session.params == {"input": "a.shp"}
+    # Original unchanged
+    assert session.error_context == ctx
+
+
+def test_with_error_preserves_other_fields() -> None:
+    """Attaching error_context does not affect other fields."""
+    template = TemplateDef(
+        id="t1",
+        name="Test",
+        description="D",
+        template_file="t.j2",
+    )
+    session = Session(
+        state=SessionState.SCRIPT_PREVIEW,
+        template=template,
+        params={"key": "value"},
+    )
+    ctx = ExecutionErrorContext(
+        returncode=1,
+        stdout="out",
+        stderr="err",
+        duration_ms=50,
+    )
+    new_session = session.with_error(ctx)
+
+    assert new_session.state == SessionState.SCRIPT_PREVIEW
+    assert new_session.template == template
+    assert new_session.params == {"key": "value"}
+    assert new_session.error_context == ctx
+
+
+def test_chained_error_operations() -> None:
+    """with_error and clear_error can be chained."""
+    ctx = ExecutionErrorContext(
+        returncode=1, stdout="", stderr="e", duration_ms=10
+    )
+    session = Session().with_error(ctx).clear_error()
+    assert session.error_context is None

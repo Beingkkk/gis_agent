@@ -86,6 +86,7 @@ def repl_loop(session: Session) -> None:
 | `/workspace` | 显示当前工作空间路径 |
 | `/templates` | 列出可用模板 |
 | `/status` | 显示当前状态、工作空间、历史轮数 |
+| `/init` | 将当前会话的任务意图、模板、参数写入 Agents.md |
 | `/help` | 显示帮助信息 |
 
 ### DC-0063: 脚本执行使用 subprocess，cwd 限定在工作空间
@@ -97,6 +98,11 @@ def repl_loop(session: Session) -> None:
 - `cwd` 参数确保 GDAL 命令在工作空间内执行
 - `timeout` 参数防止长时间挂起
 - 可捕获 stdout/stderr 用于错误诊断（F10）
+
+**执行失败后流程扩展**（DC-0063 扩展）：
+- `ScriptExecutor.execute()` 返回 `ExecutionResult`，`REPL._execute_script()` 检查 `result.success`
+- 失败时：构造 `ExecutionErrorContext`，设置 `session.state = ERROR_RECOVERY`，`session.error_context = ctx`
+- 不直接返回 IDLE，将错误恢复逻辑委托给 `SessionProcessor._handle_error_recovery()`（plan-core DC-0049）
 
 ### DC-0064: dry-run 模式只展示不执行
 
@@ -124,6 +130,37 @@ def repl_loop(session: Session) -> None:
 - 避免误触（如空输入、意外字符）导致意外执行
 - 明确性：用户必须主动输入 `Y` 才能继续
 - 符合 P2 的先展后行原则
+
+### DC-0067: `/init` 命令将会话快照持久化到 Agents.md
+
+**决策**: 提供 `/init` 斜杠命令，将当前 Session 中的任务意图、匹配模板、收集到的参数追加写入工作空间的 `Agents.md`。文件不存在时自动创建。
+
+**理由**:
+- Agents.md 作为项目级长期记忆，当前仅支持手动编写，门槛高
+- 用户在完成一轮有意义的对话后，通过 `/init` 一键固化配置，降低维护成本
+- 追加模式不覆盖已有内容，支持多任务记录
+- 无模板时（IDLE 状态）拒绝写入，避免生成空记录
+
+**写入内容格式**:
+```markdown
+## 任务记录 — 2026-05-28 14:32:15
+
+- **意图**: Shapefile 转 GeoJSON
+- **模板**: shp2geojson
+- **参数**:
+  - input (file_path, 必填): roads.shp — 输入 Shapefile 路径
+  - output (file_path, 必填): roads_out.geojson — 输出 GeoJSON 路径
+  - t_srs (crs, 可选, 默认 EPSG:4326): EPSG:4326 — 目标坐标系
+```
+
+**边界处理**:
+| 场景 | 行为 |
+|------|------|
+| Session 无 template（还在 IDLE/INTENT_CONFIRM） | 提示"当前没有已确认的任务，请先描述需求并完成参数收集" |
+| Agents.md 不存在 | 自动创建，写入文件头 `# GIS Agent 项目配置` + 任务记录 |
+| Agents.md 已存在 | 追加到末尾，不覆盖 |
+| 参数值为空字符串 | 值记为"(未提供)"，但保留参数名和类型 |
+| 写入失败（权限等） | 捕获 OSError，提示具体错误，不抛异常 |
 
 ---
 
@@ -283,6 +320,7 @@ class SlashCommandHandler:
         "workspace": _cmd_workspace,
         "templates": _cmd_templates,
         "status": _cmd_status,
+        "init": _cmd_init,
         "help": _cmd_help,
     }
 
@@ -395,16 +433,24 @@ new_session.state == SCRIPT_PREVIEW？
     └──→ 是 → _handle_execution(new_session)
                 │
                 ├──→ dry_run=True → preview() → 提示"dry-run 跳过执行"
+                │       └──→ session = IDLE → 继续循环
                 │
                 └──→ dry_run=False
                         │
                         ├──→ 打印脚本完整内容
                         ├──→ 循环读取 Y/N
-                        │       ├──→ N → session = PARAM_COLLECT → 提示修改
+                        │       ├──→ N → session = PARAM_COLLECT → 提示修改 → 继续循环
                         │       └──→ Y → ScriptExecutor.execute()
                         │               │
-                        │               ├──→ 成功 → 打印 stdout + stderr（如有）+ 耗时 → session = IDLE
-                        │               └──→ 失败 → 打印返回码 + stderr + stdout（如有）+ 耗时 → session = IDLE
+                        │               ├──→ 成功 → 打印 stdout + stderr（如有）+ 耗时 → session = IDLE → 继续循环
+                        │               │
+                        │               └──→ 失败 → 打印返回码 + stderr + stdout（如有）+ 耗时
+                        │                       │
+                        │                       └──→ session = ERROR_RECOVERY（含 ExecutionErrorContext）
+                        │                               │
+                        │                               └──→ REPL 继续循环
+                        │                                       下一轮 processor.process(session, user_input)
+                        │                                       分发到 _handle_error_recovery()
                         │
                         └──→ session = 新状态 → 继续循环
 ```
@@ -450,13 +496,20 @@ ScriptExecutor.execute(script)
     │
     ├──→ 超时 → subprocess.TimeoutExpired
     │       └── kill 进程 → 提示"执行超时（300秒），已终止"
+    │       └── 返回 ExecutionResult(success=False, returncode=-1, ...)
     │
     ├──→ 非零退出码
     │       └── 打印返回码 + stderr + stdout（如有）+ 耗时
-    │           └── F10 错误诊断（如配置了）
+    │       └── 返回 ExecutionResult(success=False, returncode=1, ...)
+    │           └── REPL._execute_script() 构造 ExecutionErrorContext
+    │                   └── session.state = ERROR_RECOVERY
+    │                   └── session.error_context = ctx
+    │                   └── REPL 继续循环，下一轮由 processor 处理
     │
     └──→ 退出码 0
             └── 打印 stdout + stderr（如有）+ 耗时 → 提示"执行完成"
+            └── 返回 ExecutionResult(success=True, returncode=0, ...)
+            └── REPL._execute_script() → session = IDLE
     │
     ▼
 删除临时脚本文件（或保留用于审计）
@@ -518,18 +571,25 @@ CLI 层是顶层，不向下暴露接口给其他模块。
 | 斜杠命令 `/clear` | 清除后 session 回到 IDLE，history 为空 |
 | 斜杠命令 `/workspace` | 显示当前工作空间路径 |
 | 斜杠命令未知 | 提示未知命令，继续循环 |
+| 斜杠命令 `/init` | 有 template 时追加写入 Agents.md，无 template 时提示拒绝 |
+| 斜杠命令 `/init` 文件不存在 | 自动创建 Agents.md 并写入 |
 | Y 确认执行 | 调用 ScriptExecutor.execute() |
 | N 取消执行 | 返回 PARAM_COLLECT 状态 |
 | 无效确认输入 | 循环要求重新输入，不崩溃 |
 | dry-run 模式 | 只展示不执行，直接返回 IDLE |
 | Ctrl+C 处理 | 不退出，提示使用 /quit |
 | Ctrl+D 处理 | 正常退出 |
+| 执行失败进入 ERROR_RECOVERY | `_execute_script()` 失败时构造 `ExecutionErrorContext`，设置 `ERROR_RECOVERY` 状态 |
+| 错误恢复：确认修正 | ERROR_RECOVERY 状态下用户选"1" → 应用 fixed_params → SCRIPT_PREVIEW |
+| 错误恢复：手动修改 | ERROR_RECOVERY 状态下用户选"2" → PARAM_COLLECT，保留 template + params |
+| 错误恢复：放弃 | ERROR_RECOVERY 状态下用户选"3" → IDLE，清除全部上下文 |
+| 错误恢复：不可自动修复 | `can_auto_fix=False` 时只显示 2 个选项（手动修改/放弃） |
 
 ### 7.2 集成测试场景
 
 - 端到端启动：指定参数 → 初始化各模块 → 进入 REPL
 - 完整对话流：多轮输入 → 参数收集 → 脚本展示 → 执行 → 验证输出文件
-- 错误恢复：执行失败后 → 用户继续输入 → 系统正常响应
+- 错误恢复：执行失败后 → 进入 ERROR_RECOVERY → LLM 诊断 → 用户选择修复路径
 
 ### 7.3 Mock 策略
 
@@ -549,7 +609,8 @@ CLI 层是顶层，不向下暴露接口给其他模块。
 | F6 | DC-0064 | `--dry-run` 参数 + `preview()` | 空跑模式 |
 | F7 | DC-0060 | `--workspace` 参数 | 指定工作空间 |
 | F8 | DC-0061 | REPL 循环 + Session 传递 | 会话内记忆 |
-| F10 | DC-0063 | `ExecutionResult.stderr` | 错误诊断信息 |
+| F10 | DC-0063 扩展 | `REPL._execute_script()` 执行失败流程 | 失败后构造 `ExecutionErrorContext`，进入 `ERROR_RECOVERY` |
+| F11 | DC-0067 | `/init` 命令 | Agents.md 持久化会话配置 |
 | P2 | DC-0066 | SCRIPT_PREVIEW 确认流程 | 先展后行 |
 | P3 | DC-0063 | `cwd=workspace.root` | 最小权限 |
 | W1 | DC-0063 | 脚本写入工作空间 | 输出文件放置位置 |
@@ -563,5 +624,7 @@ CLI 层是顶层，不向下暴露接口给其他模块。
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.0.3 | 2026-05-28 | DC-0063 扩展：执行失败后不再直接返回 IDLE，而是构造 `ExecutionErrorContext` 并进入 `ERROR_RECOVERY` 状态；REPL 主循环和脚本执行流程图更新；测试策略新增错误恢复场景 |
+| v1.0.2 | 2026-05-28 | 新增 `/init` 斜杠命令（DC-0067）：将当前 Session 的任务意图、模板、参数追加写入 Agents.md，支持自动创建文件和边界情况处理 |
 | v1.0.1 | 2026-05-28 | REPL 执行结果输出格式改进：成功/失败均展示 stdout + stderr + 返回码 + 耗时；quote_filter Windows 兼容（双引号）；启动时增加 RAG 加载提示避免卡死感 |
 | v1.0.0 | 2026-05-26 | 初版，定义 CLI 启动流程、REPL 循环、斜杠命令、用户确认、脚本执行沙箱 |

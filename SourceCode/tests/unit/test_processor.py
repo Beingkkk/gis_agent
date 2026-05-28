@@ -8,12 +8,18 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.models import ParamDef, Session, SessionState, TemplateDef
+from core.models import (
+    ExecutionErrorContext,
+    ParamDef,
+    Session,
+    SessionState,
+    TemplateDef,
+)
 from core.processor import SessionProcessor
 from core.registry import TemplateRegistry
 from core.validator import ParamValidator
 from core.workspace import Workspace
-from llm.models import IntentResult, ParamResult
+from llm.models import ErrorDiagnosis, IntentResult, ParamResult
 from templates.engine import Platform, RenderedScript
 
 # ---------------------------------------------------------------------------
@@ -105,6 +111,31 @@ def processor(
 
 
 # ---------------------------------------------------------------------------
+# IDLE state: empty input
+# ---------------------------------------------------------------------------
+
+
+def test_idle_empty_input_returns_hint(processor: SessionProcessor) -> None:
+    """Empty or whitespace-only input stays IDLE with a hint."""
+    session = Session()
+    new_session, response = processor.process(session, "")
+
+    assert new_session.state == SessionState.IDLE
+    assert new_session is session  # no mutation
+    assert "请输入" in response or "help" in response.lower()
+
+
+def test_idle_whitespace_input_returns_hint(processor: SessionProcessor) -> None:
+    """Whitespace-only input stays IDLE with a hint."""
+    session = Session()
+    new_session, response = processor.process(session, "   \n\t  ")
+
+    assert new_session.state == SessionState.IDLE
+    assert new_session is session
+    assert "请输入" in response or "help" in response.lower()
+
+
+# ---------------------------------------------------------------------------
 # IDLE state: high confidence
 # ---------------------------------------------------------------------------
 
@@ -154,7 +185,7 @@ def test_idle_low_confidence_goes_to_intent_confirm(
 
     assert new_session.state == SessionState.INTENT_CONFIRM
     assert len(new_session.candidates) > 0
-    assert "shp2geojson" in response or "clip_raster" in response or "选择" in response
+    assert "Shapefile" in response or "裁剪" in response or "重新描述" in response
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +328,61 @@ def test_intent_confirm_deny_goes_to_idle(
 
     assert new_session.state == SessionState.IDLE
     assert new_session.template is None
+
+
+def test_intent_confirm_template_name_selects(
+    processor: SessionProcessor,
+    registry: TemplateRegistry,
+) -> None:
+    """User types template name directly -> PARAM_COLLECT."""
+    session = Session(
+        state=SessionState.INTENT_CONFIRM,
+        candidates=registry.list_templates(),
+    )
+    new_session, response = processor.process(session, "Shapefile 转 GeoJSON")
+
+    assert new_session.state == SessionState.PARAM_COLLECT
+    assert new_session.template is not None
+    assert new_session.template.id == "shp2geojson"
+
+
+def test_intent_confirm_template_id_selects(
+    processor: SessionProcessor,
+    registry: TemplateRegistry,
+) -> None:
+    """User types template ID directly -> PARAM_COLLECT."""
+    session = Session(
+        state=SessionState.INTENT_CONFIRM,
+        candidates=registry.list_templates(),
+    )
+    new_session, response = processor.process(session, "shp2geojson")
+
+    assert new_session.state == SessionState.PARAM_COLLECT
+    assert new_session.template is not None
+    assert new_session.template.id == "shp2geojson"
+
+
+@patch("core.processor.classify_intent")
+def test_intent_confirm_question_goes_to_idle(
+    mock_classify: MagicMock,
+    processor: SessionProcessor,
+    registry: TemplateRegistry,
+) -> None:
+    """User asks a question in intent confirm -> routed to _handle_idle for re-classification."""
+    mock_classify.return_value = IntentResult(
+        template_id="__qa__",
+        confidence=0.9,
+        reasoning="User is asking a question",
+    )
+
+    session = Session(
+        state=SessionState.INTENT_CONFIRM,
+        candidates=registry.list_templates(),
+    )
+    new_session, response = processor.process(session, "shp如何转kml")
+
+    assert new_session.state == SessionState.IDLE
+    mock_classify.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -502,3 +588,227 @@ def test_build_param_prompt_no_params() -> None:
     prompt = SessionProcessor._build_param_prompt(template)
 
     assert "无需额外参数" in prompt
+
+
+# ---------------------------------------------------------------------------
+# ERROR_RECOVERY state
+# ---------------------------------------------------------------------------
+
+
+@patch("core.processor.analyze_execution_error")
+def test_error_recovery_first_entry_triggers_diagnosis(
+    mock_diagnose: MagicMock,
+    processor: SessionProcessor,
+    registry: TemplateRegistry,
+    mock_template_engine: MagicMock,
+) -> None:
+    """First entry into ERROR_RECOVERY triggers LLM diagnosis and shows options."""
+    mock_diagnose.return_value = ErrorDiagnosis(
+        cause="文件不存在",
+        suggestion="使用绝对路径",
+        fixed_params={"input": "C:\\data\\roads.shp"},
+        confidence=0.85,
+        can_auto_fix=True,
+    )
+    mock_template_engine.render.return_value = RenderedScript(
+        content="ogr2ogr -f GeoJSON out.geojson roads.shp",
+        command_lines=["ogr2ogr -f GeoJSON out.geojson roads.shp"],
+        platform=Platform.WINDOWS,
+        output_path="test.bat",
+    )
+
+    shp_template = registry.get_template("shp2geojson")
+    assert shp_template is not None
+
+    session = Session(
+        state=SessionState.ERROR_RECOVERY,
+        template=shp_template,
+        params={"input": "roads.shp", "output": "out.geojson"},
+        error_context=ExecutionErrorContext(
+            returncode=1,
+            stdout="",
+            stderr="ERROR: Unable to open datasource",
+            duration_ms=100,
+        ),
+    )
+    new_session, response = processor.process(session, "Y")
+
+    assert new_session.state == SessionState.ERROR_RECOVERY
+    assert new_session.error_context is not None
+    assert new_session.error_context.diagnosis is not None
+    assert "文件不存在" in response
+    assert "确认修正" in response
+    assert "手动修改" in response
+    assert "放弃任务" in response
+    mock_diagnose.assert_called_once()
+
+
+@patch("core.processor.analyze_execution_error")
+def test_error_recovery_confirm_auto_fix_goes_to_preview(
+    mock_diagnose: MagicMock,
+    processor: SessionProcessor,
+    registry: TemplateRegistry,
+    mock_template_engine: MagicMock,
+) -> None:
+    """User selects '1' with can_auto_fix=True → SCRIPT_PREVIEW with fixed params."""
+    mock_template_engine.render.return_value = RenderedScript(
+        content='ogr2ogr -f "GeoJSON" out.geojson C:\\data\\roads.shp',
+        command_lines=['ogr2ogr -f "GeoJSON" out.geojson C:\\data\\roads.shp'],
+        platform=Platform.WINDOWS,
+        output_path="test.bat",
+    )
+
+    shp_template = registry.get_template("shp2geojson")
+    assert shp_template is not None
+
+    diagnosis = ErrorDiagnosis(
+        cause="文件不存在",
+        suggestion="使用绝对路径",
+        fixed_params={"input": "C:\\data\\roads.shp"},
+        confidence=0.85,
+        can_auto_fix=True,
+    )
+    session = Session(
+        state=SessionState.ERROR_RECOVERY,
+        template=shp_template,
+        params={"input": "roads.shp", "output": "out.geojson"},
+        error_context=ExecutionErrorContext(
+            returncode=1,
+            stdout="",
+            stderr="ERROR",
+            duration_ms=100,
+            diagnosis=diagnosis,
+        ),
+    )
+    new_session, response = processor.process(session, "1")
+
+    assert new_session.state == SessionState.SCRIPT_PREVIEW
+    assert new_session.error_context is None
+    assert new_session.params["input"] == "C:\\data\\roads.shp"
+    assert "已自动修正参数" in response
+    mock_template_engine.render.assert_called_once()
+
+
+def test_error_recovery_manual_edit_goes_to_param_collect(
+    processor: SessionProcessor,
+    registry: TemplateRegistry,
+) -> None:
+    """User selects '2' → PARAM_COLLECT with error_context cleared."""
+    shp_template = registry.get_template("shp2geojson")
+    assert shp_template is not None
+
+    diagnosis = ErrorDiagnosis(
+        cause="文件不存在",
+        suggestion="检查路径",
+        fixed_params={},
+        confidence=0.5,
+        can_auto_fix=False,
+    )
+    session = Session(
+        state=SessionState.ERROR_RECOVERY,
+        template=shp_template,
+        params={"input": "roads.shp", "output": "out.geojson"},
+        error_context=ExecutionErrorContext(
+            returncode=1,
+            stdout="",
+            stderr="ERROR",
+            duration_ms=100,
+            diagnosis=diagnosis,
+        ),
+    )
+    new_session, response = processor.process(session, "2")
+
+    assert new_session.state == SessionState.PARAM_COLLECT
+    assert new_session.error_context is None
+    assert new_session.template == shp_template
+
+
+def test_error_recovery_abandon_goes_to_idle(
+    processor: SessionProcessor,
+    registry: TemplateRegistry,
+) -> None:
+    """User selects '3' → IDLE with all context cleared."""
+    shp_template = registry.get_template("shp2geojson")
+    assert shp_template is not None
+
+    diagnosis = ErrorDiagnosis(
+        cause="文件不存在",
+        suggestion="检查路径",
+        fixed_params={},
+        confidence=0.5,
+        can_auto_fix=False,
+    )
+    session = Session(
+        state=SessionState.ERROR_RECOVERY,
+        template=shp_template,
+        params={"input": "roads.shp"},
+        candidates=[shp_template],
+        error_context=ExecutionErrorContext(
+            returncode=1,
+            stdout="",
+            stderr="ERROR",
+            duration_ms=100,
+            diagnosis=diagnosis,
+        ),
+    )
+    new_session, response = processor.process(session, "3")
+
+    assert new_session.state == SessionState.IDLE
+    assert new_session.error_context is None
+    assert new_session.template is None
+    assert new_session.params == {}
+    assert new_session.candidates == []
+    assert "已放弃" in response
+
+
+def test_error_recovery_no_error_context_goes_to_idle(
+    processor: SessionProcessor,
+) -> None:
+    """ERROR_RECOVERY without error_context → IDLE with error message."""
+    session = Session(state=SessionState.ERROR_RECOVERY)
+    new_session, response = processor.process(session, "anything")
+
+    assert new_session.state == SessionState.IDLE
+    assert "状态异常" in response
+
+
+def test_error_recovery_unknown_input_treated_as_param_edit(
+    processor: SessionProcessor,
+    registry: TemplateRegistry,
+    mock_template_engine: MagicMock,
+) -> None:
+    """Unknown input in ERROR_RECOVERY → PARAM_COLLECT (parameter modification)."""
+    shp_template = registry.get_template("shp2geojson")
+    assert shp_template is not None
+
+    diagnosis = ErrorDiagnosis(
+        cause="文件不存在",
+        suggestion="检查路径",
+        fixed_params={},
+        confidence=0.5,
+        can_auto_fix=False,
+    )
+    session = Session(
+        state=SessionState.ERROR_RECOVERY,
+        template=shp_template,
+        params={"input": "roads.shp"},
+        error_context=ExecutionErrorContext(
+            returncode=1,
+            stdout="",
+            stderr="ERROR",
+            duration_ms=100,
+            diagnosis=diagnosis,
+        ),
+    )
+
+    with patch("core.processor.extract_params") as mock_extract:
+        mock_extract.return_value = ParamResult(
+            params={"input": "new_roads.shp"},
+            missing=["output"],
+            questions=["请输入输出文件路径"],
+        )
+        new_session, response = processor.process(session, "输入改成 new_roads.shp")
+
+    assert new_session.state == SessionState.PARAM_COLLECT
+    assert new_session.error_context is None
+    mock_extract.assert_called_once()

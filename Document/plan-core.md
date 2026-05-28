@@ -62,7 +62,17 @@ PARAM_COLLECT ──→ 参数完整？
    ▼
 SCRIPT_PREVIEW ──→ 用户确认 Y/N
    │
-   ├──→ Y ──→ EXECUTING ──→ 返回 IDLE
+   ├──→ Y ──→ EXECUTING
+   │             │
+   │             ├──→ 成功 ──→ 返回 IDLE
+   │             │
+   │             └──→ 失败 ──→ ERROR_RECOVERY ──→ 用户选择修复路径
+   │                                                  │
+   │                    ┌──→ 确认修正 ──→ SCRIPT_PREVIEW
+   │                    │
+   │                    ├──→ 手动修改 ──→ PARAM_COLLECT
+   │                    │
+   │                    └──→ 放弃 ──→ IDLE
    │
    └──→ N ──→ 返回 PARAM_COLLECT（修改参数）
 ```
@@ -135,6 +145,55 @@ def scan_templates(template_dir: Path) -> List[TemplateDef]:
 - 给用户选择权，提升可控感
 - 0.7 阈值可根据实际效果调整（放入 Config）
 
+### DC-0045: Agents.md 支持程序追加写入
+
+**决策**: `Workspace` 模块新增 `save_agents_md()` 方法，支持将结构化内容追加写入工作空间的 `Agents.md`。文件不存在时自动创建并写入文件头。
+
+**理由**:
+- `/init` 命令需要程序级写入能力（plan-cli DC-0067）
+- 追加模式保护用户手动编辑的现有内容
+- 文件头统一标识，便于人工阅读和版本管理
+- 写入失败时抛 `WorkspaceError`，由调用方（CLI）转换为友好提示
+
+**边界处理**:
+| 场景 | 行为 |
+|------|------|
+| 文件不存在 | 创建新文件，写入 `# GIS Agent 项目配置\n\n` + 内容 |
+| 文件已存在 | 追加到末尾，前置换行分隔 |
+| 写入失败（权限/磁盘满） | 抛 `WorkspaceError`，不静默吞没 |
+
+### DC-0048: 新增 ERROR_RECOVERY 状态用于执行失败后的上下文保留
+
+**决策**: 在 `SessionState` 中新增 `ERROR_RECOVERY` 状态。脚本执行失败后进入该状态，保留 `template` 和 `params` 上下文，不直接返回 `IDLE`。
+
+**理由**:
+- 执行失败后用户最常见的操作是修改参数重试，返回 IDLE 会丢失全部上下文
+- 保留 template + params 让用户可以直接说"把 input 改成 xxx"而不必重新描述需求
+- 状态机职责统一：错误恢复逻辑由 processor 处理，REPL 只负责驱动执行和切换状态
+
+**与其他状态的区别**:
+| 状态 | 保留 context | 用户输入语义 |
+|------|-------------|-------------|
+| PARAM_COLLECT | template + params | 补充/修改参数 |
+| ERROR_RECOVERY | template + params + error_context | 选择修复路径或修改参数 |
+| IDLE | 无 | 全新需求 |
+
+### DC-0049: 错误恢复由 `_handle_error_recovery` 统一处理
+
+**决策**: `SessionProcessor` 新增 `_handle_error_recovery()` handler，统一处理执行失败后的用户交互：首次进入触发 LLM 诊断，后续进入解析用户选择。
+
+**处理逻辑**:
+1. **首次进入**（`error_context.diagnosis is None`）：调用 `analyze_execution_error()` 获取诊断，生成选项菜单，保持在 `ERROR_RECOVERY`
+2. **用户选"确认修正"**（`can_auto_fix=True` 时）：应用 `fixed_params` → `SCRIPT_PREVIEW`
+3. **用户选"手动修改"**：清除 `error_context` → `PARAM_COLLECT`
+4. **用户选"放弃"**：清除 `error_context` + `template` + `params` → `IDLE`
+5. **用户输入非选项内容**：当作参数修改语句 → `PARAM_COLLECT`
+
+**理由**:
+- 状态机集中管理所有状态流转，REPL 不分散错误恢复逻辑
+- LLM 诊断只需在首次进入时调用一次，结果缓存到 `error_context.diagnosis`
+- 用户输入语义分层：选项选择（1/2/3）vs 自然语言修改语句
+
 ---
 
 ## 3. 接口定义
@@ -147,6 +206,21 @@ from enum import Enum, auto
 from typing import Dict, List, Optional
 
 from llm import Message
+from llm.models import ErrorDiagnosis  # forward ref for type hint
+
+
+@dataclass(frozen=True)
+class ExecutionErrorContext:
+    """执行错误的上下文信息，附加在 Session 上供 ERROR_RECOVERY 使用。
+
+    Design:
+        DC-0048
+    """
+    returncode: int
+    stdout: str
+    stderr: str
+    duration_ms: int
+    diagnosis: Optional[ErrorDiagnosis] = None  # LLM 诊断结果（首次处理后填充）
 
 
 class SessionState(Enum):
@@ -156,6 +230,7 @@ class SessionState(Enum):
     PARAM_COLLECT = auto()     # 参数收集中
     SCRIPT_PREVIEW = auto()    # 脚本展示，等待用户确认
     EXECUTING = auto()         # 脚本执行中
+    ERROR_RECOVERY = auto()    # 执行失败后的恢复状态（DC-0048）
 
 
 @dataclass(frozen=True)
@@ -186,6 +261,7 @@ class Session:
     template: Optional[TemplateDef] = None
     params: Dict[str, str] = field(default_factory=dict)
     candidates: List[TemplateDef] = field(default_factory=list)  # 澄清候选项
+    error_context: Optional[ExecutionErrorContext] = None  # DC-0048
 
     def with_state(self, state: SessionState) -> "Session":
         """返回状态变更后的新 Session。"""
@@ -201,6 +277,12 @@ class Session:
 
     def with_candidates(self, candidates: List[TemplateDef]) -> "Session":
         """返回更新澄清候选项后的新 Session。"""
+
+    def with_error(self, error_context: Optional[ExecutionErrorContext]) -> "Session":
+        """附加/更新错误上下文。"""
+
+    def clear_error(self) -> "Session":
+        """清除错误上下文（恢复成功或放弃任务时）。"""
 ```
 
 ### 3.2 模板注册表
@@ -389,6 +471,29 @@ def _handle_executing(
 
     执行完成后返回 IDLE。
     """
+
+
+def _handle_error_recovery(
+    self,
+    session: Session,
+    user_input: str,
+) -> tuple[Session, str]:
+    """错误恢复状态：LLM 诊断 + 用户选择修复路径。
+
+    首次进入（error_context.diagnosis is None）：
+        - 调用 analyze_execution_error() 获取诊断
+        - 显示诊断结果 + 选项菜单
+        - 保持在 ERROR_RECOVERY
+
+    用户已看到诊断，输入选择：
+        - "1"/"Y"/"确认" + can_auto_fix=True → 应用 fixed_params → SCRIPT_PREVIEW
+        - "2"/"手动"/"修改" → PARAM_COLLECT（保留现有参数，清除 error_context）
+        - "3"/"放弃"/"N" → IDLE（清除 template、params、error_context）
+        - 其他输入 → 当作参数修改 → PARAM_COLLECT（清除 error_context）
+
+    Design:
+        DC-0048, DC-0049
+    """
 ```
 
 ---
@@ -521,6 +626,74 @@ _process_param_collect()
               "请检查文件名是否正确。")
 ```
 
+### 4.4 执行失败后的错误恢复流程
+
+```
+[SCRIPT_PREVIEW]
+  │
+  │ 用户："Y"
+  ▼
+CLI 层执行脚本
+  │
+  └──→ 失败（returncode=1，stderr="Unable to open datasource..."）
+          │
+          ▼
+  Session.with_state(ERROR_RECOVERY)
+  Session.with_error(ExecutionErrorContext)
+          │
+          ▼
+  [ERROR_RECOVERY] 首次进入（user_input="Y"，diagnosis=None）
+          │
+          ▼
+  _handle_error_recovery()
+          │
+          ├──→ analyze_execution_error() → ErrorDiagnosis
+          │       ├── cause: "输入文件不存在"
+          │       ├── suggestion: "请使用绝对路径或确认文件在工作空间内"
+          │       ├── fixed_params: {"input": "C:\\data\\roads.shp"}
+          │       ├── confidence: 0.85
+          │       └── can_auto_fix: True
+          │
+          └──→ 返回 (ERROR_RECOVERY,
+                      "执行失败诊断\n\n"
+                      "原因：输入文件不存在\n"
+                      "建议：请使用绝对路径...\n\n"
+                      "请选择：\n"
+                      "1. 确认修正（重新生成脚本预览）\n"
+                      "2. 手动修改参数\n"
+                      "3. 放弃任务")
+          │
+          ▼
+  用户："1"
+          │
+          ▼
+  _handle_error_recovery()
+          │
+          ├──→ 解析选择 → 确认修正
+          ├──→ 应用 fixed_params → Session.with_param("input", "C:\\data\\roads.shp")
+          └──→ 返回 (SCRIPT_PREVIEW, "脚本内容：...")
+          │
+          ▼
+  [SCRIPT_PREVIEW] → 用户确认 Y → 重新执行
+```
+
+**不可自动修复的场景**（`can_auto_fix=False`）：
+```
+[ERROR_RECOVERY]
+  │
+  └──→ analyze_execution_error() → ErrorDiagnosis
+          ├── cause: "GDAL 版本不支持该驱动"
+          ├── suggestion: "请升级 GDAL 至 3.8+"
+          ├── fixed_params: {}
+          ├── confidence: 0.9
+          └── can_auto_fix: False
+          │
+          └──→ 返回 (ERROR_RECOVERY,
+                      "此错误无法自动修复。请选择：\n"
+                      "1. 手动修改参数后重试\n"
+                      "2. 放弃任务")
+```
+
 ---
 
 ## 5. 依赖关系
@@ -576,6 +749,12 @@ _process_param_collect()
 | 无效状态处理 | 传入未知状态时抛 ValueError |
 | **参数前置提示** | 进入 PARAM_COLLECT 时响应包含参数名称、必填/可选标识、默认值、描述 |
 | **空匹配处理** | LLM 返回空 template_id 时进入 INTENT_CONFIRM，响应包含用户原输入和候选列表 |
+| **Agents.md 追加写入** | `Workspace.save_agents_md()` 文件不存在时自动创建并写入头，存在时追加，失败时抛 WorkspaceError |
+| **错误恢复：首次进入触发诊断** | ERROR_RECOVERY 且 diagnosis=None 时调用 analyze_execution_error，结果显示选项菜单 |
+| **错误恢复：确认修正** | 用户选"1" + can_auto_fix=True → 应用 fixed_params → SCRIPT_PREVIEW |
+| **错误恢复：手动修改** | 用户选"2" → PARAM_COLLECT，error_context 清除，保留 template + params |
+| **错误恢复：放弃** | 用户选"3" → IDLE，清除 error_context + template + params |
+| **错误恢复：不可自动修复** | can_auto_fix=False 时不显示"确认修正"选项，只显示手动修改/放弃 |
 
 ### 7.2 集成测试场景
 
@@ -603,6 +782,8 @@ _process_param_collect()
 | P2 | DC-0040 | SCRIPT_PREVIEW 状态 | 先展后行 |
 | CODE-2 | DC-0042 | `validate_file_path` | 路径规范化 + must_exist 校验 |
 | CODE-3 | — | 仅依赖 llm/ 层 | LLM 调用不外泄 |
+| F11 | DC-0045 | `Workspace.save_agents_md()` | Agents.md 程序级持久化写入 |
+| F10 | DC-0048, DC-0049 | `SessionProcessor._handle_error_recovery()` | 执行失败后保留上下文，LLM 诊断 + 用户选择修复路径 |
 
 ---
 
@@ -610,6 +791,8 @@ _process_param_collect()
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.0.4 | 2026-05-28 | 新增 DC-0048/DC-0049：执行失败后进入 `ERROR_RECOVERY` 状态，保留 template + params 上下文；`_handle_error_recovery()` 统一处理 LLM 诊断和用户选择修复路径；新增 `ExecutionErrorContext` 数据模型 |
+| v1.0.3 | 2026-05-28 | 新增 DC-0045：`Workspace.save_agents_md()` 支持程序追加写入 Agents.md，供 `/init` 斜杠命令使用（plan-cli DC-0067） |
 | v1.0.2 | 2026-05-28 | 空匹配（无精确对应模板）不再直接拒绝，改为进入 INTENT_CONFIRM 展示候选列表，附带友好说明 |
 | v1.0.1 | 2026-05-28 | 进入 PARAM_COLLECT 时增加参数前置提示（参数名、必填/可选、默认值、描述），提升参数收集阶段 UX |
 | v1.0.0 | 2026-05-26 | 初版，定义状态机、模板注册表、参数校验链、会话上下文 |

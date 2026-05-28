@@ -17,7 +17,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 if TYPE_CHECKING:
-    from llm.models import Message
+    from llm.models import ErrorDiagnosis, Message
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +56,21 @@ class TemplateDef:
     params: List[ParamDef] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class ExecutionErrorContext:
+    """执行错误的上下文信息，附加在 Session 上供 ERROR_RECOVERY 使用。
+
+    Design:
+        DC-0048
+    """
+
+    returncode: int
+    stdout: str
+    stderr: str
+    duration_ms: int
+    diagnosis: Optional["ErrorDiagnosis"] = None
+
+
 # ---------------------------------------------------------------------------
 # Session state machine
 # ---------------------------------------------------------------------------
@@ -73,6 +88,7 @@ class SessionState(Enum):
     PARAM_COLLECT = auto()
     SCRIPT_PREVIEW = auto()
     EXECUTING = auto()
+    ERROR_RECOVERY = auto()
 
 
 @dataclass(frozen=True)
@@ -90,6 +106,7 @@ class Session:
     template: Optional[TemplateDef] = None
     params: Dict[str, str] = field(default_factory=dict)
     candidates: List[TemplateDef] = field(default_factory=list)
+    error_context: Optional[ExecutionErrorContext] = None
 
     def with_state(self, state: SessionState) -> "Session":
         """返回状态变更后的新 Session。"""
@@ -99,6 +116,7 @@ class Session:
             template=self.template,
             params=self.params,
             candidates=self.candidates,
+            error_context=self.error_context,
         )
 
     def with_template(self, template: Optional[TemplateDef]) -> "Session":
@@ -109,6 +127,7 @@ class Session:
             template=template,
             params=self.params,
             candidates=self.candidates,
+            error_context=self.error_context,
         )
 
     def with_param(self, name: str, value: str) -> "Session":
@@ -121,6 +140,7 @@ class Session:
             template=self.template,
             params=new_params,
             candidates=self.candidates,
+            error_context=self.error_context,
         )
 
     def with_history(self, message: "Message") -> "Session":
@@ -133,6 +153,7 @@ class Session:
             template=self.template,
             params=self.params,
             candidates=self.candidates,
+            error_context=self.error_context,
         )
 
     def with_candidates(self, candidates: List[TemplateDef]) -> "Session":
@@ -143,4 +164,37 @@ class Session:
             template=self.template,
             params=self.params,
             candidates=list(candidates),
+            error_context=self.error_context,
+        )
+
+    def with_error(
+        self, error_context: Optional[ExecutionErrorContext]
+    ) -> "Session":
+        """附加/更新错误上下文。
+
+        Design:
+            DC-0048
+        """
+        return Session(
+            state=self.state,
+            history=self.history,
+            template=self.template,
+            params=self.params,
+            candidates=self.candidates,
+            error_context=error_context,
+        )
+
+    def clear_error(self) -> "Session":
+        """清除错误上下文（恢复成功或放弃任务时）。
+
+        Design:
+            DC-0048
+        """
+        return Session(
+            state=self.state,
+            history=self.history,
+            template=self.template,
+            params=self.params,
+            candidates=self.candidates,
+            error_context=None,
         )

@@ -14,19 +14,21 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Optional, Tuple
 
-from core.models import Session, SessionState
+from core.models import ExecutionErrorContext, Session, SessionState
 from core.registry import TemplateRegistry
 from core.validator import ParamValidator
 from llm.client import LLMClient
+from llm.diagnosis import analyze_execution_error
 from llm.intent import classify_intent
 from llm.keywords import extract_keywords
-from llm.models import Message, TemplateInfo
+from llm.models import ErrorDiagnosis, Message, TemplateInfo
 from llm.params import extract_params
 from llm.prompts import PromptBuilder
 from llm.qa import answer_question
 from rag.retriever import DocumentRetriever
 
 if TYPE_CHECKING:
+    from core.models import TemplateDef
     from templates.engine import TemplateEngine
 
 logger = logging.getLogger(__name__)
@@ -116,6 +118,7 @@ class SessionProcessor:
             SessionState.INTENT_CONFIRM: self._handle_intent_confirm,
             SessionState.PARAM_COLLECT: self._handle_param_collect,
             SessionState.SCRIPT_PREVIEW: self._handle_script_preview,
+            SessionState.ERROR_RECOVERY: self._handle_error_recovery,
         }
         handler = handlers.get(session.state)
         if handler is None:
@@ -137,6 +140,9 @@ class SessionProcessor:
         - 低置信度（<0.7）→ INTENT_CONFIRM，列出候选模板让用户选择
         - 无匹配 → 保持在 IDLE，提示无法识别
         """
+        if not user_input.strip():
+            return (session, "请输入您的需求，或输入 /help 查看可用命令。")
+
         available = self._registry.list_templates()
         template_infos = [
             TemplateInfo(id=t.id, name=t.name, description=t.description)
@@ -179,34 +185,37 @@ class SessionProcessor:
 
         # QA route: user is asking a question about GDAL/tools/formats
         if result.template_id == "__qa__":
-            if self._retriever is None:
-                return (session, "文档问答服务暂不可用，请稍后再试。")
-            try:
-                # Keyword extraction → multi-query retrieval → synthesis
-                keywords = extract_keywords(
-                    user_input=user_input,
-                    history=session.history,
-                    client=self._llm_client,
-                    builder=self._prompt_builder,
-                )
-                docs = self._retriever.search_multi(keywords, top_k_per_query=2)
-                answer = answer_question(
-                    user_input=user_input,
-                    retrieved_docs=docs,
-                    history=session.history,
-                    client=self._llm_client,
-                    builder=self._prompt_builder,
-                )
-                new_session = session.with_history(
-                    Message(role="user", content=user_input)
-                )
-                new_session = new_session.with_history(
-                    Message(role="assistant", content=answer)
-                )
-                return (new_session, answer)
-            except Exception as exc:
-                logger.error("Q&A failed: %s", exc)
-                return (session, f"文档问答失败：{exc}")
+            # Require minimum confidence to avoid false-positive QA routing
+            if result.confidence >= 0.3:
+                if self._retriever is None:
+                    return (session, "文档问答服务暂不可用，请稍后再试。")
+                try:
+                    # Keyword extraction → multi-query retrieval → synthesis
+                    keywords = extract_keywords(
+                        user_input=user_input,
+                        history=session.history,
+                        client=self._llm_client,
+                        builder=self._prompt_builder,
+                    )
+                    docs = self._retriever.search_multi(keywords, top_k_per_query=2)
+                    answer = answer_question(
+                        user_input=user_input,
+                        retrieved_docs=docs,
+                        history=session.history,
+                        client=self._llm_client,
+                        builder=self._prompt_builder,
+                    )
+                    new_session = session.with_history(
+                        Message(role="user", content=user_input)
+                    )
+                    new_session = new_session.with_history(
+                        Message(role="assistant", content=answer)
+                    )
+                    return (new_session, answer)
+                except Exception as exc:
+                    logger.error("Q&A failed: %s", exc)
+                    return (session, f"文档问答失败：{exc}")
+            # confidence < 0.3 → fall through to low-confidence handling below
 
         if result.confidence < self._CONFIDENCE_THRESHOLD:
             # Low confidence → ask user to confirm from candidates
@@ -240,6 +249,20 @@ class SessionProcessor:
             self._build_param_prompt(template),
         )
 
+    # Keywords that indicate a user is asking a question, not selecting a task
+    _QUESTION_KEYWORDS = (
+        "如何", "怎么", "怎样", "什么", "为什么", "介绍", "说明", "解释",
+        "哪些", "哪个", "谁", "什么时候", "哪里", "多少", "是否", "吗",
+        "what", "how", "why", "explain", "describe", "which",
+        "when", "where", "who", "介绍一下", "是什么", "什么意思", "怎么样",
+    )
+
+    # Keywords that indicate explicit denial
+    _DENY_KEYWORDS = (
+        "不", "否", "none", "no", "算了", "不要", "不用", "没", "没有",
+        "都不是", "不对", "不对了", "不用了", "不要了",
+    )
+
     def _handle_intent_confirm(
         self,
         session: Session,
@@ -247,15 +270,16 @@ class SessionProcessor:
     ) -> Tuple[Session, str]:
         """意图确认状态：用户从候选中选择或否认。
 
-        - 用户选择模板 → PARAM_COLLECT
+        - 用户选择模板（数字序号 / 名称 / ID）→ PARAM_COLLECT
+        - 用户提问 → 回到 IDLE，将输入交给 Q&A 处理
         - 用户否认 → IDLE，提示重新描述需求
         """
         user_lower = user_input.strip().lower()
+        candidates = session.candidates or self._registry.list_templates()
 
-        # Check if user selected a number
+        # 1. Check if user selected a number
         if user_lower.isdigit():
             idx = int(user_lower) - 1
-            candidates = session.candidates or self._registry.list_templates()
             if 0 <= idx < len(candidates):
                 selected = candidates[idx]
                 new_session = (
@@ -269,13 +293,47 @@ class SessionProcessor:
                     self._build_param_prompt(selected),
                 )
 
-        # User denied or invalid selection → back to IDLE
-        return (
+        # 2. Check if user typed a template name or ID directly
+        for candidate in candidates:
+            if user_lower == candidate.id.lower() or user_lower == candidate.name.lower():
+                new_session = (
+                    session.with_state(SessionState.PARAM_COLLECT)
+                    .with_template(candidate)
+                    .with_candidates([])
+                    .with_history(Message(role="user", content=user_input))
+                )
+                return (
+                    new_session,
+                    self._build_param_prompt(candidate),
+                )
+
+        # 3. Check if user is asking a question → route back to IDLE for re-classification
+        if any(kw in user_lower for kw in self._QUESTION_KEYWORDS):
+            return self._handle_idle(
+                session.with_state(SessionState.IDLE)
+                .with_template(None)
+                .with_candidates([])
+                .with_history(Message(role="user", content=user_input)),
+                user_input,
+            )
+
+        # 4. Explicit denial → back to IDLE with hint
+        if any(kw in user_lower for kw in self._DENY_KEYWORDS):
+            return (
+                session.with_state(SessionState.IDLE)
+                .with_template(None)
+                .with_candidates([])
+                .with_history(Message(role="user", content=user_input)),
+                "好的，请重新描述您的需求。",
+            )
+
+        # 5. Unknown input → treat as new intent, re-classify via _handle_idle
+        return self._handle_idle(
             session.with_state(SessionState.IDLE)
             .with_template(None)
             .with_candidates([])
             .with_history(Message(role="user", content=user_input)),
-            "好的，请重新描述您的需求。",
+            user_input,
         )
 
     def _handle_param_collect(
@@ -359,8 +417,7 @@ class SessionProcessor:
             f"脚本预览：\n"
             f"───────────────────────────────\n"
             f"{script_text}\n"
-            f"───────────────────────────────\n"
-            f"\n确认执行？(Y/N)："
+            f"───────────────────────────────"
         )
 
         new_session = session.with_state(SessionState.SCRIPT_PREVIEW).with_history(
@@ -405,7 +462,225 @@ class SessionProcessor:
             f"脚本预览：\n"
             f"───────────────────────────────\n"
             f"{script_text}\n"
-            f"───────────────────────────────\n"
-            f"\n确认执行？(Y/N)："
+            f"───────────────────────────────"
         )
         return (session, response)
+
+    def _build_diagnosis_context(self, session: Session) -> str:
+        """Build diagnosis context string for LLM error analysis.
+
+        Includes template info, param definitions, current values,
+        and rendered script content.
+
+        Design:
+            DC-0049
+        """
+        template = session.template
+        if template is None:
+            return "模板信息不可用。"
+
+        param_lines: list[str] = []
+        for p in template.params:
+            tag = "必填" if p.required else "可选"
+            if p.default is not None:
+                tag += f"，默认 {p.default}"
+            param_lines.append(f"  • {p.name}（{tag}，类型 {p.type}）：{p.description}")
+
+        current_lines: list[str] = []
+        for name, value in session.params.items():
+            current_lines.append(f"    {name} = {value}")
+
+        try:
+            rendered = self._template_engine.render(
+                template, session.params, platform=None
+            )
+            script_content = rendered.content.strip()
+        except Exception:
+            script_content = "（脚本渲染失败）"
+
+        return (
+            f"【模板信息】\n"
+            f"名称：{template.name}\n"
+            f"描述：{template.description}\n\n"
+            f"【参数定义】\n"
+            + "\n".join(param_lines)
+            + "\n\n"
+            + "【当前参数值】\n"
+            + "\n".join(current_lines)
+            + "\n\n"
+            + "【渲染后脚本】\n"
+            + script_content
+            + "\n"
+        )
+
+    def _build_recovery_response(
+        self, diagnosis: ErrorDiagnosis, current_params: dict[str, str]
+    ) -> str:
+        """Build user-facing recovery response with diagnosis + options.
+
+        Design:
+            DC-0049
+        """
+        lines: list[str] = [
+            "───────────────────────────────",
+            "执行失败诊断",
+            "",
+            f"原因：{diagnosis.cause}",
+            f"建议：{diagnosis.suggestion}",
+            "",
+        ]
+
+        if diagnosis.fixed_params:
+            lines.append("修正后参数预览：")
+            # Show all params, with fixed ones highlighted
+            for name, value in current_params.items():
+                marker = " → " + diagnosis.fixed_params[name] if name in diagnosis.fixed_params else ""
+                lines.append(f"  {name}: {value}{marker}")
+            for name, value in diagnosis.fixed_params.items():
+                if name not in current_params:
+                    lines.append(f"  {name}: (新增) {value}")
+            lines.append("")
+
+        lines.append("请选择：")
+        if diagnosis.can_auto_fix:
+            lines.append("1. 确认修正（重新生成脚本预览）")
+        lines.append("2. 手动修改参数")
+        lines.append("3. 放弃任务")
+        lines.append("───────────────────────────────")
+
+        return "\n".join(lines)
+
+    def _handle_error_recovery(
+        self,
+        session: Session,
+        user_input: str,
+    ) -> Tuple[Session, str]:
+        """错误恢复状态：LLM 诊断 + 用户选择修复路径。
+
+        首次进入（error_context.diagnosis is None）：
+            - 调用 analyze_execution_error() 获取诊断
+            - 显示诊断结果 + 选项菜单
+            - 保持在 ERROR_RECOVERY
+
+        用户已看到诊断，输入选择：
+            - "1"/"Y"/"确认"/"是" + can_auto_fix=True → 应用 fixed_params → SCRIPT_PREVIEW
+            - "2"/"手动"/"修改" → PARAM_COLLECT（保留现有参数，清除 error_context）
+            - "3"/"放弃"/"N"/"否"/"算了" → IDLE（清除 template、params、error_context）
+            - 其他输入 → 当作参数修改 → PARAM_COLLECT（清除 error_context）
+
+        Design:
+            DC-0048, DC-0049
+        """
+        error_ctx = session.error_context
+        if error_ctx is None:
+            logger.error("ERROR_RECOVERY state with no error_context set")
+            return (
+                session.with_state(SessionState.IDLE),
+                "会话状态异常，请重新开始。",
+            )
+
+        # First entry: diagnosis not yet performed
+        if error_ctx.diagnosis is None:
+            diagnosis_context = self._build_diagnosis_context(session)
+            try:
+                diagnosis = analyze_execution_error(
+                    returncode=error_ctx.returncode,
+                    stdout=error_ctx.stdout,
+                    stderr=error_ctx.stderr,
+                    diagnosis_context=diagnosis_context,
+                    history=session.history,
+                    client=self._llm_client,
+                    builder=self._prompt_builder,
+                )
+            except Exception as exc:
+                logger.error("LLM diagnosis failed: %s", exc)
+                diagnosis = ErrorDiagnosis(
+                    cause="诊断失败，无法自动分析错误原因。",
+                    suggestion="请检查上方错误输出，或尝试手动修改参数后重试。",
+                    fixed_params={},
+                    confidence=0.0,
+                    can_auto_fix=False,
+                )
+
+            new_error_ctx = ExecutionErrorContext(
+                returncode=error_ctx.returncode,
+                stdout=error_ctx.stdout,
+                stderr=error_ctx.stderr,
+                duration_ms=error_ctx.duration_ms,
+                diagnosis=diagnosis,
+            )
+            new_session = session.with_error(new_error_ctx)
+            response = self._build_recovery_response(diagnosis, session.params)
+            return (new_session, response)
+
+        # User has seen diagnosis, parse their choice
+        diagnosis = error_ctx.diagnosis
+        user_lower = user_input.strip().lower()
+
+        # Option 1: Confirm auto-fix
+        if (
+            user_lower in ("1", "y", "确认", "是", "yes")
+            and diagnosis.can_auto_fix
+        ):
+            new_session = (
+                session.clear_error()
+                .with_state(SessionState.SCRIPT_PREVIEW)
+                .with_history(Message(role="user", content=user_input))
+            )
+            for name, value in diagnosis.fixed_params.items():
+                new_session = new_session.with_param(name, value)
+
+            # Render script with fixed params
+            template = new_session.template
+            if template is None:
+                logger.error("ERROR_RECOVERY auto-fix with no template")
+                return (
+                    new_session.with_state(SessionState.IDLE),
+                    "会话状态异常，请重新开始。",
+                )
+
+            try:
+                rendered = self._template_engine.render(
+                    template, new_session.params, platform=None
+                )
+            except Exception as exc:
+                logger.error("Template rendering failed after auto-fix: %s", exc)
+                return (
+                    new_session.with_state(SessionState.PARAM_COLLECT),
+                    f"脚本生成失败：{exc}\n\n请检查参数后重试。",
+                )
+
+            script_text = rendered.content.strip()
+            response = (
+                f"───────────────────────────────\n"
+                f"脚本预览（已自动修正参数）：\n"
+                f"───────────────────────────────\n"
+                f"{script_text}\n"
+                f"───────────────────────────────"
+            )
+            return (new_session, response)
+
+        # Option 2: Manual edit
+        if user_lower in ("2", "手动", "修改"):
+            return (
+                session.clear_error()
+                .with_state(SessionState.PARAM_COLLECT)
+                .with_history(Message(role="user", content=user_input)),
+                "请修改参数，或重新描述您的需求。",
+            )
+
+        # Option 3: Abandon
+        if user_lower in ("3", "放弃", "n", "否", "算了", "no"):
+            new_session = (
+                Session(state=SessionState.IDLE, history=list(session.history))
+                .with_history(Message(role="user", content=user_input))
+            )
+            return (new_session, "已放弃当前任务。请描述新的需求。")
+
+        # Unknown input: treat as parameter modification
+        return self._handle_param_collect(
+            session.clear_error()
+            .with_state(SessionState.PARAM_COLLECT)
+            .with_history(Message(role="user", content=user_input)),
+            user_input,
+        )

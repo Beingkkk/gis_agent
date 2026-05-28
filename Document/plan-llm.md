@@ -92,6 +92,48 @@
 - 4xx 客户端错误（400、401、403）：参数或凭证问题，重试无用
 - 上下文长度超限：需截断，非重试可解决
 
+### DC-0036: 新增 `analyze_execution_error()` 接口用于执行错误诊断
+
+**决策**: 在 `llm/` 模块新增 `analyze_execution_error()` 函数，将 `ExecutionResult` + 当前 `template` + `params` 传给 LLM，返回结构化的 `ErrorDiagnosis`。
+
+**输入内容**:
+- 执行结果：`returncode`、`stdout`、`stderr`
+- 模板信息：`id`、`name`、`description`、`params` 定义
+- 当前参数：已收集的所有参数键值对
+- 对话历史：最近 3 轮对话（用于理解用户原始意图）
+
+**输出格式**（JSON）:
+```json
+{
+  "cause": "输入文件使用了相对路径，但工作空间下不存在该文件",
+  "suggestion": "将 input 参数改为绝对路径 C:\\Users\\PC\\data\\roads.shp",
+  "fixed_params": {"input": "C:\\Users\\PC\\data\\roads.shp"},
+  "confidence": 0.85,
+  "can_auto_fix": true
+}
+```
+
+**Prompt 设计**:
+- system prompt: "你是一名 GDAL 命令行工具的错误诊断专家。分析以下执行错误，结合当前模板和参数，判断错误根因并给出修复建议。"
+- user prompt 包含：渲染后的脚本内容、执行结果、模板描述、参数定义、当前参数值
+- 要求返回严格 JSON，temperature=0.1
+
+**理由**:
+- GDAL 错误信息（尤其是 stderr）往往技术性强且冗长，普通用户难以理解
+- LLM 结合模板上下文能给出精确的参数修正建议（如"把相对路径改为绝对路径"）
+- 结构化输出使下游代码可直接应用 `fixed_params`，无需二次解析自然语言
+- 与现有 `classify_intent`、`extract_params` 保持一致的接口风格
+
+**错误分类策略**（LLM 判定 `can_auto_fix` 的依据）:
+| 错误类型 | 示例 | can_auto_fix | 说明 |
+|---------|------|:------------:|------|
+| 路径问题 | "Unable to open datasource" | True | 修正路径后即可重试 |
+| CRS 问题 | "Failed to process SRS" | True | 修正坐标系参数 |
+| 格式问题 | "unsupported driver" | True | 修正输出格式参数 |
+| 权限问题 | "Permission denied" | False | 需用户手动解决系统权限 |
+| GDAL 缺失功能 | "driver not compiled" | False | 需用户升级/重装 GDAL |
+| 数据损坏 | "corrupt data" | False | 需用户检查源数据 |
+
 ### DC-0035: 系统提示词动态组装
 
 **决策**: 每次请求的系统提示词由固定约束 + Agents.md 内容 + 当前 RAG 上下文动态拼接。
@@ -142,6 +184,20 @@ class Message:
     """对话消息。"""
     role: str                 # "user" | "assistant"
     content: str
+
+
+@dataclass(frozen=True)
+class ErrorDiagnosis:
+    """LLM 对执行错误的结构化诊断结果。
+
+    Design:
+        DC-0036
+    """
+    cause: str                    # 错误根因，中文，用户可读
+    suggestion: str               # 修复建议
+    fixed_params: Dict[str, str]  # 建议修正后的参数
+    confidence: float             # 修复方案置信度 0.0-1.0
+    can_auto_fix: bool            # LLM 判定是否可自动修复
 ```
 
 ### 3.2 LLMClient 类
@@ -332,6 +388,35 @@ def answer_question(
     Design:
         F1, P4
     """
+
+
+def analyze_execution_error(
+    execution_result: ExecutionResult,
+    template: TemplateDef,
+    current_params: Dict[str, str],
+    history: List[Message],
+    client: LLMClient,
+    builder: PromptBuilder,
+) -> ErrorDiagnosis:
+    """分析 GDAL 脚本执行错误，输出结构化诊断。
+
+    将 ExecutionResult（returncode、stdout、stderr）与当前 template/params
+    一起传给 LLM，让模型结合 GDAL 知识诊断根因并建议修复。
+
+    Args:
+        execution_result: ScriptExecutor.execute() 的返回结果。
+        template: 当前已确认的模板定义。
+        current_params: 当前已收集的参数。
+        history: 对话历史。
+        client: LLM 客户端。
+        builder: Prompt 构建器。
+
+    Returns:
+        ErrorDiagnosis，含根因、建议、修正后参数、置信度、可自动修复标志。
+
+    Design:
+        DC-0036
+    """
 ```
 
 ### 3.5 异常类型
@@ -462,7 +547,48 @@ extract_keywords() —— 关键词提炼
             └──→ 返回自然语言回答（不经过 JSON 解析）
 ```
 
-### 4.4 Token 预算截断流程
+### 4.4 错误诊断流程
+
+```
+[执行失败]
+  │
+  ▼
+analyze_execution_error()
+  │
+  ├──→ PromptBuilder.build_system_prompt()
+  │       └── 固定约束："你是一名 GDAL 命令行工具的错误诊断专家..."
+  │
+  ├──→ 构造 user prompt：
+  │       "模板：shp2geojson（Shapefile 转 GeoJSON）
+  │        参数定义：{input: file_path(required), output: file_path(required), ...}
+  │        当前参数：{input: 'roads.shp', output: 'out.geojson'}
+  │        渲染后脚本：ogr2ogr -f 'GeoJSON' out.geojson roads.shp
+  │        执行结果：
+  │          returncode: 1
+  │          stderr: ERROR 1: Unable to open datasource `roads.shp'...
+  │        请分析错误根因，输出 JSON：
+  │        {cause, suggestion, fixed_params, confidence, can_auto_fix}"
+  │
+  ├──→ LLMClient.chat(temperature=0.1)
+  │       └── 返回 JSON 字符串
+  │
+  ├──→ 解析 JSON（同 classify_intent：strip markdown code block → json.loads）
+  │       └── 失败 fallback → ErrorDiagnosis(
+  │               cause="诊断失败，请手动检查错误输出",
+  │               suggestion="",
+  │               fixed_params={},
+  │               confidence=0.0,
+  │               can_auto_fix=False)
+  │
+  └──→ 返回 ErrorDiagnosis
+```
+
+**fallback 策略**：
+- JSON 解析失败 → 生成一个保守的 diagnosis（can_auto_fix=False，cause 提示诊断失败）
+- LLM 返回的 fixed_params 包含不在当前模板参数列表中的 key → 过滤掉非法 key
+- confidence < 0.5 时视为不可信，can_auto_fix 强制置 False
+
+### 4.5 Token 预算截断流程
 
 ```
 构建请求前计算预估 token
@@ -536,6 +662,10 @@ extract_keywords() —— 关键词提炼
 | **关键词提炼** | LLM 返回 JSON 数组 → 正确解析为关键词列表 |
 | **关键词 fallback** | 无效 JSON / 空列表 → fallback 到原句 |
 | **关键词去重截断** | 重复/空字符串被过滤，超出 5 个被截断 |
+| **错误诊断 Prompt 构建** | 系统提示词包含 GDAL 诊断专家角色，user prompt 包含模板/参数/执行结果 |
+| **错误诊断 JSON 解析** | markdown code block 被 strip，解析失败时 fallback 到保守 diagnosis |
+| **错误诊断非法 key 过滤** | fixed_params 包含不在模板参数列表中的 key 时被过滤 |
+| **错误诊断低置信度处理** | confidence < 0.5 时 can_auto_fix 强制置 False |
 
 ### 7.2 集成测试场景
 
@@ -559,6 +689,7 @@ extract_keywords() —— 关键词提炼
 | F2 | DC-0031, DC-0032 | `classify_intent()` | 意图分类 |
 | F3 | DC-0031, DC-0032 | `extract_params()` | 参数抽取与追问 |
 | F8 | DC-0033 | Token 截断逻辑 | 会话记忆上下文管理 |
+| F10 | DC-0036 | `analyze_execution_error()` | 执行错误 LLM 诊断 + 结构化修复建议 |
 | F11 | DC-0035 | `PromptBuilder` | Agents.md 注入系统提示词 |
 | P1 | DC-0032 | 系统提示词固定约束 | 模板化命令规则 |
 | P4 | DC-0035 | `answer_question()` RAG 上下文 | 仅基于本地文档回答 |
@@ -571,6 +702,7 @@ extract_keywords() —— 关键词提炼
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.2.0 | 2026-05-28 | 新增 DC-0036：`analyze_execution_error()` 接口，将 ExecutionResult + template + params 传给 LLM，返回结构化 `ErrorDiagnosis`；新增 §3.1 `ErrorDiagnosis`、§3.4 `analyze_execution_error()`、§4.4 错误诊断流程、§7.1 测试策略、§8 需求追溯 |
 | v1.1.1 | 2026-05-28 | `classify_intent` Prompt 改进：不再要求 LLM 留空 template_id，而是始终返回最接近的模板并用 confidence 反映匹配程度；§4.1 数据流更新 |
 | v1.1.0 | 2026-05-28 | 新增 `extract_keywords()` 接口（§3.4、§4.3、§7）；更新文档问答流程为关键词提炼 + 多路召回；更新需求追溯表 |
 | v1.0.0 | 2026-05-26 | 初版，定义 LLM 封装、Prompt 管理、意图分类、参数抽取、文档问答接口 |

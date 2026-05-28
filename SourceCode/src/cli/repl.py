@@ -10,8 +10,8 @@ import logging
 from typing import Callable, Optional
 
 from cli.commands import SlashCommandHandler
-from cli.executor import ScriptExecutor
-from core.models import Session, SessionState
+from cli.executor import ExecutionResult, ScriptExecutor
+from core.models import ExecutionErrorContext, Session, SessionState
 from core.processor import SessionProcessor
 from core.registry import TemplateRegistry
 from core.workspace import Workspace
@@ -126,6 +126,7 @@ class REPL:
             self._output_fn("警告：未配置脚本渲染，跳过执行。")
             return session.with_state(SessionState.IDLE)
 
+        self._output_fn("")
         while True:
             confirm = self._input_fn("确认执行？(Y/N)：").strip().upper()
             if confirm == "Y":
@@ -150,10 +151,29 @@ class REPL:
             return session.with_state(SessionState.IDLE)
 
         script = self._render_fn(session)
-        self._output_fn("开始执行...")
+        # Show command summary before execution for transparency
+        cmd_summary = (
+            script.command_lines[0] if script.command_lines else "GDAL 命令"
+        )
+        self._output_fn(f"正在执行：{cmd_summary}")
+        self._output_fn("（大型文件处理可能需要一些时间，请稍候...）")
         result = self._executor.execute(script)
         self._output_fn(self._format_execution_result(result))
-        return session.with_state(SessionState.IDLE)
+
+        if result.success:
+            return session.with_state(SessionState.IDLE)
+
+        # Execution failed → enter ERROR_RECOVERY with context (DC-0063 扩展)
+        error_ctx = ExecutionErrorContext(
+            returncode=result.returncode,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            duration_ms=result.duration_ms,
+        )
+        return (
+            session.with_state(SessionState.ERROR_RECOVERY)
+            .with_error(error_ctx)
+        )
 
     @staticmethod
     def _format_execution_result(result: "ExecutionResult") -> str:

@@ -54,3 +54,18 @@ class Message:
 
     role: str
     content: str
+
+
+@dataclass(frozen=True)
+class ErrorDiagnosis:
+    """LLM 对执行错误的结构化诊断结果.
+
+    Design:
+        DC-0036
+    """
+
+    cause: str
+    suggestion: str
+    fixed_params: Dict[str, str]
+    confidence: float
+    can_auto_fix: bool

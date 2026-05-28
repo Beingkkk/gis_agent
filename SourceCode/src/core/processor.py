@@ -9,18 +9,25 @@ Public API:
 Design: plan-core v1.0.0 (DC-0040, DC-0043, DC-0044)
 """
 
+from __future__ import annotations
+
 import logging
-from typing import Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
 
 from core.models import Session, SessionState
 from core.registry import TemplateRegistry
 from core.validator import ParamValidator
 from llm.client import LLMClient
 from llm.intent import classify_intent
+from llm.keywords import extract_keywords
 from llm.models import Message, TemplateInfo
 from llm.params import extract_params
 from llm.prompts import PromptBuilder
-from templates.engine import TemplateEngine
+from llm.qa import answer_question
+from rag.retriever import DocumentRetriever
+
+if TYPE_CHECKING:
+    from templates.engine import TemplateEngine
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +51,7 @@ class SessionProcessor:
         template_engine: TemplateEngine,
         llm_client: LLMClient,
         prompt_builder: PromptBuilder,
+        retriever: Optional[DocumentRetriever] = None,
     ) -> None:
         """注入依赖。
 
@@ -53,12 +61,37 @@ class SessionProcessor:
             template_engine: 模板引擎，用于渲染 GDAL 脚本。
             llm_client: LLM 客户端，用于意图分类和参数抽取。
             prompt_builder: Prompt 构建器，用于组装 LLM 系统提示词。
+            retriever: RAG 检索器，用于文档问答。为 None 时问答功能不可用。
         """
         self._registry = registry
         self._validator = validator
         self._template_engine = template_engine
         self._llm_client = llm_client
         self._prompt_builder = prompt_builder
+        self._retriever = retriever
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_param_prompt(template: "TemplateDef") -> str:
+        """Build a human-readable parameter list for a template.
+
+        Called when entering PARAM_COLLECT so the user knows what
+        to input next.
+        """
+        lines = [f"已识别任务：{template.name}。\n"]
+        if template.params:
+            lines.append("请输入以下参数：")
+            for p in template.params:
+                tag = "必填" if p.required else "可选"
+                if p.default is not None:
+                    tag += f"，默认 {p.default}"
+                lines.append(f"  • {p.name}（{tag}）：{p.description}")
+        else:
+            lines.append("该任务无需额外参数。")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # Public API
@@ -109,6 +142,15 @@ class SessionProcessor:
             TemplateInfo(id=t.id, name=t.name, description=t.description)
             for t in available
         ]
+        # Add virtual QA template so LLM can route questions to RAG
+        template_infos.insert(
+            0,
+            TemplateInfo(
+                id="__qa__",
+                name="文档问答",
+                description="基于本地GDAL文档回答用户关于工具、格式、参数的使用问题",
+            ),
+        )
 
         result = classify_intent(
             user_input=user_input,
@@ -119,15 +161,59 @@ class SessionProcessor:
         )
 
         if not result.template_id:
-            # No matching template at all → stay IDLE
-            return (session, "无法识别您的意图，请重新描述您的需求。")
+            # LLM returned empty template_id → show candidates for user to choose
+            candidates = self._registry.list_templates()
+            lines = [f"{i + 1}. {t.name}" for i, t in enumerate(candidates)]
+            response = (
+                f"您的需求「{user_input}」暂没有完全匹配的模板。\n"
+                f"以下是目前可用的功能，请选择最接近的一项：\n"
+                + "\n".join(lines)
+                + "\n\n或请重新描述您的需求。"
+            )
+            new_session = (
+                session.with_state(SessionState.INTENT_CONFIRM)
+                .with_template(None)
+                .with_candidates(candidates)
+            )
+            return (new_session, response)
+
+        # QA route: user is asking a question about GDAL/tools/formats
+        if result.template_id == "__qa__":
+            if self._retriever is None:
+                return (session, "文档问答服务暂不可用，请稍后再试。")
+            try:
+                # Keyword extraction → multi-query retrieval → synthesis
+                keywords = extract_keywords(
+                    user_input=user_input,
+                    history=session.history,
+                    client=self._llm_client,
+                    builder=self._prompt_builder,
+                )
+                docs = self._retriever.search_multi(keywords, top_k_per_query=2)
+                answer = answer_question(
+                    user_input=user_input,
+                    retrieved_docs=docs,
+                    history=session.history,
+                    client=self._llm_client,
+                    builder=self._prompt_builder,
+                )
+                new_session = session.with_history(
+                    Message(role="user", content=user_input)
+                )
+                new_session = new_session.with_history(
+                    Message(role="assistant", content=answer)
+                )
+                return (new_session, answer)
+            except Exception as exc:
+                logger.error("Q&A failed: %s", exc)
+                return (session, f"文档问答失败：{exc}")
 
         if result.confidence < self._CONFIDENCE_THRESHOLD:
             # Low confidence → ask user to confirm from candidates
             candidates = self._registry.list_templates()
             lines = [f"{i + 1}. {t.name}" for i, t in enumerate(candidates)]
             response = (
-                "我无法确定您的意图，请选择最匹配的任务：\n"
+                "暂时没有完全匹配的模板：\n"
                 + "\n".join(lines)
                 + "\n\n或请重新描述您的需求。"
             )
@@ -151,7 +237,7 @@ class SessionProcessor:
         )
         return (
             new_session,
-            f"已识别任务：{template.name}。\n\n请输入所需参数。",
+            self._build_param_prompt(template),
         )
 
     def _handle_intent_confirm(
@@ -180,7 +266,7 @@ class SessionProcessor:
                 )
                 return (
                     new_session,
-                    f"已选择：{selected.name}。\n\n请输入所需参数。",
+                    self._build_param_prompt(selected),
                 )
 
         # User denied or invalid selection → back to IDLE

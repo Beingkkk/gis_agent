@@ -2,10 +2,10 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.0.0 |
+| 版本 | v1.1.0 |
 | 状态 | 设计基线 |
 | 作者 | - |
-| 日期 | 2026-05-26 |
+| 日期 | 2026-05-28 |
 
 ---
 
@@ -287,6 +287,29 @@ def extract_params(
     """
 
 
+def extract_keywords(
+    user_input: str,
+    history: List[Message],
+    client: LLMClient,
+    builder: PromptBuilder,
+) -> List[str]:
+    """从用户问题中提炼搜索关键词，用于多路向量检索。
+
+    Args:
+        user_input: 用户问题。
+        history: 对话历史。
+        client: LLM 客户端。
+        builder: Prompt 构建器。
+
+    Returns:
+        1-5 个关键词/短语列表。LLM 返回无效 JSON 或空列表时，
+        fallback 到 [user_input]。
+
+    Design:
+        DC-0074
+    """
+
+
 def answer_question(
     user_input: str,
     retrieved_docs: List[RetrievedDocument],
@@ -357,6 +380,10 @@ classify_intent()
     ├──→ 构造 user prompt：
     │       "可用模板：[shp2geojson, merge_shp, clip_raster, ...]
     │        用户输入：把这三个省的 shp 合并成一个 GeoJSON
+    │        请分析用户意图，从可用模板中选择最匹配的一个。
+    │        评分规则：confidence≥0.7 高度匹配，0.3-0.7 有关联但不完全匹配，
+    │        <0.3 关联度很低。即使不完全匹配也请返回最接近的模板，
+    │        不要留空 template_id。
     │        请输出 JSON：{template_id, confidence, reasoning}"
     │
     ├──→ LLMClient.chat(temperature=0.1)
@@ -368,7 +395,7 @@ classify_intent()
     └──→ 验证 template_id 在可用列表中
             │
             ├── 有效 → 返回 IntentResult
-            └── 无效 → confidence 置 0，template_id 为空
+            └── 非法（LLM 返回了列表外的 ID）→ confidence 置 0，template_id 为空
 ```
 
 ### 4.2 参数抽取流程
@@ -403,20 +430,36 @@ extract_params()
 用户输入："ogr2ogr 能输出哪些格式？"
     │
     ▼
-answer_question()
+extract_keywords() —— 关键词提炼
     │
-    ├──→ RAG 检索（rag.DocumentRetriever.search）
-    │       └── 返回相关文档 chunks
+    ├──→ PromptBuilder.build_system_prompt() + 关键词提炼指令
+    │       └── "请从用户问题中提炼 2-3 个搜索关键词，返回 JSON 数组"
     │
-    ├──→ PromptBuilder.build_system_prompt(rag_context=文档片段)
-    │       ├── 固定约束："基于以下 GDAL 官方文档回答..."
-    │       └── RAG 上下文："[1] ogr2ogr 文档片段... [2] 驱动列表..."
+    ├──→ LLMClient.chat(temperature=0.1)
+    │       └── 返回 '["ogr2ogr output formats", "GDAL vector drivers", "ogr2ogr -f option"]'
     │
-    ├──→ 构造 user prompt：用户原始问题
+    ├──→ 解析 JSON 数组，去重、过滤空字符串
+    │       └── 失败 fallback → ["ogr2ogr 能输出哪些格式？"]
     │
-    ├──→ LLMClient.chat(temperature=0.3)
-    │
-    └──→ 返回自然语言回答（不经过 JSON 解析）
+    └──→ 返回关键词列表
+            │
+            ▼
+    RAG 多路检索（rag.DocumentRetriever.search_multi）
+            │
+            └── 返回合并去重后的文档 chunks
+                    │
+                    ▼
+    answer_question()
+            │
+            ├──→ PromptBuilder.build_system_prompt(rag_context=文档片段)
+            │       ├── 固定约束："基于以下 GDAL 官方文档回答..."
+            │       └── RAG 上下文："[1] ogr2ogr 文档片段... [2] 驱动列表..."
+            │
+            ├──→ 构造 user prompt：用户原始问题
+            │
+            ├──→ LLMClient.chat(temperature=0.3)
+            │
+            └──→ 返回自然语言回答（不经过 JSON 解析）
 ```
 
 ### 4.4 Token 预算截断流程
@@ -490,6 +533,9 @@ answer_question()
 | 不重试 4xx | mock 401，验证只调用 1 次 |
 | JSON 解析失败 | 非 JSON 响应时抛 LLMResponseError |
 | 无效 template_id | 返回的 ID 不在列表中时 confidence=0 |
+| **关键词提炼** | LLM 返回 JSON 数组 → 正确解析为关键词列表 |
+| **关键词 fallback** | 无效 JSON / 空列表 → fallback 到原句 |
+| **关键词去重截断** | 重复/空字符串被过滤，超出 5 个被截断 |
 
 ### 7.2 集成测试场景
 
@@ -509,7 +555,7 @@ answer_question()
 
 | 需求 ID | 设计决策 | 代码文件/函数 | 说明 |
 |:-------:|:--------:|:-------------:|------|
-| F1 | DC-0035 | `answer_question()` | RAG 增强文档问答 |
+| F1 | DC-0035, DC-0074 | `answer_question()`, `extract_keywords()` | RAG 增强文档问答 + 关键词提炼 |
 | F2 | DC-0031, DC-0032 | `classify_intent()` | 意图分类 |
 | F3 | DC-0031, DC-0032 | `extract_params()` | 参数抽取与追问 |
 | F8 | DC-0033 | Token 截断逻辑 | 会话记忆上下文管理 |
@@ -525,4 +571,6 @@ answer_question()
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.1.1 | 2026-05-28 | `classify_intent` Prompt 改进：不再要求 LLM 留空 template_id，而是始终返回最接近的模板并用 confidence 反映匹配程度；§4.1 数据流更新 |
+| v1.1.0 | 2026-05-28 | 新增 `extract_keywords()` 接口（§3.4、§4.3、§7）；更新文档问答流程为关键词提炼 + 多路召回；更新需求追溯表 |
 | v1.0.0 | 2026-05-26 | 初版，定义 LLM 封装、Prompt 管理、意图分类、参数抽取、文档问答接口 |

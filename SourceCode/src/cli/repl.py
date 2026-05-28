@@ -152,8 +152,26 @@ class REPL:
         script = self._render_fn(session)
         self._output_fn("开始执行...")
         result = self._executor.execute(script)
-        if result.success:
-            self._output_fn(result.stdout if result.stdout else "执行完成。")
-        else:
-            self._output_fn(f"执行失败：{result.stderr}")
+        self._output_fn(self._format_execution_result(result))
         return session.with_state(SessionState.IDLE)
+
+    @staticmethod
+    def _format_execution_result(result: "ExecutionResult") -> str:
+        """Format execution result for CLI display.
+
+        Includes stdout, stderr, returncode, and duration.
+        """
+        parts: list[str] = []
+        if result.success:
+            parts.append("执行完成。")
+        else:
+            parts.append(f"执行失败（返回码 {result.returncode}）。")
+
+        if result.stdout:
+            parts.append(f"[输出]\n{result.stdout.rstrip()}")
+        if result.stderr:
+            parts.append(f"[错误输出]\n{result.stderr.rstrip()}")
+        if result.duration_ms > 0:
+            parts.append(f"（耗时 {result.duration_ms} ms）")
+
+        return "\n".join(parts)

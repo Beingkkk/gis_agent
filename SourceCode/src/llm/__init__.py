@@ -23,6 +23,7 @@ from llm.exceptions import (
     LLMResponseError,
 )
 from llm.intent import classify_intent
+from llm.keywords import extract_keywords
 from llm.models import IntentResult, Message, ParamResult, TemplateInfo
 from llm.params import extract_params
 from llm.prompts import PromptBuilder
@@ -33,6 +34,7 @@ __all__ = [
     "PromptBuilder",
     "classify_intent",
     "extract_params",
+    "extract_keywords",
     "answer_question",
     "Message",
     "IntentResult",

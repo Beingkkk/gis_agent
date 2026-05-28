@@ -57,12 +57,17 @@ def classify_intent(
 
     user_prompt = (
         f"用户输入：{user_input}\n\n"
-        f"请分析用户意图，从可用模板中选择最匹配的一个。"
-        f"如果用户意图与任何模板都不匹配，template_id 留空。\n\n"
+        f"请分析用户意图，从可用模板中选择最匹配的一个。\n"
+        f"评分规则：\n"
+        f"- confidence ≥ 0.7：用户意图明确且与模板高度匹配\n"
+        f"- 0.3 ≤ confidence < 0.7：意图有关联但不完全匹配（如格式不同但操作类似）\n"
+        f"- confidence < 0.3：意图与所有模板关联度很低\n"
+        f"即使不完全匹配，也请返回最接近的模板，用 confidence 反映匹配程度，"
+        f"不要留空 template_id。\n\n"
         f"输出格式（严格 JSON，不要 Markdown 代码块）：\n"
-        f'{{"template_id": "模板ID或空字符串", '
+        f'{{"template_id": "模板ID", '
         f'"confidence": 0.0到1.0, '
-        f'"reasoning": "分类理由"}}'
+        f'"reasoning": "分类理由，说明为什么选这个模板以及匹配程度"}}'
     )
 
     messages = list(history)

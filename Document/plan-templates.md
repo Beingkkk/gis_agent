@@ -2,10 +2,10 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.0.0 |
+| 版本 | v1.0.1 |
 | 状态 | 设计基线 |
 | 作者 | - |
-| 日期 | 2026-05-26 |
+| 日期 | 2026-05-28 |
 
 ---
 
@@ -68,11 +68,12 @@ SourceCode/src/templates/       # Python 源码
 
 **决策**: 所有注入模板的参数值在渲染前经过两层处理：
 1. **白名单过滤**：参数值只能包含允许字符（字母、数字、下划线、点、斜杠、冒号、连字符、等号、引号、空格）
-2. **Shell 转义**：使用 `shlex.quote()` 对最终命令中的字符串参数进行 shell 安全转义
+2. **Shell 转义**：使用 `shlex.quote()`（Unix）或双引号包裹（Windows）对最终命令中的字符串参数进行 shell 安全转义
 
 **理由**:
 - 白名单从源头阻止注入字符（如 `;`、`&`、`|`、`$()`）
-- `shlex.quote()` 是 Python 标准库，对 shell 元字符提供完整保护
+- Unix 使用 `shlex.quote()` 对 shell 元字符提供完整保护
+- Windows 使用双引号包裹（cmd 不支持单引号字符串），配合白名单已拦截危险字符
 - 双层策略即使白名单有遗漏，shell 转义仍能兜底
 
 **允许字符正则**:
@@ -252,11 +253,12 @@ class TemplateEngine:
 def quote_filter(value: str) -> str:
     """Shell 安全转义过滤器。
 
-    使用 shlex.quote() 对字符串进行转义，
-    确保在命令行中安全使用。
+    Windows: 使用双引号包裹（cmd 不支持单引号字符串）。
+    Unix: 使用 shlex.quote() 进行 POSIX 兼容转义。
 
     示例：
-        {{ "my file.shp" | quote }} → "'my file.shp'"
+        Windows: {{ "my file.shp" | quote }} → '"my file.shp"'
+        Unix:    {{ "my file.shp" | quote }} → "'my file.shp'"
     """
 
 
@@ -498,7 +500,8 @@ REM Done
 ---
 
 ## 附录：变更记录
-
+architecture-diagram.htmlarchitecture-diagram.h
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.0.1 | 2026-05-28 | quote_filter Windows 兼容：Windows 平台使用双引号包裹（cmd 不支持单引号字符串），Unix 仍使用 shlex.quote |
 | v1.0.0 | 2026-05-26 | 初版，定义模板目录结构、Jinja2 渲染、参数转义、安全校验、跨平台脚本生成 |

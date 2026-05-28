@@ -74,14 +74,17 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 2
 
     # 4. Initialize RAG retriever
+    print("正在加载文档检索系统（首次启动可能需要 1-2 分钟）...")
     try:
-        get_retriever()
+        retriever = get_retriever()
     except RuntimeError as exc:
         print(f"RAG 初始化失败：{exc}")
         return 1
+    print("文档检索系统加载完成。")
 
     # 5. Locate template directory and scan templates
-    template_dir = Path(__file__).parent.parent / "data" / "templates"
+    # __file__ = src/cli/main.py → parent.parent.parent = project_root/SourceCode
+    template_dir = Path(__file__).parent.parent.parent / "data" / "templates"
     templates = scan_templates(template_dir)
     registry = TemplateRegistry(templates, template_dir)
 
@@ -100,6 +103,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         template_engine=template_engine,
         llm_client=llm_client,
         prompt_builder=prompt_builder,
+        retriever=retriever,
     )
 
     # 7. Build executor and REPL

@@ -49,10 +49,11 @@ pip install -e ".[dev]"
 复制配置模板并填入实际凭证：
 
 ```bash
-cp SourceCode/config/config.json.template SourceCode/config/config.json
+cd SourceCode
+cp config/config.json.template config/config.json
 ```
 
-编辑 `SourceCode/config/config.json`：
+编辑 `config/config.json`（在 `SourceCode/` 目录下）：
 
 | 字段 | 说明 | 示例 |
 |------|------|------|
@@ -95,21 +96,23 @@ export GISAGENT_LLM_BASE_URL="https://api.example.com"
 ### 命令行入口
 
 ```bash
-# 进入源码目录
+# 进入源码目录（必须在此目录下运行，因为模板和配置路径相对此目录）
 cd SourceCode
 
 # 基础启动（使用当前目录作为工作空间）
-gis-agent
+python -m cli
 
 # 指定工作空间
-gis-agent --workspace /path/to/project
+python -m cli --workspace /path/to/project
 
 # 指定配置文件
-gis-agent --config /path/to/config.json
+python -m cli --config /path/to/config.json
 
-# 空跑模式（只展示脚本不执行）
-gis-agent --dry-run
+# 空跑模式（只展示脚本不执行，首次使用建议）
+python -m cli --dry-run
 ```
+
+> **Windows 用户注意**：`pip install -e .` 安装的 `gis-agent` 命令在部分终端环境下不可用，请使用 `python -m cli` 启动。
 
 ### 交互命令
 

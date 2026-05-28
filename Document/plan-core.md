@@ -2,10 +2,10 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.0.0 |
+| 版本 | v1.0.1 |
 | 状态 | 设计基线 |
 | 作者 | - |
-| 日期 | 2026-05-26 |
+| 日期 | 2026-05-28 |
 
 ---
 
@@ -334,9 +334,9 @@ def _handle_idle(
 ) -> tuple[Session, str]:
     """空闲状态：进行意图分类。
 
-    - 高置信度（>=0.7）→ PARAM_COLLECT，告知用户已识别的任务
+    - 高置信度（>=0.7）→ PARAM_COLLECT，展示任务名称和所需参数列表
     - 低置信度（<0.7）→ INTENT_CONFIRM，列出候选模板让用户选择
-    - 无匹配 → 保持在 IDLE，提示无法识别
+    - 无匹配（LLM 返回空 template_id）→ INTENT_CONFIRM，展示候选模板让用户选择，附带友好说明
     """
 
 
@@ -347,7 +347,7 @@ def _handle_intent_confirm(
 ) -> tuple[Session, str]:
     """意图确认状态：用户从候选中选择或否认。
 
-    - 用户选择模板 → PARAM_COLLECT
+    - 用户选择模板 → PARAM_COLLECT，展示任务名称和所需参数列表
     - 用户否认 → IDLE，提示重新描述需求
     """
 
@@ -408,7 +408,12 @@ _process_idle()
   │
   ├──→ Session.with_template(shp2geojson)
   │
-  └──→ 返回 (PARAM_COLLECT, "已识别任务：Shapefile 转 GeoJSON。")
+  └──→ 返回 (PARAM_COLLECT,
+              "已识别任务：Shapefile 转 GeoJSON。\n\n"
+              "请输入以下参数：\n"
+              "  • input（必填）：输入 SHP 路径\n"
+              "  • output（必填）：输出 GeoJSON 路径\n"
+              "  • t_srs（可选，默认 EPSG:4326）：目标 CRS")
   │
   ▼
 [PARAM_COLLECT]
@@ -488,7 +493,12 @@ _process_intent_confirm()
   │
   ├──→ 解析选择 → template_id="shp2geojson"
   │
-  └──→ 返回 (PARAM_COLLECT, "已选择：Shapefile 转 GeoJSON。")
+  └──→ 返回 (PARAM_COLLECT,
+              "已识别任务：Shapefile 转 GeoJSON。\n\n"
+              "请输入以下参数：\n"
+              "  • input（必填）：输入 SHP 路径\n"
+              "  • output（必填）：输出 GeoJSON 路径\n"
+              "  • t_srs（可选，默认 EPSG:4326）：目标 CRS")
 ```
 
 ### 4.3 参数校验失败流程
@@ -564,6 +574,8 @@ _process_param_collect()
 | 默认值填充 | 可选参数未提供时使用默认值 |
 | 会话不可变性 | with_* 方法返回新实例，原实例不变 |
 | 无效状态处理 | 传入未知状态时抛 ValueError |
+| **参数前置提示** | 进入 PARAM_COLLECT 时响应包含参数名称、必填/可选标识、默认值、描述 |
+| **空匹配处理** | LLM 返回空 template_id 时进入 INTENT_CONFIRM，响应包含用户原输入和候选列表 |
 
 ### 7.2 集成测试场景
 
@@ -598,4 +610,6 @@ _process_param_collect()
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.0.2 | 2026-05-28 | 空匹配（无精确对应模板）不再直接拒绝，改为进入 INTENT_CONFIRM 展示候选列表，附带友好说明 |
+| v1.0.1 | 2026-05-28 | 进入 PARAM_COLLECT 时增加参数前置提示（参数名、必填/可选、默认值、描述），提升参数收集阶段 UX |
 | v1.0.0 | 2026-05-26 | 初版，定义状态机、模板注册表、参数校验链、会话上下文 |

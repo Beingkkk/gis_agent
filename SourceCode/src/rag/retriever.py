@@ -127,6 +127,43 @@ class DocumentRetriever:
 
         return retrieved
 
+    def search_multi(
+        self,
+        queries: List[str],
+        top_k_per_query: Optional[int] = None,
+    ) -> List[RetrievedDocument]:
+        """Multi-query retrieval with deduplication and relevance ranking.
+
+        Runs each query through semantic search, merges results, deduplicates
+        by chunk id (keeping the most relevant distance), and sorts by
+        distance ascending.
+
+        Args:
+            queries: List of search queries (keywords/phrases).
+            top_k_per_query: Number of results per query. Defaults to
+                self.top_k.
+
+        Returns:
+            Deduplicated RetrievedDocument list sorted by distance ascending.
+
+        Raises:
+            RuntimeError: If index is not ready.
+        """
+        if not self._ready:
+            raise RuntimeError(
+                "Retriever not ready. Index must be loaded before search."
+            )
+
+        merged: dict[str, RetrievedDocument] = {}
+        for query in queries:
+            docs = self.search(query, top_k=top_k_per_query)
+            for doc in docs:
+                chunk_id = doc.chunk.id
+                if chunk_id not in merged or doc.distance < merged[chunk_id].distance:
+                    merged[chunk_id] = doc
+
+        return sorted(merged.values(), key=lambda d: d.distance)
+
     def _load_or_build_index(self) -> None:
         """Initialize or load the ChromaDB index.
 

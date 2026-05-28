@@ -163,11 +163,11 @@ def test_idle_low_confidence_goes_to_intent_confirm(
 
 
 @patch("core.processor.classify_intent")
-def test_idle_no_match_stays_idle(
+def test_idle_no_match_goes_to_intent_confirm(
     mock_classify: MagicMock,
     processor: SessionProcessor,
 ) -> None:
-    """No matching template -> stays IDLE with helpful message."""
+    """Empty template_id -> INTENT_CONFIRM with candidate list and friendly message."""
     mock_classify.return_value = IntentResult(
         template_id="",
         confidence=0.0,
@@ -177,9 +177,81 @@ def test_idle_no_match_stays_idle(
     session = Session()
     new_session, response = processor.process(session, "天气预报怎么样")
 
-    assert new_session.state == SessionState.IDLE
+    assert new_session.state == SessionState.INTENT_CONFIRM
     assert new_session.template is None
-    assert "无法" in response or "不知道" in response or "不明白" in response
+    assert len(new_session.candidates) > 0
+    assert "暂没有完全匹配的模板" in response
+    assert "天气预报怎么样" in response
+
+
+# ---------------------------------------------------------------------------
+# IDLE state: Q&A route
+# ---------------------------------------------------------------------------
+
+
+@patch("core.processor.classify_intent")
+@patch("core.processor.extract_keywords")
+@patch("core.processor.answer_question")
+def test_idle_qa_route_returns_answer(
+    mock_answer: MagicMock,
+    mock_extract_keywords: MagicMock,
+    mock_classify: MagicMock,
+    registry: TemplateRegistry,
+    validator: ParamValidator,
+    mock_template_engine: MagicMock,
+    mock_llm_client: MagicMock,
+    mock_prompt_builder: MagicMock,
+) -> None:
+    """LLM routes to __qa__ -> keywords -> multi-search -> answer -> IDLE."""
+    mock_classify.return_value = IntentResult(
+        template_id="__qa__",
+        confidence=0.9,
+        reasoning="User is asking about SHP format",
+    )
+    mock_extract_keywords.return_value = ["Shapefile format", "SHP GDAL"]
+    mock_answer.return_value = "SHP 是 Shapefile 格式，由 ESRI 开发..."
+
+    mock_retriever = MagicMock()
+    mock_retriever.search_multi.return_value = []
+
+    processor = SessionProcessor(
+        registry=registry,
+        validator=validator,
+        template_engine=mock_template_engine,
+        llm_client=mock_llm_client,
+        prompt_builder=mock_prompt_builder,
+        retriever=mock_retriever,
+    )
+
+    session = Session()
+    new_session, response = processor.process(session, "shp格式是什么")
+
+    assert new_session.state == SessionState.IDLE
+    assert "SHP" in response
+    mock_extract_keywords.assert_called_once()
+    mock_retriever.search_multi.assert_called_once_with(
+        ["Shapefile format", "SHP GDAL"], top_k_per_query=2
+    )
+    mock_answer.assert_called_once()
+
+
+@patch("core.processor.classify_intent")
+def test_idle_qa_route_no_retriever_returns_error(
+    mock_classify: MagicMock,
+    processor: SessionProcessor,
+) -> None:
+    """LLM routes to __qa__ but retriever is None -> error message."""
+    mock_classify.return_value = IntentResult(
+        template_id="__qa__",
+        confidence=0.9,
+        reasoning="User is asking a question",
+    )
+
+    session = Session()
+    new_session, response = processor.process(session, "geojson是什么")
+
+    assert new_session.state == SessionState.IDLE
+    assert "不可用" in response
 
 
 # ---------------------------------------------------------------------------
@@ -395,3 +467,38 @@ def test_invalid_state_raises_value_error(processor: SessionProcessor) -> None:
     bad_session = Session(state=SessionState.EXECUTING)
     with pytest.raises(ValueError):
         processor.process(bad_session, "anything")
+
+
+# ---------------------------------------------------------------------------
+# Parameter prompt helper
+# ---------------------------------------------------------------------------
+
+
+def test_build_param_prompt_shows_required_and_optional(
+    sample_templates: list[TemplateDef],
+) -> None:
+    """_build_param_prompt lists params with required/optional tags and defaults."""
+    template = sample_templates[0]  # shp2geojson
+    prompt = SessionProcessor._build_param_prompt(template)
+
+    assert "Shapefile" in prompt
+    assert "input" in prompt
+    assert "output" in prompt
+    assert "t_srs" in prompt
+    assert "必填" in prompt
+    assert "可选" in prompt
+    assert "EPSG:4326" in prompt
+
+
+def test_build_param_prompt_no_params() -> None:
+    """Template with no params shows a no-params message."""
+    template = TemplateDef(
+        id="noop",
+        name="空任务",
+        description="Does nothing",
+        template_file="noop.j2",
+        params=[],
+    )
+    prompt = SessionProcessor._build_param_prompt(template)
+
+    assert "无需额外参数" in prompt

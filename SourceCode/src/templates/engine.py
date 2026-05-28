@@ -76,14 +76,17 @@ _WHITELIST_RE = re.compile(r'^[\w\./:@\-="\s]+$', re.UNICODE)
 
 
 def quote_filter(value: str) -> str:
-    """Shell-safe quoting filter using shlex.quote.
+    """Shell-safe quoting filter.
 
-    Wraps the value in shell-safe quotes to prevent word splitting
-    and metacharacter expansion.
+    Windows: wraps in double quotes (cmd does not support single quotes).
+    Unix: uses shlex.quote for POSIX-compliant quoting.
 
     Design:
         DC-0051, DC-0053
     """
+    if sys.platform == "win32":
+        escaped = value.replace('"', '\\"')
+        return f'"{escaped}"'
     return shlex.quote(value)
 
 

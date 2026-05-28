@@ -288,9 +288,7 @@ class TestLLMClientChat:
         req = httpx.Request("GET", "http://test")
         resp = httpx.Response(403, request=req)
         err = PermissionDeniedError("forbidden", response=resp, body=None)
-        with patch.object(
-            client._anthropic.messages, "create", side_effect=err
-        ):
+        with patch.object(client._anthropic.messages, "create", side_effect=err):
             with pytest.raises(LLMAuthError):
                 client.chat(
                     system_prompt="system",

@@ -59,6 +59,7 @@ class TestMainSuccessPath:
         ws = Workspace(tmp_path)
         mock_initialize.return_value = ws
         mock_get_workspace.return_value = ws
+        mock_get_retriever.return_value = MagicMock()
 
         mock_scan_templates.return_value = [
             TemplateDef(id="t1", name="Test", description="", template_file="t.j2"),
@@ -120,6 +121,7 @@ class TestMainSuccessPath:
         ws = Workspace(tmp_path)
         mock_initialize.return_value = ws
         mock_get_workspace.return_value = ws
+        mock_get_retriever.return_value = MagicMock()
 
         mock_scan_templates.return_value = [
             TemplateDef(id="t1", name="Test1", description="", template_file="a.j2"),
@@ -178,6 +180,7 @@ class TestMainSuccessPath:
         ws = Workspace(tmp_path)
         mock_initialize.return_value = ws
         mock_get_workspace.return_value = ws
+        mock_get_retriever.return_value = MagicMock()
         mock_scan_templates.return_value = []
 
         mock_repl_instance = MagicMock()

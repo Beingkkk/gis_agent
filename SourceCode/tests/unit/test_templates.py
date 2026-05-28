@@ -106,15 +106,24 @@ def test_quote_filter_simple_string() -> None:
 def test_quote_filter_space_in_filename() -> None:
     """Filename with spaces gets quoted."""
     result = quote_filter("my file.shp")
-    assert result.startswith("'")
-    assert result.endswith("'")
+    if sys.platform == "win32":
+        assert result.startswith('"')
+        assert result.endswith('"')
+    else:
+        assert result.startswith("'")
+        assert result.endswith("'")
     assert "my file.shp" in result
 
 
 def test_quote_filter_shell_metacharacter() -> None:
     """Shell metacharacters get escaped."""
     result = quote_filter("file; rm -rf /")
-    assert ";" not in result or result.startswith("'")
+    if sys.platform == "win32":
+        # Windows: wrapped in double quotes; inner chars preserved
+        assert result.startswith('"')
+        assert result.endswith('"')
+    else:
+        assert ";" not in result or result.startswith("'")
     assert result != "file; rm -rf /"
 
 

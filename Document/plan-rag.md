@@ -2,10 +2,10 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.0.0 |
+| 版本 | v1.1.0 |
 | 状态 | 设计基线 |
 | 作者 | - |
-| 日期 | 2026-05-26 |
+| 日期 | 2026-05-28 |
 
 ---
 
@@ -184,6 +184,28 @@ class DocumentRetriever:
             RuntimeError: 索引未初始化完成。
         """
 
+    def search_multi(
+        self,
+        queries: List[str],
+        top_k_per_query: Optional[int] = None,
+    ) -> List[RetrievedDocument]:
+        """多路召回：对每个 query 分别搜索，合并去重后按 relevance 排序。
+
+        Args:
+            queries: 搜索关键词/短语列表（由 LLM 提炼）。
+            top_k_per_query: 每个 query 的返回数量。默认从 Config.rag.top_k 读取。
+
+        Returns:
+            去重后的文档列表（distance 升序）。同一 chunk 在不同 query 中出现时，
+            保留 distance 最小的结果。
+
+        Raises:
+            RuntimeError: 索引未初始化完成。
+
+        Design:
+            DC-0074
+        """
+
     def is_ready(self) -> bool:
         """索引是否已就绪。"""
 ```
@@ -256,22 +278,33 @@ def preprocess_html(
 [就绪，可接受检索请求]
 ```
 
-### 4.2 文档问答检索流程
+### 4.2 文档问答检索流程（多路召回）
 
 ```
 用户提问："ogr2ogr 怎么转成 GeoJSON？"
     │
     ▼
-DocumentRetriever.search("ogr2ogr 怎么转成 GeoJSON？")
+LLM 提炼关键词 → ["ogr2ogr GeoJSON output", "ogr2ogr -f format", "vector conversion GDAL"]
     │
-    ├──→ 使用 multilingual-MiniLM-L12-v2 编码查询为向量
+    ▼
+DocumentRetriever.search_multi(["ogr2ogr GeoJSON output", "ogr2ogr -f format", "vector conversion GDAL"], top_k_per_query=2)
     │
-    ├──→ ChromaDB query() → 返回 top_k 个最近邻
+    ├──→ search("ogr2ogr GeoJSON output", top_k=2) → [doc_A, doc_B]
+    ├──→ search("ogr2ogr -f format", top_k=2) → [doc_B, doc_C]
+    ├──→ search("vector conversion GDAL", top_k=2) → [doc_D, doc_E]
     │
-    └──→ 包装为 List[RetrievedDocument]
+    ├──→ 按 chunk.id 去重（doc_B 出现两次，保留更小 distance）
+    ├──→ 按 distance 升序排序
+    │
+    └──→ 返回 List[RetrievedDocument] = [doc_B, doc_A, doc_C, doc_D, doc_E]
             │
             ▼
         返回给 LLM 模块，作为上下文注入 Prompt
+```
+
+**降级路径**：关键词提炼失败时，fallback 到原句单路搜索：
+```
+DocumentRetriever.search("ogr2ogr 怎么转成 GeoJSON？", top_k=5)
 ```
 
 ### 4.3 开发时预处理流程
@@ -350,6 +383,9 @@ DocumentRetriever.search("ogr2ogr 怎么转成 GeoJSON？")
 | 中文查询 | 中文问题能检索到英文文档 |
 | 空结果处理 | 无相关文档时返回空列表（不抛异常） |
 | 索引就绪检查 | `is_ready()` 在构建完成后返回 True |
+| **多路召回合并** | `search_multi()` 合并多 query 结果 |
+| **去重逻辑** | 同一 chunk 在不同 query 中出现时保留最小 distance |
+| **排序逻辑** | `search_multi()` 最终结果按 distance 升序 |
 
 ### 7.2 集成测试场景
 
@@ -412,5 +448,6 @@ DocumentRetriever.search("ogr2ogr 怎么转成 GeoJSON？")
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.1.0 | 2026-05-28 | 新增 `search_multi()` 接口（§3.2、§4.2、§7）；更新文档问答检索流程为多路召回 |
 | v1.0.1 | 2026-05-27 | 新增 §9 实现顺序，明确"先预处理后 RAG"的串行策略 |
 | v1.0.0 | 2026-05-26 | 初版，定义 HTML 预处理、语义切分、ChromaDB 封装、懒加载策略 |

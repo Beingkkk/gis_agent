@@ -275,11 +275,97 @@
     border-radius: 3px;
   }
 
+  /* 模块交互视图 */
+  .interaction-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .ig-node {
+    background: #fff;
+    border-radius: 8px;
+    padding: 10px 12px;
+    border: 2px solid #e2e8f0;
+    text-align: center;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .ig-node:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  .ig-name {
+    font-weight: 700;
+    font-size: 12px;
+    color: #2d3748;
+    margin-bottom: 4px;
+    font-family: "SF Mono", "Consolas", monospace;
+  }
+  .ig-desc {
+    font-size: 10px;
+    color: #718096;
+  }
+  .ig-cli { border-color: #667eea; background: #f7f8ff; }
+  .ig-core { border-color: #11998e; background: #f0fdf9; }
+  .ig-llm { border-color: #f5576c; background: #fff0f3; }
+  .ig-tpl { border-color: #ed8936; background: #fffaf0; }
+  .ig-rag { border-color: #9f7aea; background: #faf5ff; }
+  .ig-cfg { border-color: #4299e1; background: #ebf8ff; }
+  .ig-infra { border-color: #a0aec0; background: #f7fafc; }
+
+  /* 依赖关系表格 */
+  .deps-table {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .deps-row {
+    display: grid;
+    grid-template-columns: 1.2fr 1.5fr 2fr;
+    gap: 0;
+    border-bottom: 1px solid #edf2f7;
+  }
+  .deps-row:last-child { border-bottom: none; }
+  .deps-header {
+    background: #f7fafc;
+    font-weight: 700;
+    font-size: 12px;
+    color: #4a5568;
+  }
+  .deps-cell {
+    padding: 10px 14px;
+    font-size: 12px;
+    color: #4a5568;
+    line-height: 1.6;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .deps-header .deps-cell { color: #2d3748; }
+  .dep-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: "SF Mono", "Consolas", monospace;
+  }
+  .dep-tag.cli { background: #e0e4ff; color: #4c51bf; }
+  .dep-tag.core { background: #c6f6d5; color: #276749; }
+  .dep-tag.llm { background: #fed7d7; color: #c53030; }
+  .dep-tag.tpl { background: #feebc8; color: #c05621; }
+  .dep-tag.rag { background: #e9d8fd; color: #6b46c1; }
+  .dep-tag.cfg { background: #bee3f8; color: #2c5282; }
+  .dep-tag.infra { background: #e2e8f0; color: #4a5568; }
+
   /* 响应式 */
   @media (max-width: 768px) {
     .modules { flex-direction: column; }
     .module { min-width: auto; }
     .security-grid { grid-template-columns: 1fr; }
+    .interaction-grid { grid-template-columns: repeat(3, 1fr); }
+    .deps-row { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -482,6 +568,173 @@
           <span class="tag">SourceCode/model/</span>
           <span class="tag">SentenceTransformer</span>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模块交互与依赖关系 -->
+  <div class="dataflow">
+    <h2>&#128260; 模块交互与依赖关系</h2>
+    <p style="font-size:12px;color:#718096;margin-bottom:20px;">箭头方向表示"调用/依赖"关系。严格分层：上层可调用下层，禁止反向依赖。</p>
+
+    <div class="interaction-grid">
+      <!-- CLI 入口 -->
+      <div class="ig-node ig-cli" style="grid-column:1;grid-row:1;">
+        <div class="ig-name">cli.main</div>
+        <div class="ig-desc">入口初始化链</div>
+      </div>
+
+      <!-- CLI 内部 -->
+      <div class="ig-node ig-cli" style="grid-column:2;grid-row:1;">
+        <div class="ig-name">cli.repl</div>
+        <div class="ig-desc">REPL 主循环</div>
+      </div>
+      <div class="ig-node ig-cli" style="grid-column:2;grid-row:2;">
+        <div class="ig-name">cli.commands</div>
+        <div class="ig-desc">斜杠命令</div>
+      </div>
+      <div class="ig-node ig-cli" style="grid-column:2;grid-row:3;">
+        <div class="ig-name">cli.executor</div>
+        <div class="ig-desc">脚本执行</div>
+      </div>
+
+      <!-- Core 层 -->
+      <div class="ig-node ig-core" style="grid-column:3;grid-row:1;">
+        <div class="ig-name">core.processor</div>
+        <div class="ig-desc">状态机处理器</div>
+      </div>
+      <div class="ig-node ig-core" style="grid-column:3;grid-row:2;">
+        <div class="ig-name">core.registry</div>
+        <div class="ig-desc">模板注册表</div>
+      </div>
+      <div class="ig-node ig-core" style="grid-column:3;grid-row:3;">
+        <div class="ig-name">core.validator</div>
+        <div class="ig-desc">参数校验链</div>
+      </div>
+      <div class="ig-node ig-core" style="grid-column:4;grid-row:2;">
+        <div class="ig-name">core.workspace</div>
+        <div class="ig-desc">工作空间管理</div>
+      </div>
+      <div class="ig-node ig-core" style="grid-column:4;grid-row:3;">
+        <div class="ig-name">core.models</div>
+        <div class="ig-desc">数据模型</div>
+      </div>
+
+      <!-- LLM 层 -->
+      <div class="ig-node ig-llm" style="grid-column:5;grid-row:1;">
+        <div class="ig-name">llm.intent</div>
+        <div class="ig-desc">意图分类</div>
+      </div>
+      <div class="ig-node ig-llm" style="grid-column:5;grid-row:2;">
+        <div class="ig-name">llm.params</div>
+        <div class="ig-desc">参数抽取</div>
+      </div>
+      <div class="ig-node ig-llm" style="grid-column:5;grid-row:3;">
+        <div class="ig-name">llm.qa</div>
+        <div class="ig-desc">文档问答</div>
+      </div>
+      <div class="ig-node ig-llm" style="grid-column:6;grid-row:1;">
+        <div class="ig-name">llm.client</div>
+        <div class="ig-desc">LLM 客户端</div>
+      </div>
+      <div class="ig-node ig-llm" style="grid-column:6;grid-row:2;">
+        <div class="ig-name">llm.prompts</div>
+        <div class="ig-desc">Prompt 构建器</div>
+      </div>
+
+      <!-- Templates 层 -->
+      <div class="ig-node ig-tpl" style="grid-column:3;grid-row:4;">
+        <div class="ig-name">templates.engine</div>
+        <div class="ig-desc">模板渲染引擎</div>
+      </div>
+      <div class="ig-node ig-tpl" style="grid-column:4;grid-row:4;">
+        <div class="ig-name">templates.scanner</div>
+        <div class="ig-desc">模板扫描器</div>
+      </div>
+
+      <!-- RAG 层 -->
+      <div class="ig-node ig-rag" style="grid-column:5;grid-row:4;">
+        <div class="ig-name">rag.retriever</div>
+        <div class="ig-desc">文档检索器</div>
+      </div>
+
+      <!-- Config 层 -->
+      <div class="ig-node ig-cfg" style="grid-column:6;grid-row:3;">
+        <div class="ig-name">config.loader</div>
+        <div class="ig-desc">配置加载</div>
+      </div>
+
+      <!-- Infra -->
+      <div class="ig-node ig-infra" style="grid-column:6;grid-row:4;">
+        <div class="ig-name">anthropic</div>
+        <div class="ig-desc">SDK</div>
+      </div>
+      <div class="ig-node ig-infra" style="grid-column:6;grid-row:5;">
+        <div class="ig-name">chromadb</div>
+        <div class="ig-desc">向量数据库</div>
+      </div>
+      <div class="ig-node ig-infra" style="grid-column:5;grid-row:5;">
+        <div class="ig-name">jinja2</div>
+        <div class="ig-desc">模板引擎</div>
+      </div>
+    </div>
+
+    <!-- 依赖关系说明表格 -->
+    <div class="deps-table">
+      <div class="deps-row deps-header">
+        <div class="deps-cell">调用方</div>
+        <div class="deps-cell">被调用方</div>
+        <div class="deps-cell">用途</div>
+      </div>
+      <div class="deps-row">
+        <div class="deps-cell"><span class="dep-tag cli">cli.main</span></div>
+        <div class="deps-cell"><span class="dep-tag core">core.processor</span> <span class="dep-tag core">core.workspace</span></div>
+        <div class="deps-cell">初始化 SessionProcessor 和工作空间</div>
+      </div>
+      <div class="deps-row">
+        <div class="deps-cell"><span class="dep-tag cli">cli.repl</span></div>
+        <div class="deps-cell"><span class="dep-tag core">core.processor</span> <span class="dep-tag cli">cli.executor</span></div>
+        <div class="deps-cell">分发用户输入，执行确认后的脚本</div>
+      </div>
+      <div class="deps-row">
+        <div class="deps-cell"><span class="dep-tag core">core.processor</span></div>
+        <div class="deps-cell"><span class="dep-tag llm">llm.intent</span> <span class="dep-tag llm">llm.params</span> <span class="dep-tag llm">llm.qa</span></div>
+        <div class="deps-cell">意图分类、参数抽取、问答路由</div>
+      </div>
+      <div class="deps-row">
+        <div class="deps-cell"><span class="dep-tag core">core.processor</span></div>
+        <div class="deps-cell"><span class="dep-tag tpl">templates.engine</span> <span class="dep-tag core">core.validator</span></div>
+        <div class="deps-cell">参数校验与模板渲染</div>
+      </div>
+      <div class="deps-row">
+        <div class="deps-cell"><span class="dep-tag core">core.processor</span></div>
+        <div class="deps-cell"><span class="dep-tag rag">rag.retriever</span></div>
+        <div class="deps-cell">问答模式下的文档检索</div>
+      </div>
+      <div class="deps-row">
+        <div class="deps-cell"><span class="dep-tag llm">llm.intent</span> <span class="dep-tag llm">llm.params</span> <span class="dep-tag llm">llm.qa</span></div>
+        <div class="deps-cell"><span class="dep-tag llm">llm.client</span> <span class="dep-tag llm">llm.prompts</span></div>
+        <div class="deps-cell">LLM API 调用与 Prompt 组装</div>
+      </div>
+      <div class="deps-row">
+        <div class="deps-cell"><span class="dep-tag llm">llm.client</span></div>
+        <div class="deps-cell"><span class="dep-tag cfg">config.loader</span></div>
+        <div class="deps-cell">读取 API 密钥和模型配置</div>
+      </div>
+      <div class="deps-row">
+        <div class="deps-cell"><span class="dep-tag tpl">templates.engine</span></div>
+        <div class="deps-cell"><span class="dep-tag core">core.models</span> <span class="dep-tag core">core.workspace</span></div>
+        <div class="deps-cell">读取模板定义，解析路径</div>
+      </div>
+      <div class="deps-row">
+        <div class="deps-cell"><span class="dep-tag tpl">templates.scanner</span></div>
+        <div class="deps-cell"><span class="dep-tag core">core.models</span></div>
+        <div class="deps-cell">解析 .j2 注释头为 TemplateDef</div>
+      </div>
+      <div class="deps-row">
+        <div class="deps-cell"><span class="dep-tag core">core.validator</span></div>
+        <div class="deps-cell"><span class="dep-tag core">core.workspace</span></div>
+        <div class="deps-cell">must_exist 时校验文件存在性</div>
       </div>
     </div>
   </div>

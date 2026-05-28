@@ -119,7 +119,9 @@ class ParamValidator:
     # Type-specific validators
     # ------------------------------------------------------------------
 
-    def _get_validator(self, param_type: str) -> Callable[[ParamDef, str], ValidationResult]:
+    def _get_validator(
+        self, param_type: str
+    ) -> Callable[[ParamDef, str], ValidationResult]:
         """Return the validator function for the given parameter type."""
         validators = {
             "file_path": self._validate_file_path,

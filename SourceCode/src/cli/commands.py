@@ -5,6 +5,7 @@ Provides system-level commands accessible via / prefix.
 Design: plan-cli v1.0.0 (DC-0062)
 """
 
+from datetime import datetime
 from typing import Callable, Optional
 
 from core.models import Session
@@ -36,6 +37,7 @@ class SlashCommandHandler:
             "workspace": self._cmd_workspace,
             "templates": self._cmd_templates,
             "status": self._cmd_status,
+            "init": self._cmd_init,
             "help": self._cmd_help,
         }
 
@@ -143,6 +145,62 @@ class SlashCommandHandler:
         ]
         return session, "\n".join(lines), None
 
+    def _cmd_init(
+        self,
+        session: Session,
+        _registry: TemplateRegistry,
+        workspace: Workspace,
+    ) -> tuple[Session, str, Optional[str]]:
+        """Persist current session task info to Agents.md.
+
+        - No template selected -> reject with hint.
+        - Template selected -> append formatted record to Agents.md.
+        """
+        if session.template is None:
+            return (
+                session,
+                "当前没有已确认的任务，请先描述需求并完成参数收集。",
+                None,
+            )
+
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        lines: list[str] = [
+            f"## 任务记录 — {ts}",
+            "",
+            f"- **意图**: {session.template.name}",
+            f"- **模板**: {session.template.id}",
+            "- **参数**:",
+        ]
+
+        param_defs = {p.name: p for p in session.template.params}
+        if session.params:
+            for name, value in session.params.items():
+                pdef = param_defs.get(name)
+                if pdef is not None:
+                    req_tag = "必填" if pdef.required else "可选"
+                    default_tag = (
+                        f", 默认 {pdef.default}" if pdef.default is not None else ""
+                    )
+                    display_value = value if value else "(未提供)"
+                    line = (
+                        f"  - {name} ({pdef.type}, {req_tag}{default_tag}): "
+                        f"{display_value} — {pdef.description}"
+                    )
+                    lines.append(line)
+                else:
+                    display_value = value if value else "(未提供)"
+                    lines.append(f"  - {name}: {display_value}")
+        else:
+            lines.append("  - (无参数)")
+
+        content = "\n".join(lines)
+        try:
+            path = workspace.save_agents_md(content)
+        except Exception as exc:
+            return session, f"写入 Agents.md 失败：{exc}", None
+
+        return session, f"已保存到 {path.name}。", None
+
     def _cmd_help(
         self,
         session: Session,
@@ -157,6 +215,7 @@ class SlashCommandHandler:
             "  /workspace    — 显示当前工作空间路径",
             "  /templates    — 列出可用模板",
             "  /status       — 显示当前状态",
+            "  /init         — 将当前任务写入 Agents.md",
             "  /help         — 显示此帮助信息",
         ]
         return session, "\n".join(lines), None

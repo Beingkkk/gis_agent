@@ -5,6 +5,7 @@ Design: F2, P1
 
 import json
 import logging
+import re
 from typing import List
 
 from llm.client import LLMClient
@@ -79,8 +80,11 @@ def classify_intent(
         temperature=0.1,
     )
 
+    _cleaned = re.sub(
+        r"^```(?:json)?\s*|\s*```$", "", response.strip(), flags=re.MULTILINE
+    )
     try:
-        parsed = json.loads(response)
+        parsed = json.loads(_cleaned)
     except json.JSONDecodeError as exc:
         logger.error("Failed to parse intent response as JSON: %s", response)
         raise LLMResponseError(f"Intent response is not valid JSON: {exc}") from exc

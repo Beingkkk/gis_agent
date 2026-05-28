@@ -213,3 +213,24 @@ class TestClassifyIntent:
 
         assert result.confidence == 0.0
         assert result.template_id == ""
+
+    def test_markdown_json_code_block_stripped(
+        self, client: MagicMock, builder: PromptBuilder, templates: list[TemplateInfo]
+    ) -> None:
+        """F2: Markdown JSON code block is stripped before parsing."""
+        client.chat.return_value = (
+            '```json\n'
+            '{"template_id": "shp2geojson", "confidence": 0.9, "reasoning": "ok"}\n'
+            '```'
+        )
+
+        result = classify_intent(
+            user_input="test",
+            available_templates=templates,
+            history=[],
+            client=client,
+            builder=builder,
+        )
+
+        assert result.template_id == "shp2geojson"
+        assert result.confidence == 0.9

@@ -5,6 +5,7 @@ Design: F3
 
 import json
 import logging
+import re
 from typing import Any, Dict, List
 
 from llm.client import LLMClient
@@ -71,8 +72,11 @@ def extract_params(
         temperature=0.1,
     )
 
+    _cleaned = re.sub(
+        r"^```(?:json)?\s*|\s*```$", "", response.strip(), flags=re.MULTILINE
+    )
     try:
-        parsed = json.loads(response)
+        parsed = json.loads(_cleaned)
     except json.JSONDecodeError as exc:
         logger.error("Failed to parse param response as JSON: %s", response)
         raise LLMResponseError(f"Param response is not valid JSON: {exc}") from exc

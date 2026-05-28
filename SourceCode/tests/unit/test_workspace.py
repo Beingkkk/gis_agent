@@ -192,3 +192,45 @@ def test_workspace_instance_is_immutable(workspace: Workspace) -> None:
     """Workspace attributes are read-only (no setters)."""
     with pytest.raises((AttributeError, TypeError)):
         workspace.root = Path("/tmp")  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# save_agents_md
+# ---------------------------------------------------------------------------
+
+
+def test_save_agents_md_creates_file_with_header(workspace: Workspace) -> None:
+    """File absent -> create with header + content."""
+    content = "## 任务记录\n- **意图**: test"
+    result = workspace.save_agents_md(content)
+
+    assert result == workspace.root / "Agents.md"
+    assert result.exists()
+    text = result.read_text(encoding="utf-8")
+    assert text.startswith("# GIS Agent 项目配置\n\n")
+    assert "## 任务记录" in text
+    assert "test" in text
+
+
+def test_save_agents_md_appends_to_existing(workspace: Workspace) -> None:
+    """File exists -> append to end without overwriting."""
+    agents_path = workspace.root / "Agents.md"
+    agents_path.write_text("# Existing\n", encoding="utf-8")
+
+    content = "## New Task\n- data: foo"
+    result = workspace.save_agents_md(content)
+
+    text = result.read_text(encoding="utf-8")
+    assert text.startswith("# Existing\n")
+    assert "\n## New Task" in text
+    assert "foo" in text
+
+
+def test_save_agents_md_raises_on_permission_error(workspace: Workspace) -> None:
+    """Write fails -> raises WorkspaceError."""
+    agents_path = workspace.root / "Agents.md"
+    agents_path.write_text("existing")
+
+    with patch("builtins.open", side_effect=PermissionError("denied")):
+        with pytest.raises(WorkspaceError):
+            workspace.save_agents_md("new content")

@@ -181,6 +181,77 @@ class TestStatusCommand:
         assert "shp2geojson" in response
 
 
+class TestInitCommand:
+    """/init command."""
+
+    def test_init_no_template_rejected(
+        self,
+        handler: SlashCommandHandler,
+        session: Session,
+        registry: TemplateRegistry,
+        workspace: Workspace,
+    ) -> None:
+        """/init with no template selected -> rejection message."""
+        new_session, response, action = handler.handle(
+            "/init", session, registry, workspace
+        )
+        assert action is None
+        assert "没有已确认的任务" in response
+
+    def test_init_with_template_saves_agents_md(
+        self,
+        handler: SlashCommandHandler,
+        registry: TemplateRegistry,
+        workspace: Workspace,
+    ) -> None:
+        """/init with template and params -> append to Agents.md."""
+        template = registry.get_template("shp2geojson")
+        assert template is not None
+        session = Session(
+            state=SessionState.PARAM_COLLECT,
+            template=template,
+            params={"input": "roads.shp", "output": "roads.geojson"},
+        )
+        new_session, response, action = handler.handle(
+            "/init", session, registry, workspace
+        )
+        assert action is None
+        assert "已保存" in response
+
+        # Verify Agents.md content
+        agents_path = workspace.root / "Agents.md"
+        assert agents_path.exists()
+        text = agents_path.read_text(encoding="utf-8")
+        assert "## 任务记录" in text
+        assert "Shapefile 转 GeoJSON" in text
+        assert "shp2geojson" in text
+        assert "roads.shp" in text
+        assert "roads.geojson" in text
+
+    def test_init_appends_to_existing(
+        self,
+        handler: SlashCommandHandler,
+        registry: TemplateRegistry,
+        workspace: Workspace,
+    ) -> None:
+        """/init when Agents.md already exists -> append without overwriting."""
+        agents_path = workspace.root / "Agents.md"
+        agents_path.write_text("# Existing header\n", encoding="utf-8")
+
+        template = registry.get_template("shp2geojson")
+        assert template is not None
+        session = Session(
+            state=SessionState.PARAM_COLLECT,
+            template=template,
+            params={"input": "test.shp"},
+        )
+        handler.handle("/init", session, registry, workspace)
+
+        text = agents_path.read_text(encoding="utf-8")
+        assert text.startswith("# Existing header\n")
+        assert "## 任务记录" in text
+
+
 class TestHelpCommand:
     """/help command."""
 
@@ -201,6 +272,7 @@ class TestHelpCommand:
         assert "/workspace" in response
         assert "/templates" in response
         assert "/status" in response
+        assert "/init" in response
         assert "/help" in response
 
 

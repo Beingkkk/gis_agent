@@ -31,6 +31,8 @@ class ParamValidator:
 
     _EPSG_RE = re.compile(r"^EPSG:\d+$", re.IGNORECASE)
     """EPSG code pattern (e.g. EPSG:4326)."""
+    _RAW_EPSG_RE = re.compile(r"^\d+$")
+    """Raw EPSG digits (e.g. 4326) — will be auto-prefixed."""
 
     def __init__(self, workspace: Workspace) -> None:
         """Args:
@@ -100,6 +102,9 @@ class ParamValidator:
         for param_def in template.params:
             if param_def.name in params:
                 value = params[param_def.name]
+                # Type-specific normalization before validation
+                if param_def.type == "crs":
+                    value = self._normalize_crs(value)
                 ok, error = self.validate(param_def, value)
                 if ok:
                     # Normalize boolean values for template rendering
@@ -184,6 +189,13 @@ class ParamValidator:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _normalize_crs(value: str) -> str:
+        """Auto-prefix raw EPSG digits (e.g. '4326' -> 'EPSG:4326')."""
+        if re.match(r"^\d+$", value):
+            return f"EPSG:{value}"
+        return value
 
     @staticmethod
     def _normalize_boolean(value: str) -> str:

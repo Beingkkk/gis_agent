@@ -6,8 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GIS Agent (`gis-agent`) is a command-line assistant for GIS data processing using GDAL tools. It accepts natural language requests in Chinese, maps them to predefined Jinja2 templates, generates batch scripts, and executes them only after explicit user confirmation.
 
-**Current phase**: config, rag, llm, core (models/registry/validator/processor/workspace), and templates (engine/scanner) modules are implemented. `cli/` is the only remaining module.
-
 The project strictly follows Specification-Driven Design: no code without a preceding design document.
 
 ## Development Workflow (Specification-Driven)
@@ -38,7 +36,7 @@ Document/constitution.md  →  Document/spec.md  →  Document/plan-*.md  →  S
 Strict layered architecture. Upper layers may call lower layers; **reverse dependencies are prohibited**.
 
 ```
-CLI layer (cli/)        → user interaction, state machine, command parsing              [pending]
+CLI layer (cli/)        → REPL, slash commands, script execution, main entry            [done]
 Core layer (core/)      → workspace, template registry, param validator, session processor [done]
 App layer (llm/ + rag/) → LLM interaction, intent classification, document retrieval     [done]
 Infra layer             → anthropic SDK, chromadb, jinja2, GDAL CLI                     [done]
@@ -58,6 +56,7 @@ Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker 
 - Workspace is a memory anchor (v2.0), not a security boundary — paths are normalized, not sandboxed
 - LLM calls (`anthropic`) are encapsulated in `llm/` only (CODE-3)
 - ChromaDB operations are encapsulated in `rag/` only (CODE-4)
+- Session is immutable — every state transition returns a new `Session` instance via `with_*` methods
 
 ## Implemented Modules
 
@@ -78,6 +77,7 @@ GDAL document retrieval pipeline.
 - `rag.preprocess` — HTML parsing, semantic chunking, JSON output (development-only)
 - `rag.retriever` — ChromaDB vector retrieval with hash-based cache detection
   - `DocumentRetriever.search(query, top_k)` → `List[RetrievedDocument]`
+  - `DocumentRetriever.search_multi(queries, top_k_per_query)` → multi-query retrieval with deduplication by chunk.id (keeps lowest distance)
   - `get_retriever()` → singleton, auto-loads/builds index on first call
 - **RAG data**: `SourceCode/data/gdal-docs-chunks.json` (9706 chunks)
 - **Embedding model**: `SourceCode/model/embedding/` (`paraphrase-multilingual-MiniLM-L12-v2`)
@@ -91,6 +91,7 @@ LLM interaction layer — the only module allowed to call the anthropic SDK (COD
 - `PromptBuilder` — Dynamic system prompt assembly: safety constraints + Agents.md + RAG context + task context
 - `classify_intent()` — Maps user input to predefined template ID with confidence
 - `extract_params()` — Extracts template parameters, identifies missing required fields
+- `extract_keywords()` — LLM-driven keyword distillation for multi-query RAG retrieval (plan-qa-optimization)
 - `answer_question()` — RAG-enhanced document Q&A
 
 ### core (`SourceCode/src/core/`)
@@ -98,10 +99,10 @@ LLM interaction layer — the only module allowed to call the anthropic SDK (COD
 Business logic core. All exposed through `core/__init__.py`.
 
 - **`models.py`** — `SessionState` (5-state Enum), `Session` (immutable dataclass with `with_*` methods), `ParamDef`, `TemplateDef`
-- **`workspace.py`** — `Workspace(root)`, `resolve_path()` (normalization, no scope restriction v2.0), `generate_output_path()` (timestamp), `load_agents_md()`, singleton via `initialize()` / `get_workspace()`
+- **`workspace.py`** — `Workspace(root)`, `resolve_path()` (normalization, no scope restriction v2.0), `generate_output_path()` (timestamp), `load_agents_md()`, `save_agents_md()` (append content, auto-create file with header), singleton via `initialize()` / `get_workspace()`
 - **`registry.py`** — `TemplateRegistry(templates, template_dir)` — in-memory dict index from scanner results
 - **`validator.py`** — `ParamValidator(workspace)` — type-specific validation chain (file_path, crs, string, boolean, integer). `must_exist` field on `ParamDef` controls existence checks. No "path sandbox" validation — workspace is not a security boundary.
-- **`processor.py`** — `SessionProcessor(registry, validator, template_engine, llm_client, prompt_builder)` — state machine dispatcher: IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW. `_handle_script_preview()` generates script text only; Y/N confirmation lives in CLI layer.
+- **`processor.py`** — `SessionProcessor(registry, validator, template_engine, llm_client, prompt_builder, retriever)` — state machine dispatcher: IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW. `_handle_script_preview()` generates script text only; Y/N confirmation lives in CLI layer. Q&A route (`__qa__` template) uses `extract_keywords` → `search_multi` → `answer_question`.
 
 ### templates (`SourceCode/src/templates/`)
 
@@ -109,6 +110,16 @@ Template engine and scanner. Exposed through `templates/__init__.py`.
 
 - **`engine.py`** — `TemplateEngine(template_dir, workspace)` — Jinja2 rendering with `quote` and `safe_path` filters. `ScriptSecurityChecker` post-render validation for dangerous patterns.
 - **`scanner.py`** — `scan_templates(template_dir)` → `List[TemplateDef]` — parses Jinja2 comment headers (`{# @id ... #}`, `{# @param ... #}`) from `.j2` files. Stores `template_file` as a path relative to `template_dir` (e.g. `vector/shp2geojson.j2`).
+
+### cli (`SourceCode/src/cli/`)
+
+User interaction layer. Exposed through `cli/__init__.py`.
+
+- **`main.py`** — Entry point: parses args → loads config → initializes workspace → loads RAG → builds processor → starts REPL
+- **`repl.py`** — `REPL` class: input loop, slash command dispatch, state machine integration, SCRIPT_PREVIEW Y/N confirmation, script execution with formatted output
+- **`commands.py`** — `SlashCommandHandler`: `/quit`, `/clear`, `/workspace`, `/templates`, `/status`, `/init` (persist session to Agents.md), `/help`
+- **`executor.py`** — `ScriptExecutor` with `ExecutionResult`: subprocess execution with timeout (300s), cwd=workspace.root, stdout/stderr capture
+- **`args.py`** — `argparse` wrapper for `--workspace`, `--config`, `--dry-run`
 
 ## CodeGraph
 
@@ -208,21 +219,24 @@ Hard constraints from `Document/spec.md`:
 |------|---------------|
 | `Document/spec.md` | Source of all requirements; every design decision must trace back to a requirement ID (e.g., `F1`, `F3`) |
 | `Document/constitution.md` | Development constitution; defines specification-driven workflow, coding standards, quality gates, security red lines |
-| `Document/plan-core.md` | Core module design (DC-0040~0049) — SessionProcessor, TemplateRegistry, ParamValidator, Session |
-| `Document/plan-cli.md` | CLI module design (DC-0060~0069) — REPL, ScriptExecutor, SlashCommandHandler, main entry |
+| `Document/plan-core.md` | Core module design (DC-0040~0049) — SessionProcessor, TemplateRegistry, ParamValidator, Session, Workspace |
+| `Document/plan-cli.md` | CLI module design (DC-0060~0069) — REPL, ScriptExecutor, SlashCommandHandler, `/init` command |
+| `Document/plan-llm.md` | LLM module design (DC-0030~0035) — LLMClient, PromptBuilder, classify_intent, extract_params, extract_keywords |
+| `Document/plan-rag.md` | RAG module design (DC-0020~0024) — DocumentRetriever, ChromaDB integration, search_multi |
 | `Document/plan-templates.md` | Template engine design (DC-0050~0054) — TemplateEngine, scanner, security checker |
 | `SourceCode/config/config.json.template` | LLM and embedding configuration template; copy to `config.json` and set credentials |
 | `SourceCode/src/core/processor.py` | Session state machine — the central orchestrator of the conversation lifecycle |
 | `SourceCode/src/core/models.py` | SessionState, Session, ParamDef, TemplateDef dataclasses |
 | `SourceCode/src/core/registry.py` | TemplateRegistry — in-memory index of scanned templates |
 | `SourceCode/src/core/validator.py` | ParamValidator — type-specific parameter validation chain |
-| `SourceCode/src/core/workspace.py` | Workspace management: path normalization, timestamps, Agents.md |
+| `SourceCode/src/core/workspace.py` | Workspace management: path normalization, timestamps, Agents.md load/save |
 | `SourceCode/src/templates/engine.py` | Jinja2 template rendering with quote/safe_path filters and post-render security check |
 | `SourceCode/src/templates/scanner.py` | .j2 file scanner — parses Jinja2 comment headers into TemplateDef |
 | `SourceCode/src/llm/client.py` | Anthropic SDK wrapper with retry and token truncation |
 | `SourceCode/src/llm/intent.py` | Intent classification (`classify_intent`) |
+| `SourceCode/src/llm/keywords.py` | Keyword extraction for multi-query RAG retrieval (`extract_keywords`) |
 | `SourceCode/src/llm/params.py` | Parameter extraction (`extract_params`) |
-| `SourceCode/src/rag/retriever.py` | ChromaDB retriever with hash cache + semantic search |
+| `SourceCode/src/rag/retriever.py` | ChromaDB retriever with hash cache + semantic search + `search_multi` |
 | `SourceCode/data/gdal-docs-chunks.json` | Preprocessed GDAL documentation for RAG (5.9MB, 9706 chunks) |
 | `SourceCode/tasks/tasks-core.md` | Core implementation task breakdown (T-CORE-01~05) |
 | `SourceCode/tasks/tasks-cli.md` | CLI implementation task breakdown (T-CLI-01~10) |

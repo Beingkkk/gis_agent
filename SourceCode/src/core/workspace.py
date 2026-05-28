@@ -155,6 +155,39 @@ class Workspace:
         """Return workspace root as default cwd for script execution."""
         return self._root
 
+    def save_agents_md(self, content: str) -> Path:
+        """Append content to Agents.md in workspace root.
+
+        Creates the file with a header if it does not exist.
+        Content is appended with a leading newline separator.
+
+        Args:
+            content: Text to append.
+
+        Returns:
+            Path to the Agents.md file.
+
+        Raises:
+            WorkspaceError: File cannot be written.
+
+        Design:
+            DC-0045
+        """
+        agents_path = self._root / "Agents.md"
+        header = "# GIS Agent 项目配置\n\n"
+
+        try:
+            agents_path.parent.mkdir(parents=True, exist_ok=True)
+            if not agents_path.exists():
+                agents_path.write_text(header + content, encoding="utf-8")
+            else:
+                with open(agents_path, "a", encoding="utf-8") as f:
+                    f.write("\n" + content)
+        except OSError as exc:
+            raise WorkspaceError(f"Failed to write Agents.md: {exc}") from exc
+
+        return agents_path
+
 
 _workspace_instance: Optional[Workspace] = None
 

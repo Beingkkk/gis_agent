@@ -270,3 +270,31 @@ def test_validate_all_complete(validator: ParamValidator) -> None:
     )
     assert len(errors) == 0
     assert valid_params == {"input": "a.shp", "output": "b.geojson"}
+
+
+def test_crs_raw_digits_normalized(validator: ParamValidator) -> None:
+    """Raw EPSG digits are auto-prefixed with 'EPSG:'."""
+    template = TemplateDef(
+        id="t",
+        name="T",
+        description="D",
+        template_file="t.j2",
+        params=[ParamDef("srs", "crs", True, "CRS")],
+    )
+    valid_params, errors = validator.validate_all(template, {"srs": "4326"})
+    assert len(errors) == 0
+    assert valid_params["srs"] == "EPSG:4326"
+
+
+def test_crs_full_format_preserved(validator: ParamValidator) -> None:
+    """Full EPSG:xxxx format is preserved unchanged."""
+    template = TemplateDef(
+        id="t",
+        name="T",
+        description="D",
+        template_file="t.j2",
+        params=[ParamDef("srs", "crs", True, "CRS")],
+    )
+    valid_params, errors = validator.validate_all(template, {"srs": "EPSG:3857"})
+    assert len(errors) == 0
+    assert valid_params["srs"] == "EPSG:3857"

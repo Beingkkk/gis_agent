@@ -245,3 +245,25 @@ class TestExtractParams:
         messages = call_args.kwargs["messages"]
         assert messages[-1].role == "user"
         assert "roads.json" in messages[-1].content
+
+    def test_markdown_json_code_block_stripped(
+        self, client: MagicMock, builder: PromptBuilder, param_schema: dict
+    ) -> None:
+        """F3: Markdown JSON code block is stripped before parsing."""
+        client.chat.return_value = (
+            '```json\n'
+            '{"params": {"input": "a.shp"}, "missing": [], "questions": []}\n'
+            '```'
+        )
+
+        result = extract_params(
+            user_input="test",
+            template_id="shp2geojson",
+            param_schema=param_schema,
+            current_params={},
+            history=[],
+            client=client,
+            builder=builder,
+        )
+
+        assert result.params["input"] == "a.shp"

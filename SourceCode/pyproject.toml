@@ -13,6 +13,9 @@ dependencies = [
     "jinja2",
 ]
 
+[project.scripts]
+gis-agent = "cli.main:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",

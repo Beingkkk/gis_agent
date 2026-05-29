@@ -200,12 +200,17 @@ export default function DetailPanel({
                 {templateDetail.common_errors.map((e, i) => (
                   <div
                     key={i}
-                    className="rounded-lg bg-red-50 border border-red-100 p-3"
+                    className="rounded-lg bg-slate-50 border border-slate-100 p-3"
                   >
-                    <p className="text-xs font-medium text-red-700">{e.error_text}</p>
-                    <p className="text-xs text-red-600 mt-1 leading-relaxed">
-                      修复: {e.fix}
-                    </p>
+                    <div className="flex items-start gap-2">
+                      <span className="text-sm flex-shrink-0 mt-0.5">💡</span>
+                      <div>
+                        <p className="text-xs font-medium text-slate-700">{e.error_text}</p>
+                        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                          {e.fix}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>

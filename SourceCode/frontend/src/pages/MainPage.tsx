@@ -89,6 +89,8 @@ export default function MainPage() {
 
     const text = inputText.trim()
     setInputText('')
+    // Show user message immediately before async backend call
+    addMessage({ role: 'user', content: text })
     setLoading(true)
 
     try {
@@ -177,19 +179,22 @@ export default function MainPage() {
     setIsExecuting(true)
     setExecLog([])
 
-    const wsUrl = `ws://localhost:8000/ws/execute/${sessionId}`
+    // Use relative path so Vite proxy (dev) or FastAPI (prod) handles routing
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${protocol}//${window.location.host}/ws/execute/${sessionId}`
+
     connectExec(wsUrl, {
       onMessage: (data) => {
         try {
           const msg = JSON.parse(data)
-          if (msg.type === 'chunk' || msg.type === 'output') {
-            setExecLog((prev) => [...prev, msg.content || msg.data || ''])
+          if (msg.type === 'output') {
+            setExecLog((prev) => [...prev, msg.line || ''])
           } else if (msg.type === 'done') {
             setIsExecuting(false)
             setExecLog((prev) => [
               ...prev,
               msg.success
-                ? `✅ 执行完成${msg.output_path ? ` (输出: ${msg.output_path})` : ''}`
+                ? '✅ 执行完成'
                 : `❌ 执行失败: ${msg.error || '未知错误'}`,
             ])
           } else if (msg.type === 'error') {

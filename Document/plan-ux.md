@@ -182,6 +182,10 @@ async def execute_script(session_id: str, dry_run: bool = False) -> ExecutionRes
 async def clear_session(session_id: str):
     """清空会话，重置为 IDLE。"""
 
+@router.post("/session/{session_id}/workspace", response_model=SessionResponse)
+async def update_session_workspace(session_id: str, request: WorkspaceRequest) -> Session:
+    """更新工作空间路径，验证目录存在后切换，并清空当前会话。"""
+
 # api/routes/templates.py
 
 @router.get("/templates", response_model=List[TemplateDef])
@@ -253,10 +257,12 @@ interface SessionSnapshot {
     template_name: string | null;
     params: Record<string, string>;
     missing_params: string[];
+    candidates: CandidateTemplate[];
   };
   script_preview: string | null;
   error_context: ErrorContext | null;
   history: ChatMessage[];
+  workspace: string;
 }
 
 interface ChatMessage {
@@ -296,23 +302,33 @@ interface TemplateDetail extends TemplateDef {
                       ▼
 用户输入需求 ──→ POST /session/{id}/intent
                       │
-                      ▼
-              返回候选模板（INTENT_CONFIRM）
-                      │
-              用户点击确认 ──→ POST /session/{id}/lock
-                      │
-                      ▼
-              进入 PARAM_COLLECT（右栏表单展开）
-                      │
-              用户填写参数 ──→ POST /session/{id}/params
-                      │
-                      ▼
-              返回脚本预览（SCRIPT_PREVIEW）
-                      │
-              用户点击执行 ──→ WS /ws/execute 连接
-                      │
-                      ▼
-              实时推送执行日志（EXECUTING → IDLE）
+              ┌──────┼──────┐
+              │      │      │
+              ▼      ▼      ▼
+       精确匹配  探索性问题  部分/无匹配
+              │      │      │
+              ▼      ▼      ▼
+        PARAM_COLLECT  IDLE   INTENT_CONFIRM
+   （直达参数填写）  (Q&A   （top-N 候选卡片
+               │     文本回复)   供用户确认）
+               │      │      │
+               │      │      └─→ 用户点击确认
+               │      │           POST /session/{id}/lock
+               │      │                │
+               └──────┴────────────────┘
+                                    │
+                                    ▼
+                        进入 PARAM_COLLECT（右栏表单展开）
+                                    │
+                        用户填写参数 ──→ POST /session/{id}/params
+                                    │
+                                    ▼
+                        返回脚本预览（SCRIPT_PREVIEW）
+                                    │
+                        用户点击执行 ──→ WS /ws/execute 连接
+                                    │
+                                    ▼
+                        实时推送执行日志（EXECUTING → IDLE）
 ```
 
 ### 4.2 Pipeline 流程

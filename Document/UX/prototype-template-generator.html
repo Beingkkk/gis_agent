@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GIS Agent — J2 模板生成器</title>
+<style>
+  :root {
+    --bg: #f3f4f6;
+    --panel: #ffffff;
+    --border: #e5e7eb;
+    --text: #111827;
+    --text-secondary: #6b7280;
+    --primary: #2563eb;
+    --primary-light: #dbeafe;
+    --success: #16a34a;
+    --warning: #ca8a04;
+    --danger: #dc2626;
+    --radius: 10px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg); color: var(--text);
+    height: 100vh; overflow: hidden; display: flex; flex-direction: column;
+  }
+
+  /* ===== Top Bar ===== */
+  .topbar {
+    height: 52px; background: var(--panel); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; flex-shrink: 0;
+  }
+  .topbar .logo { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .topbar .logo span { color: var(--primary); }
+  .topbar .logo .tag {
+    font-size: 11px; font-weight: 500; color: var(--primary);
+    background: var(--primary-light); padding: 2px 8px; border-radius: 4px; margin-left: 8px;
+  }
+  .topbar .nav-back {
+    font-size: 13px; color: var(--text-secondary); text-decoration: none;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .topbar .nav-back:hover { color: var(--primary); }
+
+  /* ===== Step Bar ===== */
+  .step-bar {
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: 0 24px; display: flex; align-items: center; gap: 0;
+    flex-shrink: 0; overflow-x: auto;
+  }
+  .step-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 16px; font-size: 13px; color: var(--text-secondary);
+    cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap;
+    transition: all 0.15s;
+  }
+  .step-item:hover { color: var(--text); }
+  .step-item.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 500; }
+  .step-item.done { color: var(--success); }
+  .step-item .step-num {
+    width: 22px; height: 22px; border-radius: 50%; background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600;
+  }
+  .step-item.active .step-num { background: var(--primary); color: #fff; }
+  .step-item.done .step-num { background: var(--success); color: #fff; }
+  .step-arrow { color: var(--border); font-size: 12px; }
+
+  /* ===== Main Layout ===== */
+  .main { display: flex; flex: 1; overflow: hidden; }
+
+  /* ===== Left: Existing Templates ===== */
+  .sidebar {
+    width: 260px; background: var(--panel); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; flex-shrink: 0;
+  }
+  .sidebar-header {
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .sidebar-header h3 { font-size: 13px; font-weight: 600; }
+  .sidebar-header .count { font-size: 11px; color: var(--text-secondary); background: var(--bg); padding: 2px 8px; border-radius: 10px; }
+  .template-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .template-item {
+    padding: 10px 12px; border-radius: 8px; cursor: pointer;
+    font-size: 12px; margin-bottom: 4px; transition: all 0.15s;
+    display: flex; align-items: center; gap: 8px;
+    flex-wrap: wrap;
+  }
+  .template-item:hover { background: var(--bg); }
+  .template-item.active { background: var(--primary-light); border: 1px solid #bfdbfe; }
+  .template-item .t-icon { font-size: 14px; }
+  .template-item .t-name { font-weight: 500; }
+  .template-item .t-id { color: var(--text-secondary); font-size: 11px; margin-left: auto; }
+  .template-item .t-preview {
+    width: 100%; margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid var(--border); display: none;
+    font-size: 11px; color: var(--text-secondary); line-height: 1.6;
+  }
+  .template-item.expanded .t-preview { display: block; }
+  .template-item .t-preview .p-row {
+    display: flex; justify-content: space-between; padding: 2px 0;
+  }
+  .template-item .t-preview .p-name { color: var(--text); }
+  .template-item .t-preview .p-type { font-size: 10px; color: var(--text-secondary); background: var(--bg); padding: 1px 5px; border-radius: 3px; }
+
+  /* ===== Center: Work Area ===== */
+  .work-area {
+    flex: 1; display: flex; flex-direction: column; min-width: 420px;
+  }
+  .work-scroll { flex: 1; overflow-y: auto; padding: 20px 24px; }
+
+  /* --- Section Cards --- */
+  .section-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 16px; overflow: hidden;
+  }
+  .section-header {
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .section-header h3 { font-size: 14px; font-weight: 600; }
+  .section-header .section-desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+  .section-body { padding: 16px 18px; }
+
+  /* --- Document Input --- */
+  .doc-input-tabs {
+    display: flex; gap: 4px; margin-bottom: 12px;
+  }
+  .doc-input-tabs button {
+    border: 1px solid var(--border); background: var(--panel); border-radius: 6px;
+    padding: 5px 14px; font-size: 12px; cursor: pointer; color: var(--text-secondary);
+  }
+  .doc-input-tabs button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .doc-textarea {
+    width: 100%; min-height: 200px; border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; font-size: 13px; font-family: inherit; line-height: 1.6;
+    resize: vertical; outline: none;
+  }
+  .doc-textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.08); }
+  .doc-upload-zone {
+    border: 2px dashed var(--border); border-radius: 8px;
+    padding: 40px; text-align: center; color: var(--text-secondary);
+    font-size: 13px; cursor: pointer; transition: all 0.15s;
+  }
+  .doc-upload-zone:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+
+  /* --- Config Form --- */
+  .form-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;
+  }
+  .form-group { margin-bottom: 16px; }
+  .form-group:last-child { margin-bottom: 0; }
+  .form-label {
+    display: block; font-size: 12px; font-weight: 500; margin-bottom: 5px;
+    color: var(--text);
+  }
+  .form-label .hint {
+    font-weight: 400; color: var(--text-secondary); margin-left: 4px;
+  }
+  .form-input, .form-select, .form-textarea {
+    width: 100%; border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; font-size: 13px; font-family: inherit; outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s; background: var(--panel);
+  }
+  .form-input:focus, .form-select:focus, .form-textarea:focus {
+    border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.08);
+  }
+  .form-textarea { min-height: 60px; resize: vertical; line-height: 1.6; }
+  .form-select { cursor: pointer; }
+
+  /* --- Code Preview --- */
+  .code-preview {
+    background: #1e1e1e; color: #d4d4d4; border-radius: 8px;
+    font-family: "SF Mono", Monaco, monospace; font-size: 12px; line-height: 1.7;
+    overflow: hidden;
+  }
+  .code-preview-header {
+    background: #2d2d2d; padding: 8px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid #3c3c3c;
+  }
+  .code-preview-header .filename { font-size: 12px; color: #cccccc; }
+  .code-preview-header .actions { display: flex; gap: 8px; }
+  .code-preview-header .actions button {
+    background: transparent; border: 1px solid #555; color: #ccc;
+    border-radius: 4px; padding: 3px 10px; font-size: 11px; cursor: pointer;
+  }
+  .code-preview-header .actions button:hover { border-color: #999; color: #fff; }
+  .code-preview-body {
+    padding: 14px; overflow-x: auto; max-height: 400px; overflow-y: auto;
+  }
+  .code-preview-body .comment { color: #6a9955; }
+  .code-preview-body .tag { color: #569cd6; }
+  .code-preview-body .attr { color: #9cdcfe; }
+  .code-preview-body .string { color: #ce9178; }
+  .code-preview-body .var { color: #9cdcfe; }
+  .code-preview-body .filter { color: #dcdcaa; }
+
+  /* ===== Right: Review Panel ===== */
+  .review-panel {
+    width: 360px; background: var(--panel); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; flex-shrink: 0;
+  }
+  .review-scroll { flex: 1; overflow-y: auto; }
+  .review-section { padding: 16px; border-bottom: 1px solid var(--border); }
+  .review-section h4 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-secondary); margin-bottom: 12px;
+  }
+
+  /* Param list */
+  .param-item {
+    background: var(--bg); border-radius: 8px; padding: 10px 12px;
+    margin-bottom: 8px; font-size: 12px;
+  }
+  .param-item .p-name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .param-item .p-type { font-size: 10px; color: var(--text-secondary); background: var(--panel); padding: 1px 6px; border-radius: 4px; }
+  .param-item .p-desc { color: var(--text-secondary); margin-top: 4px; line-height: 1.4; }
+  .param-item .p-source {
+    font-size: 10px; color: var(--success); margin-top: 4px;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .param-item .p-edit {
+    margin-top: 6px; display: flex; gap: 6px;
+  }
+  .param-item .p-edit input {
+    flex: 1; border: 1px solid var(--border); border-radius: 4px;
+    padding: 4px 8px; font-size: 11px; outline: none;
+  }
+  .param-item .p-edit input:focus { border-color: var(--primary); }
+
+  /* Concept items */
+  .concept-item {
+    display: flex; gap: 8px; align-items: flex-start;
+    padding: 8px 0; font-size: 12px; line-height: 1.5;
+    border-bottom: 1px solid var(--border);
+  }
+  .concept-item:last-child { border-bottom: none; }
+  .concept-item .c-term { font-weight: 600; color: var(--primary); white-space: nowrap; }
+  .concept-item .c-def { color: var(--text-secondary); }
+
+  /* Security check */
+  .security-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 0; font-size: 12px;
+  }
+  .security-item .s-icon { font-size: 14px; }
+  .security-item.pass { color: var(--success); }
+  .security-item.warn { color: var(--warning); }
+
+  /* Action buttons */
+  .action-panel {
+    padding: 16px; border-top: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .btn-primary {
+    width: 100%; padding: 10px; border: none; border-radius: 8px;
+    background: var(--primary); color: #fff; font-size: 14px; font-weight: 500;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-secondary {
+    width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text-secondary); font-size: 13px;
+    cursor: pointer; margin-top: 8px;
+  }
+  .btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
+
+  /* ===== Misc ===== */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .section-card { animation: fadeIn 0.3s ease; }
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <a href="prototype-v1.html" class="nav-back">← GIS Agent</a>
+  <div class="logo">
+    <span>◆</span>
+    J2 模板生成器
+    <span class="tag">开发工具</span>
+  </div>
+  <span class="workspace-info">模板目录: data/templates/</span>
+</div>
+
+<!-- Step Bar -->
+<div class="step-bar">
+  <div class="step-item active" onclick="switchStep(0)">
+    <span class="step-num">1</span>
+    <span>输入文档</span>
+  </div>
+  <span class="step-arrow">→</span>
+  <div class="step-item" onclick="switchStep(1)">
+    <span class="step-num">2</span>
+    <span>配置元数据</span>
+  </div>
+  <span class="step-arrow">→</span>
+  <div class="step-item" onclick="switchStep(2)">
+    <span class="step-num">3</span>
+    <span>生成预览</span>
+  </div>
+  <span class="step-arrow">→</span>
+  <div class="step-item" onclick="switchStep(3)">
+    <span class="step-num">4</span>
+    <span>审查修正</span>
+  </div>
+  <span class="step-arrow">→</span>
+  <div class="step-item" onclick="switchStep(4)">
+    <span class="step-num">5</span>
+    <span>保存</span>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- Left: Existing Templates -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h3>已有模板</h3>
+      <span class="count">12</span>
+    </div>
+    <div class="template-list">
+      <div class="template-item" onclick="togglePreview(this)">
+        <span class="t-icon">📄</span>
+        <span class="t-name">shp2geojson</span>
+        <span class="t-id">GDAL · 矢量</span>
+        <div class="t-preview">
+          <div style="color:var(--text);margin-bottom:4px;">Shapefile 转 GeoJSON</div>
+          <div class="p-row"><span class="p-name">input</span><span class="p-type">file_path *</span></div>
+          <div class="p-row"><span class="p-name">output</span><span class="p-type">file_path *</span></div>
+          <div class="p-row"><span class="p-name">t_srs</span><span class="p-type">crs</span></div>
+        </div>
+      </div>
+      <div class="template-item" onclick="togglePreview(this)">
+        <span class="t-icon">📄</span>
+        <span class="t-name">clip_raster</span>
+        <span class="t-id">GDAL · 栅格</span>
+        <div class="t-preview">
+          <div style="color:var(--text);margin-bottom:4px;">栅格裁剪</div>
+          <div class="p-row"><span class="p-name">input</span><span class="p-type">file_path *</span></div>
+          <div class="p-row"><span class="p-name">output</span><span class="p-type">file_path *</span></div>
+          <div class="p-row"><span class="p-name">cutline</span><span class="p-type">file_path *</span></div>
+        </div>
+      </div>
+      <div class="template-item" onclick="togglePreview(this)">
+        <span class="t-icon">📄</span>
+        <span class="t-name">gdal2tiles</span>
+        <span class="t-id">GDAL · 栅格</span>
+        <div class="t-preview">
+          <div style="color:var(--text);margin-bottom:4px;">生成地图瓦片</div>
+          <div class="p-row"><span class="p-name">input</span><span class="p-type">file_path *</span></div>
+          <div class="p-row"><span class="p-name">output_dir</span><span class="p-type">file_path *</span></div>
+          <div class="p-row"><span class="p-name">zoom</span><span class="p-type">string</span></div>
+        </div>
+      </div>
+      <div class="template-item" onclick="togglePreview(this)">
+        <span class="t-icon">📄</span>
+        <span class="t-name">v.to.rast</span>
+        <span class="t-id">GRASS · 栅格</span>
+        <div class="t-preview">
+          <div style="color:var(--text);margin-bottom:4px;">矢量转栅格</div>
+          <div class="p-row"><span class="p-name">input</span><span class="p-type">file_path *</span></div>
+          <div class="p-row"><span class="p-name">output</span><span class="p-type">file_path *</span></div>
+          <div class="p-row"><span class="p-name">attribute</span><span class="p-type">string *</span></div>
+        </div>
+      </div>
+      <div class="template-item" onclick="togglePreview(this)">
+        <span class="t-icon">📄</span>
+        <span class="t-name">ST_Buffer</span>
+        <span class="t-id">PostGIS · 矢量</span>
+        <div class="t-preview">
+          <div style="color:var(--text);margin-bottom:4px;">几何缓冲区</div>
+          <div class="p-row"><span class="p-name">geometry</span><span class="p-type">geometry *</span></div>
+          <div class="p-row"><span class="p-name">radius</span><span class="p-type">float *</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Center: Work Area -->
+  <div class="work-area">
+    <div class="work-scroll" id="workScroll">
+
+      <!-- Step 1: Document Input -->
+      <div class="section-card" id="step-0">
+        <div class="section-header">
+          <div>
+            <h3>输入 GIS 工具文档</h3>
+            <div class="section-desc">支持 GDAL、GRASS、SAGA、PostGIS 等工具的 HTML/Markdown/Help 文档</div>
+          </div>
+        </div>
+        <div class="section-body">
+          <div class="doc-input-tabs">
+            <button class="active">粘贴文本</button>
+            <button>上传文件</button>
+            <button>从 URL 抓取</button>
+          </div>
+          <textarea class="doc-textarea" placeholder="粘贴工具的文档内容...
+
+支持格式：
+- HTML 页面（GDAL 官网、GRASS 手册等）
+- Markdown 文档
+- 命令行 --help 输出
+- man page 文本
+
+例如（gdal2tiles --help 输出）：
+gdal2tiles.py [-h] [-z ZOOM] [-p PROFILE] input_file [output_dir]
+  -z ZOOM, --zoom=ZOOM  Zoom levels to render (format: '2-5' or '10').
+  -p PROFILE, --profile=PROFILE  Tile profiles (mercator, geodetic, raster).
+..."></textarea>
+          <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:12px;color:var(--text-secondary);">支持: HTML, Markdown, 纯文本</span>
+            <button class="btn-secondary" style="width:auto;padding:6px 16px;margin:0;">加载示例文档</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: Metadata Config -->
+      <div class="section-card" id="step-1" style="display:none;">
+        <div class="section-header">
+          <div>
+            <h3>配置模板元数据</h3>
+            <div class="section-desc">设置模板标识、分类和生成策略</div>
+          </div>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">模板 ID <span class="hint">唯一标识，如 gdal2tiles</span></label>
+              <input type="text" class="form-input" placeholder="gdal2tiles">
+            </div>
+            <div class="form-group">
+              <label class="form-label">模板名称 <span class="hint">中文显示名</span></label>
+              <input type="text" class="form-input" placeholder="生成地图瓦片">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">功能描述 <span class="hint">一句话说明</span></label>
+            <input type="text" class="form-input" placeholder="将栅格数据切分为 TMS/XYZ 格式的地图瓦片">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">工具来源</label>
+              <select class="form-select">
+                <option selected>GDAL</option>
+                <option>GRASS GIS</option>
+                <option>SAGA GIS</option>
+                <option>QGIS Processing</option>
+                <option>PostGIS</option>
+                <option>其他</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">数据类型分类</label>
+              <select class="form-select">
+                <option>矢量 (vector)</option>
+                <option selected>栅格 (raster)</option>
+                <option>数据库 (database)</option>
+                <option>通用 (general)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">文档格式</label>
+              <select class="form-select">
+                <option selected>HTML 文档页</option>
+                <option>Markdown 文档</option>
+                <option>命令行 --help 输出</option>
+                <option>man page</option>
+                <option>纯文本</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">参数识别策略</label>
+              <select class="form-select">
+                <option selected>自动识别（推荐）</option>
+                <option>仅识别必填参数</option>
+                <option>识别所有选项（含高级）</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">额外提示 <span class="hint">给 LLM 的生成指导（可选）</span></label>
+            <textarea class="form-textarea" placeholder="例如：请确保 -z 参数支持 zoom 级别范围写法，如 5-15"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3: Generated Preview -->
+      <div class="section-card" id="step-2" style="display:none;">
+        <div class="section-header">
+          <div>
+            <h3>生成预览</h3>
+            <div class="section-desc">LLM 生成的 J2 模板，可直接编辑</div>
+          </div>
+          <button class="btn-secondary" style="width:auto;padding:6px 16px;margin:0;">重新生成</button>
+        </div>
+        <div class="section-body">
+          <div class="code-preview">
+            <div class="code-preview-header">
+              <span class="filename">gdal2tiles.j2</span>
+              <div class="actions">
+                <button>复制</button>
+                <button>下载</button>
+              </div>
+            </div>
+            <div class="code-preview-body">
+<span class="comment">{# @id gdal2tiles #}</span><br>
+<span class="comment">{# @name 生成地图瓦片 #}</span><br>
+<span class="comment">{# @description 将栅格数据切分为 TMS/XYZ 格式的地图瓦片 #}</span><br>
+<span class="comment">{# @concept "TMS" — Tile Map Service，一种地图瓦片服务协议 #}</span><br>
+<span class="comment">{# @concept "XYZ" — 简化的瓦片坐标方案，z/x/y 格式 #}</span><br>
+<span class="comment">{# @note 输入栅格需已投影到 Web Mercator (EPSG:3857) #}</span><br>
+<span class="comment">{# @param input file_path required 输入栅格文件路径 #}</span><br>
+<span class="comment">{# @param output_dir file_path optional 输出瓦片目录 #}</span><br>
+<span class="comment">{# @param zoom string optional zoom 级别范围 default=5-15 #}</span><br>
+<span class="comment">{# @param profile string optional 瓦片配置文件 default=mercator #}</span><br>
+<span class="comment">{# @common_error "No input file" — 检查 input 路径是否正确 #}</span><br><br>
+gdal2tiles.py -z <span class="var">{{ zoom | default('5-15') }}</span> <br>
+&nbsp;&nbsp;--profile=<span class="var">{{ profile | default('mercator') }}</span> <br>
+&nbsp;&nbsp;<span class="var">{{ input | quote }}</span> <br>
+&nbsp;&nbsp;<span class="var">{{ output_dir | default(workspace + '/output/' + input | basename | splitext | first + '_tiles') | safe_path }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4: Review -->
+      <div class="section-card" id="step-3" style="display:none;">
+        <div class="section-header">
+          <div>
+            <h3>审查与修正</h3>
+            <div class="section-desc">检查 LLM 识别的参数和概念说明</div>
+          </div>
+        </div>
+        <div class="section-body">
+          <div style="margin-bottom:16px;">
+            <h4 style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">安全扫描</h4>
+            <div class="security-item pass">
+              <span class="s-icon">✓</span>
+              <span>无危险命令注入模式</span>
+            </div>
+            <div class="security-item pass">
+              <span class="s-icon">✓</span>
+              <span>所有路径参数使用 |quote 过滤器</span>
+            </div>
+            <div class="security-item warn">
+              <span class="s-icon">⚠</span>
+              <span>zoom 参数未限制范围，建议添加校验</span>
+            </div>
+          </div>
+          <div style="margin-bottom:16px;">
+            <h4 style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">参数列表（LLM 识别）</h4>
+            <div class="param-item">
+              <div class="p-name">input <span class="p-type">file_path · 必填</span></div>
+              <div class="p-desc">输入栅格文件路径</div>
+              <div class="p-source">✓ 置信度 98% · 从文档 <code>&lt;input&gt;</code> 标签提取</div>
+            </div>
+            <div class="param-item">
+              <div class="p-name">output_dir <span class="p-type">file_path · 可选</span></div>
+              <div class="p-desc">输出瓦片目录</div>
+              <div class="p-source">✓ 置信度 85% · 从文档 <code>&lt;output&gt;</code> 标签推断</div>
+              <div class="p-edit">
+                <input type="text" value="输出瓦片目录">
+                <button style="border:1px solid var(--border);background:var(--panel);border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;">修改</button>
+              </div>
+            </div>
+            <div class="param-item">
+              <div class="p-name">zoom <span class="p-type">string · 可选</span></div>
+              <div class="p-desc">zoom 级别范围</div>
+              <div class="p-source">✓ 置信度 92% · 从命令示例 <code>-z 5-15</code> 提取</div>
+            </div>
+          </div>
+          <div>
+            <h4 style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">概念说明</h4>
+            <div class="concept-item">
+              <span class="c-term">TMS</span>
+              <span class="c-def">— Tile Map Service，一种地图瓦片服务协议，y 轴从南向北增长</span>
+            </div>
+            <div class="concept-item">
+              <span class="c-term">XYZ</span>
+              <span class="c-def">— 简化的瓦片坐标方案，z/x/y 格式，y 轴从北向南增长（与 TMS 相反）</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 5: Save -->
+      <div class="section-card" id="step-4" style="display:none;">
+        <div class="section-header">
+          <div>
+            <h3>保存模板</h3>
+            <div class="section-desc">确认保存位置和文件名</div>
+          </div>
+        </div>
+        <div class="section-body">
+          <div class="form-group">
+            <label class="form-label">保存路径</label>
+            <input type="text" class="form-input" value="data/templates/raster/gdal2tiles.j2">
+          </div>
+          <div class="form-group">
+            <label class="form-label">生成摘要</label>
+            <div style="background:var(--bg);border-radius:8px;padding:12px;font-size:12px;line-height:1.8;">
+              <div>📝 模板 ID: <strong>gdal2tiles</strong></div>
+              <div>📁 分类: <strong>栅格 (raster)</strong></div>
+              <div>🔧 识别参数: <strong>4 个</strong>（2 必填 + 2 可选）</div>
+              <div>💡 概念说明: <strong>2 条</strong></div>
+              <div>✓ 安全扫描: <strong style="color:var(--success);">通过</strong></div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">备注 <span class="hint">可选，记录生成方式和修改点</span></label>
+            <textarea class="form-textarea" placeholder="由 gdal2tiles 官方 HTML 文档通过 LLM 自动生成..."></textarea>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Right: Action Panel -->
+  <div class="review-panel">
+    <div class="review-scroll">
+      <div class="review-section">
+        <h4>引擎状态</h4>
+        <div style="display:flex;align-items:center;gap:8px;padding:10px;background:#f0fdf4;border-radius:8px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--success);"></span>
+          <span style="font-size:12px;color:var(--text);"><strong>LLM 引擎就绪</strong></span>
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.6;">
+          文档将发送至 LLM 进行模板生成。生成结果需人工审查后保存。
+        </div>
+      </div>
+      <div class="review-section">
+        <h4>生成提示</h4>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.7;">
+          <div>1. 粘贴工具文档</div>
+          <div>2. 确认模板元数据</div>
+          <div>3. 点击生成，等待预览</div>
+          <div>4. 审查参数和安全扫描结果</div>
+          <div>5. 保存到模板目录</div>
+        </div>
+      </div>
+    </div>
+    <div class="action-panel">
+      <button class="btn-primary" id="actionBtn" onclick="nextStep()">下一步: 配置元数据 →</button>
+      <button class="btn-secondary" onclick="alert('跳过审查直接保存')">跳过并保存</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let currentStep = 0;
+const stepLabels = [
+  '下一步: 配置元数据 →',
+  '生成 J2 模板',
+  '下一步: 审查修正 →',
+  '下一步: 保存 →',
+  '✓ 保存模板'
+];
+
+function switchStep(n) {
+  currentStep = n;
+
+  // Update step bar
+  document.querySelectorAll('.step-item').forEach((el, i) => {
+    el.classList.remove('active', 'done');
+    if (i === n) el.classList.add('active');
+    else if (i < n) el.classList.add('done');
+  });
+
+  // Show corresponding section
+  for (let i = 0; i < 5; i++) {
+    const sec = document.getElementById('step-' + i);
+    if (sec) sec.style.display = i === n ? 'block' : 'none';
+  }
+
+  // Update action button
+  const btn = document.getElementById('actionBtn');
+  if (btn) btn.textContent = stepLabels[n];
+}
+
+function togglePreview(el) {
+  const wasExpanded = el.classList.contains('expanded');
+  document.querySelectorAll('.template-item').forEach(item => item.classList.remove('expanded', 'active'));
+  if (!wasExpanded) {
+    el.classList.add('expanded', 'active');
+  }
+}
+
+function nextStep() {
+  if (currentStep < 4) {
+    switchStep(currentStep + 1);
+  } else {
+    alert('模板已保存到 data/templates/raster/gdal2tiles.j2');
+  }
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GIS Agent — Pipeline 原型</title>
+<style>
+  :root {
+    --bg: #f3f4f6;
+    --panel: #ffffff;
+    --border: #e5e7eb;
+    --text: #111827;
+    --text-secondary: #6b7280;
+    --primary: #2563eb;
+    --primary-light: #dbeafe;
+    --success: #16a34a;
+    --warning: #ca8a04;
+    --danger: #dc2626;
+    --radius: 10px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-lg: 0 10px 25px rgba(0,0,0,0.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ===== Top Bar ===== */
+  .topbar {
+    height: 52px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    flex-shrink: 0;
+  }
+  .topbar .logo { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .topbar .logo span { color: var(--primary); }
+  .topbar .logo .status-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--primary);
+    margin-left: 6px; box-shadow: 0 0 0 2px rgba(37,99,235,0.2);
+  }
+  .topbar .workspace-info { font-size: 13px; color: var(--text-secondary); }
+
+  /* ===== Main Layout ===== */
+  .main { display: flex; flex: 1; overflow: hidden; }
+
+  /* ===== Left: Template Cards ===== */
+  .sidebar {
+    width: 280px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .sidebar-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .sidebar-header input {
+    flex: 1; border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 12px; font-size: 13px; outline: none;
+  }
+  .sidebar-header input:focus { border-color: var(--primary); }
+
+  .pipeline-hint {
+    padding: 10px 14px;
+    background: var(--primary-light);
+    border-bottom: 1px solid #bfdbfe;
+    font-size: 12px;
+    color: var(--primary);
+    line-height: 1.5;
+  }
+  .pipeline-hint strong { display: block; margin-bottom: 2px; }
+
+  .card-list { flex: 1; overflow-y: auto; padding: 8px 12px; }
+  .template-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 12px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s;
+    opacity: 0.6;
+  }
+  .template-card:hover { opacity: 1; border-color: #bfdbfe; box-shadow: var(--shadow); }
+  .template-card.in-pipeline {
+    opacity: 1;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(37,99,235,0.06);
+    position: relative;
+  }
+  .template-card.in-pipeline::before {
+    content: attr(data-step);
+    position: absolute; left: -6px; top: 50%; transform: translateY(-50%);
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--primary); color: #fff; font-size: 10px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .template-card .card-title { font-weight: 600; font-size: 13px; margin-bottom: 3px; display: flex; align-items: center; justify-content: space-between; }
+  .template-card .card-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.5; }
+  .template-card .card-meta { display: flex; gap: 6px; margin-top: 8px; }
+  .template-card .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
+  .badge-raster { background: #fef3c7; color: #92400e; }
+  .badge-vector { background: #d1fae5; color: #065f46; }
+  .badge-general { background: #e0e7ff; color: #3730a3; }
+
+  /* ===== Center: Chat ===== */
+  .chat-area {
+    flex: 1; display: flex; flex-direction: column;
+    background: var(--bg); min-width: 360px;
+  }
+  .chat-messages {
+    flex: 1; overflow-y: auto; padding: 20px 24px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .msg { display: flex; gap: 10px; max-width: 92%; }
+  .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+  .msg .avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; flex-shrink: 0;
+  }
+  .msg.agent .avatar { background: var(--primary-light); color: var(--primary); }
+  .msg.user .avatar { background: #d1fae5; color: var(--success); }
+  .msg .bubble {
+    background: var(--panel); padding: 12px 16px; border-radius: 12px;
+    border: 1px solid var(--border); font-size: 14px; line-height: 1.7;
+    box-shadow: var(--shadow);
+  }
+  .msg.user .bubble { background: #eff6ff; border-color: #bfdbfe; }
+  .msg .bubble p { margin-bottom: 8px; }
+  .msg .bubble p:last-child { margin-bottom: 0; }
+
+  .script-box {
+    background: #1e1e1e; color: #d4d4d4; border-radius: 8px;
+    padding: 14px; font-family: "SF Mono", Monaco, monospace;
+    font-size: 13px; line-height: 1.6; overflow-x: auto; margin: 10px 0;
+  }
+  .script-box .comment { color: #6a9955; }
+  .script-box .cmd { color: #dcdcaa; }
+  .script-box .arg { color: #9cdcfe; }
+  .script-box .path { color: #ce9178; }
+  .script-box .var { color: #c586c0; }
+
+  .action-bar {
+    display: flex; gap: 8px; margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .action-bar button {
+    border: 1px solid var(--border); background: var(--panel); border-radius: 6px;
+    padding: 6px 14px; font-size: 13px; cursor: pointer;
+  }
+  .action-bar button.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .action-bar button.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+  .chat-toolbar {
+    padding: 8px 24px; background: var(--panel); border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .chat-toolbar .toolbar-status {
+    font-size: 12px; color: var(--text-secondary);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .chat-toolbar .toolbar-status .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--success);
+  }
+  .btn-clear {
+    border: 1px solid var(--border); background: transparent; border-radius: 6px;
+    padding: 4px 12px; font-size: 12px; cursor: pointer; color: var(--text-secondary);
+  }
+  .btn-clear:hover { border-color: var(--danger); color: var(--danger); background: #fef2f2; }
+
+  .chat-input-area {
+    padding: 14px 24px 20px; background: var(--panel); border-top: 1px solid var(--border);
+  }
+  .chat-input-wrap {
+    display: flex; gap: 10px; align-items: flex-end;
+    border: 1px solid var(--border); border-radius: 12px; padding: 6px;
+  }
+  .chat-input-wrap:focus-within { border-color: var(--primary); }
+  .chat-input-wrap textarea {
+    flex: 1; border: none; outline: none; resize: none;
+    font-size: 14px; line-height: 1.5; padding: 8px 10px;
+    font-family: inherit; max-height: 120px; min-height: 24px;
+  }
+  .chat-input-wrap .send-btn {
+    width: 34px; height: 34px; border-radius: 8px; border: none;
+    background: var(--primary); color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+  .input-hint { font-size: 11px; color: var(--text-secondary); margin-top: 8px; padding-left: 4px; }
+
+  /* ===== Pipeline Overview Card (in chat) ===== */
+  .pipeline-overview {
+    background: linear-gradient(135deg, #eff6ff 0%, #f5f3ff 100%);
+    border: 1px solid #bfdbfe; border-radius: var(--radius);
+    padding: 16px; margin: 10px 0;
+  }
+  .pipeline-overview-title {
+    font-size: 13px; font-weight: 600; color: var(--primary);
+    margin-bottom: 12px; display: flex; align-items: center; gap: 6px;
+  }
+  .pipeline-flow {
+    display: flex; align-items: center; gap: 6px;
+    overflow-x: auto; padding-bottom: 4px;
+  }
+  .pipeline-step-mini {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 12px; min-width: 100px;
+    text-align: center; cursor: pointer; transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .pipeline-step-mini:hover { border-color: var(--primary); }
+  .pipeline-step-mini.active { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
+  .pipeline-step-mini .step-num {
+    font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;
+  }
+  .pipeline-step-mini .step-name { font-size: 12px; font-weight: 500; }
+  .pipeline-step-mini .step-status {
+    font-size: 10px; margin-top: 4px;
+  }
+  .pipeline-step-mini .step-status.ready { color: var(--success); }
+  .pipeline-step-mini .step-status.pending { color: var(--warning); }
+  .pipeline-arrow {
+    color: var(--text-secondary); font-size: 14px; flex-shrink: 0;
+  }
+
+  /* ===== Right: Stacked Task Cards ===== */
+  .detail-panel {
+    width: 420px;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .detail-scroll { flex: 1; overflow-y: auto; }
+
+  .pipeline-header {
+    padding: 14px 18px;
+    background: linear-gradient(135deg, #eff6ff 0%, #f5f3ff 100%);
+    border-bottom: 1px solid #bfdbfe;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .pipeline-header h3 {
+    font-size: 14px; color: var(--primary); display: flex; align-items: center; gap: 6px;
+  }
+  .pipeline-header .pipeline-meta {
+    font-size: 11px; color: var(--text-secondary); margin-top: 2px;
+  }
+  .btn-abandon-pipeline {
+    font-size: 11px; padding: 4px 10px; border-radius: 5px;
+    border: 1px solid var(--danger); background: transparent; color: var(--danger);
+    cursor: pointer;
+  }
+  .btn-abandon-pipeline:hover { background: var(--danger); color: #fff; }
+
+  /* Stacked task card */
+  .task-card {
+    border-bottom: 1px solid var(--border);
+    transition: all 0.2s;
+  }
+  .task-card-header {
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    background: var(--panel);
+    transition: background 0.15s;
+  }
+  .task-card-header:hover { background: #f9fafb; }
+  .task-card-header .step-badge {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--primary); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; flex-shrink: 0;
+  }
+  .task-card-header .step-info { flex: 1; }
+  .task-card-header .step-title { font-size: 13px; font-weight: 600; }
+  .task-card-header .step-desc { font-size: 11px; color: var(--text-secondary); margin-top: 1px; }
+  .task-card-header .step-toggle {
+    font-size: 12px; color: var(--text-secondary);
+    transition: transform 0.2s;
+  }
+  .task-card.expanded .step-toggle { transform: rotate(180deg); }
+  .task-card-body {
+    max-height: 0; overflow: hidden;
+    transition: max-height 0.3s ease;
+  }
+  .task-card.expanded .task-card-body {
+    max-height: 800px;
+  }
+  .task-card-inner { padding: 0 18px 16px; }
+
+  /* Data flow connector between tasks */
+  .data-flow {
+    display: flex; align-items: center;
+    padding: 6px 18px;
+    background: #f0fdf4;
+    border-left: 3px solid var(--success);
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .data-flow .flow-label { color: var(--success); font-weight: 500; margin-right: 6px; }
+  .data-flow .flow-path { font-family: monospace; font-size: 11px; }
+  .data-flow .flow-edit {
+    margin-left: auto; font-size: 10px; color: var(--primary);
+    cursor: pointer; text-decoration: underline;
+  }
+
+  /* Form inside task card */
+  .form-group { margin-bottom: 12px; }
+  .form-group:last-child { margin-bottom: 0; }
+  .form-label {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 500; margin-bottom: 4px;
+  }
+  .form-label .required { color: var(--danger); font-size: 10px; font-weight: 400; }
+  .form-label .type-tag {
+    font-size: 10px; color: var(--text-secondary); background: var(--bg);
+    padding: 1px 6px; border-radius: 4px; font-weight: 400; margin-left: auto;
+  }
+  .form-desc { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; line-height: 1.4; }
+  .form-input-wrap { position: relative; }
+  .form-input-wrap input[type="text"] {
+    width: 100%; border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 10px; font-size: 12px; font-family: inherit; outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .form-input-wrap input[type="text"]:focus {
+    border-color: var(--primary); box-shadow: 0 0 0 2px rgba(37,99,235,0.08);
+  }
+  .form-input-wrap input[type="text"].filled { background: #f0fdf4; border-color: #bbf7d0; }
+  .form-input-wrap input[type="text"].auto-linked {
+    background: #eff6ff; border-color: #bfdbfe;
+    color: var(--primary);
+  }
+  .form-input-wrap input[type="text"].auto-linked:focus { color: var(--text); }
+  .form-input-wrap .file-btn {
+    position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+    padding: 2px 6px; font-size: 10px; cursor: pointer; color: var(--text-secondary);
+  }
+  .form-input-wrap .link-indicator {
+    position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+    font-size: 10px; color: var(--primary); background: var(--primary-light);
+    padding: 2px 6px; border-radius: 4px; pointer-events: none;
+  }
+  .form-default { font-size: 11px; color: var(--primary); margin-top: 3px; }
+
+  .detail-footer {
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .btn-generate {
+    width: 100%; padding: 10px; border: none; border-radius: 8px;
+    background: var(--primary); color: #fff; font-size: 14px; font-weight: 500;
+    cursor: pointer;
+  }
+  .btn-generate:hover { background: #1d4ed8; }
+  .btn-generate-secondary {
+    width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text-secondary); font-size: 13px;
+    cursor: pointer; margin-top: 8px;
+  }
+
+  .note-item {
+    display: flex; gap: 6px; align-items: flex-start;
+    padding: 5px 0; font-size: 11px; line-height: 1.5;
+  }
+  .note-item code {
+    background: var(--bg); padding: 1px 4px; border-radius: 3px;
+    font-family: monospace; font-size: 10px;
+  }
+
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .msg { animation: fadeIn 0.25s ease; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <span>◆</span> GIS Agent
+    <span class="status-dot"></span>
+    <span style="font-size:12px;color:var(--text-secondary);margin-left:6px;">Pipeline 模式</span>
+  </div>
+  <span class="workspace-info">工作区: /data/gis-projects/demo</span>
+</div>
+
+<div class="main">
+
+  <!-- Left: Template Cards (contextual, pipeline-related) -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <input type="text" placeholder="搜索模板...">
+    </div>
+    <div class="pipeline-hint">
+      <strong>Pipeline 步骤</strong>
+      当前已锁定 3 个串行任务。点击步骤可定位到右侧面板。
+    </div>
+    <div class="card-list">
+      <div class="template-card in-pipeline" data-step="1">
+        <div class="card-title">Shapefile 转 GeoJSON <span style="font-size:11px;color:var(--text-secondary);">shp2geojson</span></div>
+        <div class="card-desc">将 Shapefile 格式矢量数据转换为 GeoJSON</div>
+        <div class="card-meta">
+          <span class="badge badge-vector">矢量</span>
+          <span class="badge badge-general">转换</span>
+        </div>
+      </div>
+      <div class="template-card in-pipeline" data-step="2">
+        <div class="card-title">栅格裁剪 <span style="font-size:11px;color:var(--text-secondary);">clip_raster</span></div>
+        <div class="card-desc">使用矢量边界裁剪栅格数据</div>
+        <div class="card-meta">
+          <span class="badge badge-raster">栅格</span>
+          <span class="badge badge-general">裁剪</span>
+        </div>
+      </div>
+      <div class="template-card in-pipeline" data-step="3">
+        <div class="card-title">生成瓦片 <span style="font-size:11px;color:var(--text-secondary);">gdal2tiles</span></div>
+        <div class="card-desc">将栅格切分为 TMS/XYZ 格式地图瓦片</div>
+        <div class="card-meta">
+          <span class="badge badge-raster">栅格</span>
+          <span class="badge badge-general">瓦片</span>
+        </div>
+      </div>
+      <div style="border-top:1px dashed var(--border);margin:12px 0;"></div>
+      <div class="template-card">
+        <div class="card-title">矢量数据重投影 <span style="font-size:11px;color:var(--text-secondary);">reproject</span></div>
+        <div class="card-desc">将矢量数据投影到指定 CRS</div>
+        <div class="card-meta">
+          <span class="badge badge-vector">矢量</span>
+        </div>
+      </div>
+      <div class="template-card">
+        <div class="card-title">栅格重投影 <span style="font-size:11px;color:var(--text-secondary);">warp_reproject</span></div>
+        <div class="card-desc">使用 gdalwarp 对栅格重投影</div>
+        <div class="card-meta">
+          <span class="badge badge-raster">栅格</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Center: Chat with Pipeline -->
+  <div class="chat-area">
+    <div class="chat-messages" id="chatMessages">
+
+      <div class="msg user">
+        <div class="avatar">我</div>
+        <div class="bubble">
+          先把 /data/beijing.shp 转成 GeoJSON，再用 geojson 裁剪 /data/dem.tif，最后把裁剪结果切成瓦片
+        </div>
+      </div>
+
+      <div class="msg agent">
+        <div class="avatar">AI</div>
+        <div class="bubble">
+          <p>收到，已识别为 <strong>3 步串行 Pipeline</strong>：</p>
+          <div class="pipeline-overview">
+            <div class="pipeline-overview-title">📋 Pipeline 概览（点击步骤跳转）</div>
+            <div class="pipeline-flow">
+              <div class="pipeline-step-mini active" onclick="jumpToStep(0)">
+                <div class="step-num">STEP 1</div>
+                <div class="step-name">shp2geojson</div>
+                <div class="step-status ready">✓ 已填写</div>
+              </div>
+              <div class="pipeline-arrow">→</div>
+              <div class="pipeline-step-mini" onclick="jumpToStep(1)">
+                <div class="step-num">STEP 2</div>
+                <div class="step-name">clip_raster</div>
+                <div class="step-status pending">○ 待检查</div>
+              </div>
+              <div class="pipeline-arrow">→</div>
+              <div class="pipeline-step-mini" onclick="jumpToStep(2)">
+                <div class="step-num">STEP 3</div>
+                <div class="step-name">gdal2tiles</div>
+                <div class="step-status pending">○ 待检查</div>
+              </div>
+            </div>
+          </div>
+          <p>我已自动关联了步骤间的数据流：</p>
+          <ul style="font-size:13px;color:var(--text-secondary);margin-left:18px;line-height:1.8;">
+            <li>Step 1 的 <code>output</code> → Step 2 的 <code>cutline</code></li>
+            <li>Step 2 的 <code>output</code> → Step 3 的 <code>input</code></li>
+          </ul>
+          <p style="margin-top:8px;">请在右侧面板检查每一步的参数，确认后生成合并脚本。</p>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="chat-toolbar">
+      <div class="toolbar-status">
+        <span class="dot"></span>
+        <span>Pipeline 模式 — 3 个串行任务</span>
+      </div>
+      <button class="btn-clear" onclick="alert('清空对话并重置 Pipeline')">清空对话</button>
+    </div>
+
+    <div class="chat-input-area">
+      <div class="chat-input-wrap">
+        <textarea rows="1" placeholder="继续补充需求或修改参数..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();}"></textarea>
+        <button class="send-btn">↑</button>
+      </div>
+      <div class="input-hint">提示: 可直接在右侧面板修改参数，点击步骤标题可展开/折叠。</div>
+    </div>
+  </div>
+
+  <!-- Right: Stacked Task Parameters -->
+  <div class="detail-panel">
+    <div class="pipeline-header">
+      <div>
+        <h3>🔗 Pipeline 参数</h3>
+        <div class="pipeline-meta">3 个步骤 · 2 处自动关联</div>
+      </div>
+      <button class="btn-abandon-pipeline" onclick="alert('放弃 Pipeline')">放弃 Pipeline</button>
+    </div>
+
+    <div class="detail-scroll" id="detailScroll">
+
+      <!-- Step 1 -->
+      <div class="task-card expanded" data-step="0">
+        <div class="task-card-header" onclick="toggleTask(this)">
+          <div class="step-badge">1</div>
+          <div class="step-info">
+            <div class="step-title">Shapefile 转 GeoJSON</div>
+            <div class="step-desc">shp2geojson · 2/3 参数已填</div>
+          </div>
+          <div class="step-toggle">▼</div>
+        </div>
+        <div class="task-card-body">
+          <div class="task-card-inner">
+            <div class="form-group">
+              <div class="form-label">
+                input <span class="required">* 必填</span> <span class="type-tag">file_path</span>
+              </div>
+              <div class="form-desc">输入 Shapefile 路径</div>
+              <div class="form-input-wrap">
+                <input type="text" value="/data/beijing.shp" class="filled">
+                <button class="file-btn">浏览</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <div class="form-label">
+                output <span class="required">* 必填</span> <span class="type-tag">file_path</span>
+              </div>
+              <div class="form-desc">输出 GeoJSON 文件路径</div>
+              <div class="form-input-wrap">
+                <input type="text" value="${workspace}/output/beijing_20250115.geojson" class="filled">
+              </div>
+              <div class="form-default">自动命名，用于下游步骤</div>
+            </div>
+            <div class="form-group">
+              <div class="form-label">t_srs <span class="type-tag">crs</span></div>
+              <div class="form-desc">目标坐标参考系统</div>
+              <div class="form-input-wrap">
+                <input type="text" value="EPSG:4326" class="filled">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Data Flow: Step 1 → Step 2 -->
+      <div class="data-flow">
+        <span class="flow-label">→ 下游输入</span>
+        <span class="flow-path">Step 1 output → Step 2 cutline</span>
+        <span class="flow-edit" onclick="alert('解除关联，允许手动输入')">解除关联</span>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="task-card" data-step="1">
+        <div class="task-card-header" onclick="toggleTask(this)">
+          <div class="step-badge">2</div>
+          <div class="step-info">
+            <div class="step-title">栅格裁剪</div>
+            <div class="step-desc">clip_raster · 1/3 参数已填</div>
+          </div>
+          <div class="step-toggle">▼</div>
+        </div>
+        <div class="task-card-body">
+          <div class="task-card-inner">
+            <div class="form-group">
+              <div class="form-label">
+                input <span class="required">* 必填</span> <span class="type-tag">file_path</span>
+              </div>
+              <div class="form-desc">输入栅格文件路径</div>
+              <div class="form-input-wrap">
+                <input type="text" value="/data/dem.tif" class="filled">
+                <button class="file-btn">浏览</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <div class="form-label">
+                output <span class="required">* 必填</span> <span class="type-tag">file_path</span>
+              </div>
+              <div class="form-desc">输出裁剪后的栅格路径</div>
+              <div class="form-input-wrap">
+                <input type="text" value="${workspace}/output/dem_clipped_20250115.tif" class="filled">
+              </div>
+            </div>
+            <div class="form-group">
+              <div class="form-label">
+                cutline <span class="required">* 必填</span> <span class="type-tag">file_path</span>
+              </div>
+              <div class="form-desc">裁剪边界（GeoJSON / Shapefile）</div>
+              <div class="form-input-wrap">
+                <input type="text" value="← Step 1 output" class="auto-linked" readonly>
+                <span class="link-indicator">自动关联</span>
+              </div>
+            </div>
+            <div class="note-item">
+              <span style="color:var(--primary)">💡</span>
+              <div>此参数已自动关联上一步输出。如需更改，点击上方「解除关联」。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Data Flow: Step 2 → Step 3 -->
+      <div class="data-flow">
+        <span class="flow-label">→ 下游输入</span>
+        <span class="flow-path">Step 2 output → Step 3 input</span>
+        <span class="flow-edit" onclick="alert('解除关联，允许手动输入')">解除关联</span>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="task-card" data-step="2">
+        <div class="task-card-header" onclick="toggleTask(this)">
+          <div class="step-badge">3</div>
+          <div class="step-info">
+            <div class="step-title">生成瓦片</div>
+            <div class="step-desc">gdal2tiles · 1/3 参数已填</div>
+          </div>
+          <div class="step-toggle">▼</div>
+        </div>
+        <div class="task-card-body">
+          <div class="task-card-inner">
+            <div class="form-group">
+              <div class="form-label">
+                input <span class="required">* 必填</span> <span class="type-tag">file_path</span>
+              </div>
+              <div class="form-desc">输入栅格文件路径</div>
+              <div class="form-input-wrap">
+                <input type="text" value="← Step 2 output" class="auto-linked" readonly>
+                <span class="link-indicator">自动关联</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <div class="form-label">
+                output_dir <span class="required">* 必填</span> <span class="type-tag">file_path</span>
+              </div>
+              <div class="form-desc">输出瓦片目录</div>
+              <div class="form-input-wrap">
+                <input type="text" placeholder="留空则自动生成">
+                <button class="file-btn">浏览</button>
+              </div>
+              <div class="form-default">默认: 工作区/output/&lt;name&gt;_tiles</div>
+            </div>
+            <div class="form-group">
+              <div class="form-label">zoom <span class="type-tag">string</span></div>
+              <div class="form-desc">zoom 级别范围</div>
+              <div class="form-input-wrap">
+                <input type="text" value="5-15" class="filled">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Script Preview Section -->
+      <div style="padding: 16px 18px; border-bottom: 1px solid var(--border);">
+        <h3 style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-secondary); margin-bottom: 12px;">
+          合并脚本预览
+        </h3>
+        <div class="script-box" style="margin:0;">
+<span class="comment"># Pipeline: shp2geojson → clip_raster → gdal2tiles</span><br>
+<span class="comment"># Step 1: Shapefile 转 GeoJSON</span><br>
+<span class="cmd">ogr2ogr</span> -f <span class="arg">"GeoJSON"</span> \
+&nbsp;&nbsp;<span class="path">${STEP1_OUT}</span> \
+&nbsp;&nbsp;<span class="path">/data/beijing.shp</span> \
+&nbsp;&nbsp;-t_srs <span class="arg">EPSG:4326</span><br><br>
+<span class="comment"># Step 2: 栅格裁剪</span><br>
+<span class="cmd">gdalwarp</span> -cutline <span class="var">${STEP1_OUT}</span> \
+&nbsp;&nbsp;-crop_to_cutline \
+&nbsp;&nbsp;<span class="path">/data/dem.tif</span> \
+&nbsp;&nbsp;<span class="path">${STEP2_OUT}</span><br><br>
+<span class="comment"># Step 3: 生成瓦片</span><br>
+<span class="cmd">gdal2tiles.py</span> -z <span class="arg">5-15</span> \
+&nbsp;&nbsp;<span class="var">${STEP2_OUT}</span> \
+&nbsp;&nbsp;<span class="path">${OUTPUT_DIR}</span>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="detail-footer">
+      <button class="btn-generate" onclick="alert('生成并执行合并脚本')">生成并执行 Pipeline</button>
+      <button class="btn-generate-secondary" onclick="alert('预览各步骤独立脚本')">预览分步脚本</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function toggleTask(header) {
+  const card = header.closest('.task-card');
+  const wasExpanded = card.classList.contains('expanded');
+
+  // Close all
+  document.querySelectorAll('.task-card').forEach(c => c.classList.remove('expanded'));
+
+  // Open clicked if it was closed
+  if (!wasExpanded) {
+    card.classList.add('expanded');
+  }
+}
+
+function jumpToStep(stepIndex) {
+  // Update mini step highlighting
+  document.querySelectorAll('.pipeline-step-mini').forEach((el, i) => {
+    el.classList.toggle('active', i === stepIndex);
+  });
+
+  // Expand corresponding task card
+  document.querySelectorAll('.task-card').forEach((card, i) => {
+    card.classList.toggle('expanded', i === stepIndex);
+  });
+
+  // Scroll right panel to step
+  const target = document.querySelector('.task-card[data-step="' + stepIndex + '"]');
+  if (target) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+</script>
+
+</body>
+</html>

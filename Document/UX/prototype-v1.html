@@ -1,0 +1,1964 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GIS Agent — UX 原型 v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f8fafc;
+    --panel: #ffffff;
+    --border: #e2e8f0;
+    --border-light: #f1f5f9;
+    --text: #0f172a;
+    --text-secondary: #64748b;
+    --text-tertiary: #94a3b8;
+    --primary: #2563eb;
+    --primary-light: #dbeafe;
+    --primary-soft: #eff6ff;
+    --success: #10b981;
+    --success-light: #d1fae5;
+    --success-soft: #f0fdf4;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --danger-light: #fee2e2;
+    --radius-sm: 8px;
+    --radius: 12px;
+    --radius-lg: 16px;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow: 0 1px 3px rgba(0,0,0,0.06);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
+    --shadow-lg: 0 12px 32px rgba(0,0,0,0.08);
+    --font: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', Monaco, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+  /* ===== Mode containers ===== */
+  .mode-container { display: none; flex: 1; }
+  .mode-container.active { display: flex; }
+
+  /* ===== Left Navigation Bar ===== */
+  .nav-bar {
+    width: 56px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 0;
+    flex-shrink: 0;
+    z-index: 20;
+  }
+  .nav-logo {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--primary) 0%, #1d4ed8 100%);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px rgba(37,99,235,0.25);
+  }
+  .nav-logo svg { width: 18px; height: 18px; }
+  .nav-items {
+    flex: 1; display: flex; flex-direction: column; gap: 2px; width: 100%;
+  }
+  .nav-item {
+    position: relative;
+    width: 100%; height: 40px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: all 0.15s;
+    border: none; background: none;
+  }
+  .nav-item:hover { color: var(--text-secondary); background: var(--bg); }
+  .nav-item.active { color: var(--primary); }
+  .nav-item.active::before {
+    content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 20px; background: var(--primary);
+    border-radius: 0 3px 3px 0;
+  }
+  .nav-item svg { width: 20px; height: 20px; }
+  .nav-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 2px; width: 100%; }
+
+  /* ===== Shared: Sidebar (Template Cards) ===== */
+  .sidebar {
+    width: 300px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; flex-shrink: 0;
+  }
+  .sidebar-header {
+    padding: 20px 16px 12px;
+  }
+  .sidebar-header h2 {
+    font-size: 15px; font-weight: 600; color: var(--text); letter-spacing: -0.3px;
+  }
+  .sidebar-header p {
+    font-size: 12px; color: var(--text-tertiary); margin-top: 2px;
+  }
+  .sidebar-search {
+    padding: 0 16px 10px;
+  }
+  .sidebar-search .search-wrap { position: relative; }
+  .sidebar-search input {
+    width: 100%; height: 36px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 0 10px 0 32px;
+    font-size: 13px; font-family: var(--font);
+    background: var(--bg);
+    outline: none; transition: all 0.15s;
+  }
+  .sidebar-search input:focus {
+    border-color: var(--primary); background: var(--panel);
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.08);
+  }
+  .sidebar-search input::placeholder { color: var(--text-tertiary); }
+  .sidebar-search .search-icon {
+    position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+    color: var(--text-tertiary);
+  }
+  .tag-filter {
+    display: flex; gap: 6px; padding: 0 16px 12px; flex-wrap: wrap;
+  }
+  .tag-filter span {
+    font-size: 11px; font-weight: 500;
+    padding: 4px 10px; border-radius: 6px;
+    background: var(--bg); color: var(--text-secondary);
+    cursor: pointer; border: 1px solid transparent;
+    transition: all 0.12s;
+  }
+  .tag-filter span:hover { background: var(--border-light); }
+  .tag-filter span.active {
+    font-weight: 600;
+  }
+  .tag-filter span[data-tag="vector"].active { background: rgba(16,185,129,0.1); color: #059669; }
+  .tag-filter span[data-tag="raster"].active { background: rgba(245,158,11,0.1); color: #d97706; }
+  .tag-filter span[data-tag="general"].active { background: rgba(99,102,241,0.1); color: #4f46e5; }
+  .tag-filter span[data-tag="all"].active { background: var(--primary-soft); color: var(--primary); }
+
+  .card-list { flex: 1; overflow-y: auto; padding: 4px 12px 8px; }
+  .sidebar-footer {
+    padding: 12px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .btn-new-template {
+    width: 100%; height: 36px;
+    border: 1px dashed var(--border); border-radius: var(--radius-sm);
+    background: var(--bg); color: var(--text-secondary);
+    font-size: 13px; font-weight: 500; font-family: var(--font);
+    cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;
+    transition: all 0.15s;
+  }
+  .btn-new-template:hover {
+    border-color: var(--primary); color: var(--primary); background: var(--primary-soft);
+  }
+
+  .template-card {
+    background: var(--panel);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+    position: relative;
+    overflow: hidden;
+  }
+  .template-card::before {
+    content: ''; position: absolute; left: 0; top: 12px; bottom: 12px;
+    width: 3px; border-radius: 0 3px 3px 0; transition: opacity 0.15s; opacity: 0;
+  }
+  .template-card[data-cat="vector"]::before { background: var(--success); }
+  .template-card[data-cat="raster"]::before { background: var(--warning); }
+  .template-card[data-cat="general"]::before { background: #6366f1; }
+  .template-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: #cbd5e1;
+  }
+  .template-card:hover::before { opacity: 1; }
+  .template-card.selected {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.06), var(--shadow-md);
+    background: var(--primary-soft);
+  }
+  .template-card.selected::before { opacity: 1; }
+  .template-card.locked {
+    border-color: var(--success);
+    box-shadow: 0 0 0 3px rgba(16,185,129,0.06);
+    background: var(--success-soft);
+  }
+  .template-card.locked::after {
+    content: "●";
+    position: absolute; top: 10px; right: 12px;
+    color: var(--success); font-size: 10px;
+  }
+  .template-card .card-header {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+  }
+  .template-card .card-title {
+    font-weight: 600; font-size: 13.5px; color: var(--text);
+    letter-spacing: -0.2px;
+  }
+  .template-card:hover .card-title { color: var(--primary); }
+  .template-card .card-desc {
+    font-size: 12px; color: var(--text-secondary); line-height: 1.6;
+  }
+  .template-card .card-meta {
+    display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;
+  }
+  /* Pipeline step badge on card */
+  .template-card.in-pipeline {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(37,99,235,0.06);
+  }
+  .template-card.in-pipeline::after {
+    content: attr(data-step);
+    position: absolute; left: -6px; top: 50%; transform: translateY(-50%);
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--primary); color: #fff; font-size: 10px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font);
+  }
+  .badge {
+    font-size: 10.5px; font-weight: 600;
+    padding: 3px 8px; border-radius: 5px; letter-spacing: -0.2px;
+  }
+  .badge-raster { background: #fef3c7; color: #92400e; }
+  .badge-vector { background: #d1fae5; color: #065f46; }
+  .badge-general { background: #e0e7ff; color: #3730a3; }
+
+  /* ===== Shared: Chat Area ===== */
+  .chat-area {
+    flex: 1; display: flex; flex-direction: column;
+    background: var(--bg); min-width: 360px;
+  }
+  .chat-header {
+    height: 52px; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; flex-shrink: 0;
+  }
+  .chat-header .status {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .chat-header .status-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--border);
+    transition: all 0.3s;
+  }
+  .chat-header .status-dot.active {
+    background: var(--success);
+    box-shadow: 0 0 0 3px rgba(16,185,129,0.15);
+  }
+  .chat-header .status-text {
+    font-size: 13px; font-weight: 500; color: var(--text);
+  }
+  .chat-header .status-sub {
+    font-size: 12px; color: var(--text-tertiary); margin-left: 4px;
+  }
+  .chat-header .workspace-info {
+    font-size: 12px; color: var(--text-tertiary);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .btn-icon {
+    width: 30px; height: 30px;
+    border: none; border-radius: 7px; background: transparent;
+    color: var(--text-tertiary); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.12s;
+  }
+  .btn-icon:hover { background: var(--bg); color: var(--text-secondary); }
+  .btn-icon:hover.danger-hover { background: var(--danger-light); color: var(--danger); }
+
+  .chat-messages {
+    flex: 1; overflow-y: auto;
+    padding: 20px 24px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .msg { display: flex; gap: 10px; max-width: 88%; animation: msgIn 0.3s cubic-bezier(0.4,0,0.2,1); }
+  .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+  .msg .avatar {
+    width: 28px; height: 28px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .msg.agent .avatar {
+    background: linear-gradient(135deg, var(--primary) 0%, #1d4ed8 100%);
+    color: #fff;
+    box-shadow: 0 1px 4px rgba(37,99,235,0.2);
+  }
+  .msg.user .avatar {
+    background: linear-gradient(135deg, var(--success) 0%, #059669 100%);
+    color: #fff;
+    box-shadow: 0 1px 4px rgba(16,185,129,0.2);
+  }
+  .msg .bubble {
+    background: var(--panel);
+    padding: 12px 16px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    font-size: 13.5px;
+    line-height: 1.7;
+    box-shadow: var(--shadow-sm);
+    color: var(--text);
+  }
+  .msg.agent .bubble { border-bottom-left-radius: 5px; }
+  .msg.user .bubble {
+    background: var(--primary);
+    color: #fff; border-color: var(--primary);
+    border-bottom-right-radius: 5px;
+    box-shadow: 0 1px 4px rgba(37,99,235,0.15);
+  }
+  .msg .bubble p { margin-bottom: 8px; }
+  .msg .bubble p:last-child { margin-bottom: 0; }
+  .msg .bubble strong { font-weight: 600; }
+
+  .suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .chip {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 14px; font-size: 12.5px; cursor: pointer;
+    color: var(--text-secondary); font-weight: 500;
+    transition: all 0.12s; font-family: var(--font);
+  }
+  .chip:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+  .chip.primary {
+    background: var(--primary); color: #fff; border-color: var(--primary);
+    box-shadow: 0 1px 4px rgba(37,99,235,0.2);
+  }
+  .chip.primary:hover { background: #1d4ed8; }
+
+  .script-box-wrap {
+    background: #0f172a; border-radius: var(--radius-sm);
+    overflow: hidden; margin: 10px 0;
+  }
+  .script-box-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px; border-bottom: 1px solid rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.02);
+  }
+  .script-box-header span {
+    font-size: 11px; font-weight: 500; color: var(--text-tertiary);
+  }
+  .script-box-header .btn-copy {
+    font-size: 11px; font-weight: 500; color: #60a5fa;
+    background: none; border: none; cursor: pointer;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .script-box-header .btn-copy:hover { color: #93c5fd; }
+  .script-box {
+    color: #e2e8f0;
+    padding: 14px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.8;
+    overflow-x: auto;
+  }
+  .script-box .comment { color: #64748b; }
+  .script-box .cmd { color: #7dd3fc; }
+  .script-box .arg { color: #86efac; }
+  .script-box .path { color: #fca5a5; }
+  .script-box .flag { color: #c4b5fd; }
+  .script-box .var { color: #c084fc; }
+
+  .action-bar {
+    display: flex; gap: 8px; margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .action-bar button {
+    border: 1px solid var(--border); background: var(--panel); border-radius: 8px;
+    padding: 7px 16px; font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: all 0.12s; font-family: var(--font);
+    color: var(--text-secondary);
+  }
+  .action-bar button:hover { background: var(--bg); border-color: #cbd5e1; }
+  .action-bar button.primary {
+    background: var(--primary); color: #fff; border-color: var(--primary);
+    box-shadow: 0 1px 4px rgba(37,99,235,0.2);
+  }
+  .action-bar button.primary:hover { background: #1d4ed8; }
+  .action-bar button.danger {
+    background: var(--danger); color: #fff; border-color: var(--danger);
+  }
+  .action-bar button.danger:hover { background: #dc2626; }
+
+  .exec-progress {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden; margin: 8px 0;
+    box-shadow: var(--shadow-sm);
+  }
+  .exec-progress-header {
+    padding: 10px 14px; border-bottom: 1px solid var(--border-light);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .progress-track {
+    flex: 1; height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; background: linear-gradient(90deg, var(--primary), #60a5fa);
+    border-radius: 2px; transition: width 0.5s cubic-bezier(0.4,0,0.2,1);
+  }
+  .progress-text {
+    font-size: 11px; font-weight: 600; color: var(--primary); font-family: var(--font-mono);
+    min-width: 32px; text-align: right;
+  }
+  .exec-log {
+    padding: 12px 14px;
+    font-family: var(--font-mono); font-size: 11.5px; line-height: 1.7;
+    color: var(--text-secondary); background: #f8fafc;
+    max-height: 160px; overflow-y: auto;
+  }
+  .exec-log .log-line { display: flex; gap: 8px; }
+  .exec-log .log-line .prompt { color: var(--text-tertiary); user-select: none; }
+  .exec-log .log-line.success { color: var(--success); }
+  .typing-dots { display: flex; gap: 3px; align-items: center; }
+  .typing-dots span {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--text-tertiary);
+    animation: bounce 1.4s ease-in-out infinite;
+  }
+  .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+  .chat-input-area {
+    padding: 12px 20px 16px;
+    flex-shrink: 0;
+  }
+  .chat-input-wrap {
+    display: flex; gap: 8px; align-items: flex-end;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 6px 6px 6px 12px;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.15s;
+  }
+  .chat-input-wrap:focus-within {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.08), var(--shadow-sm);
+  }
+  .chat-input-wrap textarea {
+    flex: 1; border: none; outline: none; resize: none;
+    font-size: 14px; line-height: 1.5; padding: 8px 0;
+    font-family: var(--font); max-height: 120px; min-height: 22px;
+    background: transparent; color: var(--text);
+  }
+  .chat-input-wrap textarea::placeholder { color: var(--text-tertiary); }
+  .chat-input-wrap .send-btn {
+    width: 32px; height: 32px; border-radius: 10px; border: none;
+    background: var(--primary); color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: all 0.12s;
+    box-shadow: 0 1px 4px rgba(37,99,235,0.2);
+  }
+  .chat-input-wrap .send-btn:hover { background: #1d4ed8; }
+  .chat-input-wrap .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .input-hint {
+    font-size: 11px; color: var(--text-tertiary); margin-top: 8px;
+    text-align: center;
+  }
+
+  /* ===== Shared: Detail Panel ===== */
+  .detail-panel {
+    width: 360px;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; flex-shrink: 0;
+  }
+  .detail-scroll { flex: 1; overflow-y: auto; }
+
+  .task-banner {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .task-banner.task {
+    background: linear-gradient(135deg, var(--success-soft) 0%, #ecfdf5 100%);
+  }
+  .task-banner.browse {
+    background: linear-gradient(135deg, var(--primary-soft) 0%, #eff6ff 100%);
+  }
+  .task-banner .task-info { font-size: 12.5px; font-weight: 500; }
+  .task-banner .task-info strong { color: var(--success); }
+  .task-banner.browse .task-info strong { color: var(--primary); }
+  .task-banner .task-id {
+    font-size: 11px; color: var(--text-tertiary); margin-left: 6px;
+    font-family: var(--font-mono);
+  }
+  .task-banner .btn-small {
+    font-size: 11px; font-weight: 500; padding: 5px 10px; border-radius: 6px;
+    border: 1px solid transparent; background: rgba(255,255,255,0.6);
+    cursor: pointer; transition: all 0.12s; font-family: var(--font);
+  }
+  .task-banner .btn-small:hover { background: #fff; }
+  .task-banner.task .btn-small { color: var(--danger); border-color: var(--danger-light); }
+  .task-banner.task .btn-small:hover { background: var(--danger-light); }
+  .task-banner.browse .btn-small { color: var(--primary); border-color: var(--primary-light); }
+  .task-banner.browse .btn-small:hover { background: var(--primary-light); }
+
+  .detail-header {
+    padding: 18px 18px 14px;
+    border-bottom: 1px solid var(--border-light);
+  }
+  .detail-header .detail-tags {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
+  }
+  .detail-header .detail-tool {
+    font-size: 10.5px; color: var(--text-tertiary); font-family: var(--font-mono);
+    background: var(--bg); padding: 2px 7px; border-radius: 4px;
+  }
+  .detail-header h2 {
+    font-size: 16px; font-weight: 600; color: var(--text); letter-spacing: -0.3px;
+  }
+  .detail-header p {
+    font-size: 12.5px; color: var(--text-secondary); line-height: 1.7; margin-top: 4px;
+  }
+
+  .detail-section { padding: 16px 18px; border-bottom: 1px solid var(--border-light); }
+  .detail-section h3 {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--text-tertiary); margin-bottom: 12px; font-weight: 600;
+  }
+
+  .form-group { margin-bottom: 14px; }
+  .form-group:last-child { margin-bottom: 0; }
+  .form-label {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 12.5px; font-weight: 500; color: var(--text);
+    margin-bottom: 5px;
+  }
+  .form-label .required { color: var(--danger); font-size: 10px; font-weight: 600; }
+  .form-label .type-tag {
+    font-size: 10px; color: var(--text-tertiary); background: var(--bg);
+    padding: 1px 6px; border-radius: 4px; font-weight: 400; margin-left: auto;
+  }
+  .form-desc {
+    font-size: 11.5px; color: var(--text-tertiary); margin-bottom: 5px; line-height: 1.5;
+  }
+  .form-input-wrap { position: relative; }
+  .form-input-wrap input[type="text"],
+  .form-group select,
+  .form-group textarea {
+    width: 100%; height: 36px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 0 10px;
+    font-size: 13px; font-family: var(--font);
+    outline: none; transition: all 0.15s;
+    background: var(--bg); color: var(--text);
+  }
+  .form-input-wrap input[type="text"]:focus,
+  .form-group select:focus,
+  .form-group textarea:focus {
+    border-color: var(--primary); background: var(--panel);
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.08);
+  }
+  .form-input-wrap input[type="text"].error { border-color: var(--danger); }
+  .form-input-wrap input[type="text"].filled {
+    background: var(--success-soft); border-color: #a7f3d0;
+    color: #065f46;
+  }
+  .form-input-wrap input[type="text"].auto-linked {
+    background: var(--primary-soft); border-color: #bfdbfe;
+    color: var(--primary);
+  }
+  .form-input-wrap .file-btn {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 5px;
+    padding: 3px 8px; font-size: 10.5px; cursor: pointer;
+    color: var(--text-tertiary); font-family: var(--font);
+    transition: all 0.12s;
+  }
+  .form-input-wrap .file-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+  .form-input-wrap .link-indicator {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    font-size: 10px; color: var(--primary); background: var(--primary-light);
+    padding: 2px 7px; border-radius: 4px; pointer-events: none;
+  }
+  .form-default {
+    font-size: 11px; color: var(--text-tertiary); margin-top: 4px;
+  }
+  .form-error {
+    font-size: 11px; color: var(--danger); margin-top: 4px;
+  }
+
+  .param-status-bar {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 12px; padding: 6px 8px;
+    background: var(--bg); border-radius: var(--radius-sm);
+  }
+  .param-status-bar .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--border); display: inline-block;
+  }
+  .param-status-bar .dot.ok { background: var(--success); }
+  .param-status-bar .dot.missing { background: var(--warning); }
+  .param-status-bar span {
+    font-size: 11px; color: var(--text-secondary);
+    display: flex; align-items: center; gap: 4px;
+  }
+
+  .detail-footer {
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
+    background: linear-gradient(to top, var(--bg), var(--panel));
+  }
+  .btn-generate {
+    width: 100%; height: 40px;
+    border: none; border-radius: var(--radius);
+    background: var(--primary); color: #fff;
+    font-size: 14px; font-weight: 500; font-family: var(--font);
+    cursor: pointer; transition: all 0.15s;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    box-shadow: 0 1px 4px rgba(37,99,235,0.2);
+  }
+  .btn-generate:hover { background: #1d4ed8; }
+  .btn-generate:disabled { background: #cbd5e1; cursor: not-allowed; box-shadow: none; }
+  .btn-generate-secondary {
+    width: 100%; height: 34px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--bg); color: var(--text-secondary);
+    font-size: 13px; font-family: var(--font);
+    cursor: pointer; margin-top: 8px; transition: all 0.12s;
+  }
+  .btn-generate-secondary:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+
+  .note-item {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 7px 0; font-size: 12.5px; line-height: 1.7;
+  }
+  .note-item .icon { flex-shrink: 0; margin-top: 1px; font-size: 14px; }
+  .note-item code {
+    background: var(--bg); padding: 1px 5px; border-radius: 4px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);
+  }
+
+  .seealso-list { display: flex; flex-direction: column; gap: 3px; }
+  .seealso-item {
+    font-size: 12.5px; color: var(--text-secondary);
+    cursor: pointer; padding: 6px 10px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; gap: 8px;
+    transition: all 0.1s;
+  }
+  .seealso-item:hover { background: var(--bg); color: var(--primary); }
+  .seealso-item .dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  .task-timeline {
+    background: var(--bg); border-radius: var(--radius-sm); padding: 12px;
+    margin: 10px 0; border: 1px solid var(--border-light);
+  }
+  .timeline-item {
+    display: flex; gap: 10px; align-items: flex-start; padding: 4px 0;
+    font-size: 13px;
+  }
+  .timeline-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    margin-top: 5px; flex-shrink: 0;
+  }
+  .timeline-dot.done { background: var(--success); }
+  .timeline-dot.active { background: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+  .timeline-dot.pending { background: var(--border); }
+
+  .intent-card {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 14px; margin-top: 10px;
+  }
+  .intent-card .intent-title {
+    font-size: 13.5px; font-weight: 600; color: var(--text);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .intent-card .intent-desc {
+    font-size: 12px; color: var(--text-secondary); margin-top: 4px;
+  }
+  .intent-card .intent-actions {
+    display: flex; gap: 8px; margin-top: 12px;
+  }
+
+  /* ===== Pipeline-specific styles ===== */
+  .pipeline-hint {
+    padding: 10px 14px;
+    background: var(--primary-soft);
+    border-bottom: 1px solid #bfdbfe;
+    font-size: 12px;
+    color: var(--primary);
+    line-height: 1.5;
+  }
+  .pipeline-hint strong { display: block; margin-bottom: 2px; }
+
+  .pipeline-overview {
+    background: linear-gradient(135deg, #eff6ff 0%, #f5f3ff 100%);
+    border: 1px solid #bfdbfe; border-radius: var(--radius);
+    padding: 16px; margin: 10px 0;
+  }
+  .pipeline-overview-title {
+    font-size: 13px; font-weight: 600; color: var(--primary);
+    margin-bottom: 12px; display: flex; align-items: center; gap: 6px;
+  }
+  .pipeline-flow {
+    display: flex; align-items: center; gap: 6px;
+    overflow-x: auto; padding-bottom: 4px;
+  }
+  .pipeline-step-mini {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 12px; min-width: 100px;
+    text-align: center; cursor: pointer; transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .pipeline-step-mini:hover { border-color: var(--primary); }
+  .pipeline-step-mini.active { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
+  .pipeline-step-mini .step-num {
+    font-size: 10px; color: var(--text-tertiary); margin-bottom: 2px;
+  }
+  .pipeline-step-mini .step-name { font-size: 12px; font-weight: 500; }
+  .pipeline-step-mini .step-status {
+    font-size: 10px; margin-top: 4px;
+  }
+  .pipeline-step-mini .step-status.ready { color: var(--success); }
+  .pipeline-step-mini .step-status.pending { color: var(--warning); }
+  .pipeline-arrow {
+    color: var(--text-secondary); font-size: 14px; flex-shrink: 0;
+  }
+
+  .pipeline-header {
+    padding: 14px 18px;
+    background: linear-gradient(135deg, #eff6ff 0%, #f5f3ff 100%);
+    border-bottom: 1px solid #bfdbfe;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .pipeline-header h3 {
+    font-size: 14px; color: var(--primary); display: flex; align-items: center; gap: 6px;
+  }
+  .pipeline-header .pipeline-meta {
+    font-size: 11px; color: var(--text-secondary); margin-top: 2px;
+  }
+  .btn-abandon-pipeline {
+    font-size: 11px; font-weight: 500; padding: 5px 10px; border-radius: 6px;
+    border: 1px solid var(--danger-light); background: transparent; color: var(--danger);
+    cursor: pointer; font-family: var(--font); transition: all 0.12s;
+  }
+  .btn-abandon-pipeline:hover { background: var(--danger-light); }
+
+  .task-card {
+    border-bottom: 1px solid var(--border);
+    transition: all 0.2s;
+  }
+  .task-card-header {
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    background: var(--panel);
+    transition: background 0.15s;
+  }
+  .task-card-header:hover { background: #f9fafb; }
+  .task-card-header .step-badge {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--primary); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; flex-shrink: 0;
+  }
+  .task-card-header .step-info { flex: 1; }
+  .task-card-header .step-title { font-size: 13px; font-weight: 600; }
+  .task-card-header .step-desc { font-size: 11px; color: var(--text-secondary); margin-top: 1px; }
+  .task-card-header .step-toggle {
+    font-size: 12px; color: var(--text-secondary);
+    transition: transform 0.2s;
+  }
+  .task-card.expanded .step-toggle { transform: rotate(180deg); }
+  .task-card-body {
+    max-height: 0; overflow: hidden;
+    transition: max-height 0.3s ease;
+  }
+  .task-card.expanded .task-card-body {
+    max-height: 800px;
+  }
+  .task-card-inner { padding: 0 18px 16px; }
+
+  .data-flow {
+    display: flex; align-items: center;
+    padding: 8px 18px;
+    background: var(--success-soft);
+    border-left: 3px solid var(--success);
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .data-flow .flow-label { color: var(--success); font-weight: 600; margin-right: 6px; }
+  .data-flow .flow-path { font-family: var(--font-mono); font-size: 10.5px; }
+  .data-flow .flow-edit {
+    margin-left: auto; font-size: 10px; color: var(--primary);
+    cursor: pointer; font-weight: 500;
+  }
+  .data-flow .flow-edit:hover { text-decoration: underline; }
+
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    color: var(--text-tertiary); font-size: 14px; gap: 12px;
+    padding: 40px; text-align: center;
+  }
+
+  @keyframes msgIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes bounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-4px); }
+  }
+</style>
+</head>
+<body>
+
+<!-- Left Navigation Bar -->
+<nav class="nav-bar">
+  <div class="nav-logo" title="GIS Agent">
+    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 7m0 13V7m0 0L9 7"/>
+    </svg>
+  </div>
+  <div class="nav-items">
+    <button class="nav-item active" id="nav-task" title="模板库" onclick="switchMode('task')">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
+        <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+      </svg>
+    </button>
+    <button class="nav-item" id="nav-pipeline" title="Pipeline" onclick="switchMode('pipeline')">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
+      </svg>
+    </button>
+    <button class="nav-item" id="nav-generator" title="模板生成器" onclick="window.location.href='prototype-template-generator.html'">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/>
+      </svg>
+    </button>
+    <button class="nav-item" id="nav-history" title="历史会话" onclick="alert('历史会话功能开发中')">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+    </button>
+  </div>
+  <div class="nav-bottom">
+    <button class="nav-item" title="设置" onclick="alert('设置功能开发中')">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+      </svg>
+    </button>
+  </div>
+</nav>
+
+<!-- ========== MODE: Single Task ========== -->
+<div class="mode-container active" id="mode-task">
+
+  <!-- Left: Template Cards -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h2>模板库</h2>
+      <p>选择模板开始数据处理任务</p>
+    </div>
+    <div class="sidebar-search">
+      <div class="search-wrap">
+        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" placeholder="搜索模板..." id="searchInput" oninput="filterCards(this.value)">
+      </div>
+    </div>
+    <div class="tag-filter">
+      <span class="active" data-tag="all" onclick="filterTag(this,'all')">全部</span>
+      <span data-tag="vector" onclick="filterTag(this,'vector')">矢量</span>
+      <span data-tag="raster" onclick="filterTag(this,'raster')">栅格</span>
+      <span data-tag="general" onclick="filterTag(this,'general')">通用</span>
+    </div>
+    <div class="card-list" id="cardList">
+      <div class="template-card selected" data-id="shp2geojson" data-cat="vector" onclick="selectCard(this,0)">
+        <div class="card-header">
+          <span class="badge badge-vector">矢量</span>
+          <span style="font-size:10.5px;color:var(--text-tertiary);font-family:var(--font-mono)">GDAL</span>
+        </div>
+        <div class="card-title">Shapefile 转 GeoJSON</div>
+        <div class="card-desc">将 Shapefile 格式矢量数据转换为 GeoJSON，支持指定坐标系</div>
+        <div class="card-meta">
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">ogr2ogr</span>
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">格式转换</span>
+        </div>
+      </div>
+      <div class="template-card" data-id="reproject" data-cat="vector" onclick="selectCard(this,1)">
+        <div class="card-header">
+          <span class="badge badge-vector">矢量</span>
+          <span style="font-size:10.5px;color:var(--text-tertiary);font-family:var(--font-mono)">GDAL</span>
+        </div>
+        <div class="card-title">矢量数据重投影</div>
+        <div class="card-desc">将矢量数据投影到指定坐标参考系统 (CRS)</div>
+        <div class="card-meta">
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">ogr2ogr</span>
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">投影</span>
+        </div>
+      </div>
+      <div class="template-card" data-id="clip_raster" data-cat="raster" onclick="selectCard(this,2)">
+        <div class="card-header">
+          <span class="badge badge-raster">栅格</span>
+          <span style="font-size:10.5px;color:var(--text-tertiary);font-family:var(--font-mono)">GDAL</span>
+        </div>
+        <div class="card-title">栅格裁剪</div>
+        <div class="card-desc">使用矢量边界裁剪栅格数据，支持按几何范围或 Shapefile 边界</div>
+        <div class="card-meta">
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">gdalwarp</span>
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">裁剪</span>
+        </div>
+      </div>
+      <div class="template-card" data-id="warp_reproject" data-cat="raster" onclick="selectCard(this,3)">
+        <div class="card-header">
+          <span class="badge badge-raster">栅格</span>
+          <span style="font-size:10.5px;color:var(--text-tertiary);font-family:var(--font-mono)">GDAL</span>
+        </div>
+        <div class="card-title">栅格重投影</div>
+        <div class="card-desc">使用 gdalwarp 对栅格进行重投影和分辨率调整</div>
+        <div class="card-meta">
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">gdalwarp</span>
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">投影</span>
+        </div>
+      </div>
+      <div class="template-card" data-id="gdal2tiles" data-cat="raster" onclick="selectCard(this,4)">
+        <div class="card-header">
+          <span class="badge badge-raster">栅格</span>
+          <span style="font-size:10.5px;color:var(--text-tertiary);font-family:var(--font-mono)">GDAL</span>
+        </div>
+        <div class="card-title">生成瓦片</div>
+        <div class="card-desc">将栅格切分为 TMS/XYZ 格式的地图瓦片，支持多级 zoom</div>
+        <div class="card-meta">
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">gdal2tiles</span>
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">瓦片</span>
+        </div>
+      </div>
+      <div class="template-card" data-id="merge_shp" data-cat="vector" onclick="selectCard(this,5)">
+        <div class="card-header">
+          <span class="badge badge-vector">矢量</span>
+          <span style="font-size:10.5px;color:var(--text-tertiary);font-family:var(--font-mono)">GDAL</span>
+        </div>
+        <div class="card-title">合并 Shapefile</div>
+        <div class="card-desc">将多个 Shapefile 合并为一个文件，属性表自动整合</div>
+        <div class="card-meta">
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">ogr2ogr</span>
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">合并</span>
+        </div>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <button class="btn-new-template" onclick="window.location.href='prototype-template-generator.html'">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        新建模板
+      </button>
+    </div>
+  </div>
+
+  <!-- Center: Chat -->
+  <div class="chat-area">
+    <div class="chat-header">
+      <div class="status">
+        <div class="status-dot" id="statusDot"></div>
+        <span class="status-text" id="statusText">探索中</span>
+        <span class="status-sub" id="statusSub"></span>
+      </div>
+      <div class="workspace-info">
+        <span>~/gis-data</span>
+        <button class="btn-icon danger-hover" title="清空对话" onclick="clearSession()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+      <div class="msg agent">
+        <div class="avatar">AI</div>
+        <div class="bubble">
+          <p>你好！我是 GIS Agent，可以帮你处理各类地理空间数据任务。</p>
+          <p style="margin-top:4px">你可以直接描述需求（如"把北京的 Shapefile 转成 GeoJSON"），或者从左侧选择一个模板后在右侧面板直接填写参数。</p>
+          <div class="suggestions">
+            <span class="chip" onclick="quickAsk(this)">Shapefile 怎么转 GeoJSON？</span>
+            <span class="chip" onclick="quickAsk(this)">帮我配一下裁剪栅格的参数</span>
+            <span class="chip" onclick="quickAsk(this)">什么是 CRS？</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="msg user">
+        <div class="avatar">我</div>
+        <div class="bubble">把 /data/beijing.shp 转成 GeoJSON，输出到 WGS84 坐标系</div>
+      </div>
+
+      <div class="msg agent">
+        <div class="avatar">AI</div>
+        <div class="bubble">
+          <p>收到，已匹配到模板：<strong>Shapefile 转 GeoJSON</strong></p>
+          <p style="margin-top:4px">我从你的描述中提取了参数，请在右侧面板检查或补充：</p>
+          <div class="task-timeline">
+            <div class="timeline-item">
+              <div class="timeline-dot done"></div>
+              <div><strong>input</strong> = /data/beijing.shp</div>
+            </div>
+            <div class="timeline-item">
+              <div class="timeline-dot done"></div>
+              <div><strong>t_srs</strong> = EPSG:4326 (WGS84)</div>
+            </div>
+            <div class="timeline-item">
+              <div class="timeline-dot active"></div>
+              <div><strong>output</strong> = 自动生成路径（可修改）</div>
+            </div>
+          </div>
+          <div class="suggestions">
+            <span class="chip primary" onclick="lockTask()">确认并开始填写参数</span>
+            <span class="chip" onclick="showOtherCards(this)">看看其他候选</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-input-area">
+      <div class="chat-input-wrap">
+        <textarea rows="1" placeholder="描述需求，或针对当前任务提问..." onkeydown="handleEnter(event)"></textarea>
+        <button class="send-btn" onclick="sendMessage()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+      <div class="input-hint">按 Enter 发送，Shift + Enter 换行</div>
+    </div>
+  </div>
+
+  <!-- Right: Detail Panel -->
+  <div class="detail-panel" id="detailPanel">
+    <div id="detailBanner" style="display:none;"></div>
+
+    <div class="detail-scroll" id="detailScroll">
+      <div class="detail-header">
+        <div class="detail-tags">
+          <span class="badge badge-vector">矢量</span>
+          <span class="detail-tool">GDAL / ogr2ogr</span>
+        </div>
+        <h2>Shapefile 转 GeoJSON</h2>
+        <p>将 Shapefile 格式矢量数据转换为 GeoJSON，支持指定坐标系。使用 ogr2ogr 工具执行。</p>
+      </div>
+
+      <div class="detail-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <h3 style="margin:0;">参数</h3>
+          <span style="font-size:11px;color:var(--success);font-weight:600;" id="fillStatus">2/3 已填写</span>
+        </div>
+
+        <div class="param-status-bar">
+          <span><span class="dot ok"></span>input</span>
+          <span><span class="dot ok"></span>t_srs</span>
+          <span><span class="dot missing"></span>output</span>
+        </div>
+
+        <div class="form-group">
+          <div class="form-label">
+            input
+            <span class="required">* 必填</span>
+            <span class="type-tag">file_path</span>
+          </div>
+          <div class="form-desc">输入 Shapefile 路径（.shp 及其 .shx, .dbf 需同目录）</div>
+          <div class="form-input-wrap">
+            <input type="text" value="/data/beijing.shp" class="filled" onchange="checkParam(this)">
+            <button class="file-btn">浏览</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-label">
+            output
+            <span class="required">* 必填</span>
+            <span class="type-tag">file_path</span>
+          </div>
+          <div class="form-desc">输出 GeoJSON 文件路径</div>
+          <div class="form-input-wrap">
+            <input type="text" placeholder="留空则自动生成" onchange="checkParam(this)">
+            <button class="file-btn">浏览</button>
+          </div>
+          <div class="form-default">默认: 工作区/output/&lt;name&gt;_&lt;timestamp&gt;.geojson</div>
+        </div>
+
+        <div class="form-group">
+          <div class="form-label">
+            t_srs
+            <span class="type-tag">crs</span>
+          </div>
+          <div class="form-desc">目标坐标参考系统</div>
+          <div class="form-input-wrap">
+            <input type="text" value="EPSG:4326" class="filled" onchange="checkParam(this)">
+          </div>
+          <div class="form-default">默认: EPSG:4326 (WGS84)</div>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <h3>概念与注意事项</h3>
+        <div class="note-item">
+          <span class="icon">&#128161;</span>
+          <div>GeoJSON 默认使用 <code>EPSG:4326</code> (WGS84)，这是 Web 地图标准坐标系</div>
+        </div>
+        <div class="note-item">
+          <span class="icon">&#9888;&#65039;</span>
+          <div>输入文件必须包含 <code>.shp</code> 主文件及其关联的 <code>.shx</code>, <code>.dbf</code> 文件</div>
+        </div>
+        <div class="note-item">
+          <span class="icon">&#128204;</span>
+          <div>中文属性名可能在某些软件中出现乱码，建议提前处理编码</div>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <h3>常见错误</h3>
+        <div class="note-item">
+          <span class="icon" style="color:var(--danger)">&#10005;</span>
+          <div><strong>Unable to open datasource</strong> — 检查 .shp 关联文件是否齐全</div>
+        </div>
+        <div class="note-item">
+          <span class="icon" style="color:var(--danger)">&#10005;</span>
+          <div><strong>Failed to create file</strong> — 输出目录没有写入权限</div>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <h3>相关模板</h3>
+        <div class="seealso-list">
+          <div class="seealso-item" onclick="selectCardById('reproject')">
+            <span class="dot" style="background:var(--success)"></span>
+            矢量数据重投影
+          </div>
+          <div class="seealso-item" onclick="selectCardById('merge_shp')">
+            <span class="dot" style="background:var(--success)"></span>
+            合并 Shapefile
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="detail-footer" id="detailFooter" style="display:none;">
+      <button class="btn-generate" onclick="generateScript()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        生成脚本
+      </button>
+      <button class="btn-generate-secondary" onclick="resetParams()">重置参数</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ========== MODE: Pipeline ========== -->
+<div class="mode-container" id="mode-pipeline">
+
+  <!-- Left: Template Cards (Pipeline context) -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h2>模板库</h2>
+      <p>Pipeline 相关模板</p>
+    </div>
+    <div class="sidebar-search">
+      <div class="search-wrap">
+        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" placeholder="搜索模板...">
+      </div>
+    </div>
+    <div class="pipeline-hint">
+      <strong>Pipeline 步骤</strong>
+      当前已锁定 3 个串行任务。点击步骤可定位到右侧面板。
+    </div>
+    <div class="card-list">
+      <div class="template-card in-pipeline" data-step="1">
+        <div class="card-header">
+          <span class="badge badge-vector">矢量</span>
+          <span style="font-size:10.5px;color:var(--text-tertiary);font-family:var(--font-mono)">GDAL</span>
+        </div>
+        <div class="card-title">Shapefile 转 GeoJSON</div>
+        <div class="card-desc">将 Shapefile 格式矢量数据转换为 GeoJSON</div>
+        <div class="card-meta">
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">ogr2ogr</span>
+        </div>
+      </div>
+      <div class="template-card in-pipeline" data-step="2">
+        <div class="card-header">
+          <span class="badge badge-raster">栅格</span>
+          <span style="font-size:10.5px;color:var(--text-tertiary);font-family:var(--font-mono)">GDAL</span>
+        </div>
+        <div class="card-title">栅格裁剪</div>
+        <div class="card-desc">使用矢量边界裁剪栅格数据</div>
+        <div class="card-meta">
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">gdalwarp</span>
+        </div>
+      </div>
+      <div class="template-card in-pipeline" data-step="3">
+        <div class="card-header">
+          <span class="badge badge-raster">栅格</span>
+          <span style="font-size:10.5px;color:var(--text-tertiary);font-family:var(--font-mono)">GDAL</span>
+        </div>
+        <div class="card-title">生成瓦片</div>
+        <div class="card-desc">将栅格切分为 TMS/XYZ 格式地图瓦片</div>
+        <div class="card-meta">
+          <span style="font-size:10.5px;padding:2px 7px;background:var(--bg);color:var(--text-tertiary);border-radius:4px;">gdal2tiles</span>
+        </div>
+      </div>
+      <div style="border-top:1px dashed var(--border);margin:12px 0;"></div>
+      <div class="template-card">
+        <div class="card-title">矢量数据重投影</div>
+        <div class="card-desc">将矢量数据投影到指定 CRS</div>
+        <div class="card-meta">
+          <span class="badge badge-vector">矢量</span>
+        </div>
+      </div>
+      <div class="template-card">
+        <div class="card-title">栅格重投影</div>
+        <div class="card-desc">使用 gdalwarp 对栅格重投影</div>
+        <div class="card-meta">
+          <span class="badge badge-raster">栅格</span>
+        </div>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <button class="btn-new-template" onclick="window.location.href='prototype-template-generator.html'">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        新建模板
+      </button>
+    </div>
+  </div>
+
+  <!-- Center: Chat with Pipeline -->
+  <div class="chat-area">
+    <div class="chat-header">
+      <div class="status">
+        <div class="status-dot active"></div>
+        <span class="status-text">Pipeline</span>
+        <span class="status-sub">3 个串行任务</span>
+      </div>
+      <div class="workspace-info">
+        <span>~/gis-data</span>
+        <button class="btn-icon danger-hover" title="清空对话" onclick="alert('清空对话并重置 Pipeline')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="chat-messages" id="pipelineChatMessages">
+      <div class="msg user">
+        <div class="avatar">我</div>
+        <div class="bubble">
+          先把 /data/beijing.shp 转成 GeoJSON，再用 geojson 裁剪 /data/dem.tif，最后把裁剪结果切成瓦片
+        </div>
+      </div>
+
+      <div class="msg agent">
+        <div class="avatar">AI</div>
+        <div class="bubble">
+          <p>收到，已识别为 <strong>3 步串行 Pipeline</strong>：</p>
+          <div class="pipeline-overview">
+            <div class="pipeline-overview-title">&#128203; Pipeline 概览（点击步骤跳转）</div>
+            <div class="pipeline-flow">
+              <div class="pipeline-step-mini active" onclick="jumpToStep(0)">
+                <div class="step-num">STEP 1</div>
+                <div class="step-name">shp2geojson</div>
+                <div class="step-status ready">&#10003; 已填写</div>
+              </div>
+              <div class="pipeline-arrow">→</div>
+              <div class="pipeline-step-mini" onclick="jumpToStep(1)">
+                <div class="step-num">STEP 2</div>
+                <div class="step-name">clip_raster</div>
+                <div class="step-status pending">○ 待检查</div>
+              </div>
+              <div class="pipeline-arrow">→</div>
+              <div class="pipeline-step-mini" onclick="jumpToStep(2)">
+                <div class="step-num">STEP 3</div>
+                <div class="step-name">gdal2tiles</div>
+                <div class="step-status pending">○ 待检查</div>
+              </div>
+            </div>
+          </div>
+          <p>我已自动关联了步骤间的数据流：</p>
+          <ul style="font-size:13px;color:var(--text-secondary);margin-left:18px;line-height:1.8;">
+            <li>Step 1 的 <code>output</code> → Step 2 的 <code>cutline</code></li>
+            <li>Step 2 的 <code>output</code> → Step 3 的 <code>input</code></li>
+          </ul>
+          <p style="margin-top:8px;">请在右侧面板检查每一步的参数，确认后生成合并脚本。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-input-area">
+      <div class="chat-input-wrap">
+        <textarea rows="1" placeholder="继续补充需求或修改参数..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();}"></textarea>
+        <button class="send-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+      <div class="input-hint">可直接在右侧面板修改参数，点击步骤标题可展开/折叠</div>
+    </div>
+  </div>
+
+  <!-- Right: Stacked Task Parameters -->
+  <div class="detail-panel">
+    <div class="pipeline-header">
+      <div>
+        <h3>&#128279; Pipeline 参数</h3>
+        <div class="pipeline-meta">3 个步骤 · 2 处自动关联</div>
+      </div>
+      <button class="btn-abandon-pipeline" onclick="switchMode('task')">放弃 Pipeline</button>
+    </div>
+
+    <div class="detail-scroll">
+      <!-- Step 1 -->
+      <div class="task-card expanded" data-step="0">
+        <div class="task-card-header" onclick="toggleTask(this)">
+          <div class="step-badge">1</div>
+          <div class="step-info">
+            <div class="step-title">Shapefile 转 GeoJSON</div>
+            <div class="step-desc">shp2geojson · 2/3 参数已填</div>
+          </div>
+          <div class="step-toggle">▼</div>
+        </div>
+        <div class="task-card-body">
+          <div class="task-card-inner">
+            <div class="form-group">
+              <div class="form-label">
+                input <span class="required">* 必填</span> <span class="type-tag">file_path</span>
+              </div>
+              <div class="form-desc">输入 Shapefile 路径</div>
+              <div class="form-input-wrap">
+                <input type="text" value="/data/beijing.shp" class="filled">
+                <button class="file-btn">浏览</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <div class="form-label">
+                output <span class="required">* 必填</span> <span class="type-tag">file_path</span>
+              </div>
+              <div class="form-desc">输出 GeoJSON 文件路径</div>
+              <div class="form-input-wrap">
+                <input type="text" value="${workspace}/output/beijing_20250115.geojson" class="filled">
+              </div>
+              <div class="form-default">自动命名，用于下游步骤</div>
+            </div>
+            <div class="form-group">
+              <div class="form-label">
+                t_srs <span class="type-tag">crs</span>
+              </div>
+              <div class="form-desc">目标坐标参考系统</div>
+              <div class="form-input-wrap">
+                <input type="text" value="EPSG:4326" class="filled">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="data-flow">
+        <span class="flow-label">→ 下游输入</span>
+        <span class="flow-path">Step 1 output → Step 2 cutline</span>
+        <span class="flow-edit" onclick="alert('解除关联，允许手动输入')">解除关联</span>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="task-card" data-step="1">
+        <div class="task-card-header" onclick="toggleTask(this)">
+          <div class="step-badge">2</div>
+          <div class="step-info">
+            <div class="step-title">栅格裁剪</div>
+            <div class="step-desc">clip_raster · 1/3 参数已填</div>
+          </div>
+          <div class="step-toggle">▼</div>
+        </div>
+        <div class="task-card-body">
+          <div class="task-card-inner">
+            <div class="form-group">
+              <div class="form-label">
+                input <span class="required">* 必填</span> <span class="type-tag">file_path</span>
+              </div>
+              <div class="form-desc">输入栅格文件路径</div>
+              <div class="form-input-wrap">
+                <input type="text" value="/data/dem.tif" class="filled">
+                <button class="file-btn">浏览</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <div class="form-label">
+                output <span class="required">* 必填</span> <span class="type-tag">file_path</span>
+              </div>
+              <div class="form-desc">输出裁剪后的栅格路径</div>
+              <div class="form-input-wrap">
+                <input type="text" value="${workspace}/output/dem_clipped_20250115.tif" class="filled">
+              </div>
+            </div>
+            <div class="form-group">
+              <div class="form-label">
+                cutline <span class="required">* 必填</span> <span class="type-tag">file_path</span>
+              </div>
+              <div class="form-desc">裁剪边界（GeoJSON / Shapefile）</div>
+              <div class="form-input-wrap">
+                <input type="text" value="← Step 1 output" class="auto-linked" readonly>
+                <span class="link-indicator">自动关联</span>
+              </div>
+            </div>
+            <div class="note-item">
+              <span style="color:var(--primary)">&#128161;</span>
+              <div>此参数已自动关联上一步输出。如需更改，点击上方「解除关联」。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="data-flow">
+        <span class="flow-label">→ 下游输入</span>
+        <span class="flow-path">Step 2 output → Step 3 input</span>
+        <span class="flow-edit" onclick="alert('解除关联，允许手动输入')">解除关联</span>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="task-card" data-step="2">
+        <div class="task-card-header" onclick="toggleTask(this)">
+          <div class="step-badge">3</div>
+          <div class="step-info">
+            <div class="step-title">生成瓦片</div>
+            <div class="step-desc">gdal2tiles · 1/3 参数已填</div>
+          </div>
+          <div class="step-toggle">▼</div>
+        </div>
+        <div class="task-card-body">
+          <div class="task-card-inner">
+            <div class="form-group">
+              <div class="form-label">
+                input <span class="required">* 必填</span> <span class="type-tag">file_path</span>
+              </div>
+              <div class="form-desc">输入栅格文件路径</div>
+              <div class="form-input-wrap">
+                <input type="text" value="← Step 2 output" class="auto-linked" readonly>
+                <span class="link-indicator">自动关联</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <div class="form-label">
+                output_dir <span class="required">* 必填</span> <span class="type-tag">file_path</span>
+              </div>
+              <div class="form-desc">输出瓦片目录</div>
+              <div class="form-input-wrap">
+                <input type="text" placeholder="留空则自动生成">
+                <button class="file-btn">浏览</button>
+              </div>
+              <div class="form-default">默认: 工作区/output/&lt;name&gt;_tiles</div>
+            </div>
+            <div class="form-group">
+              <div class="form-label">
+                zoom <span class="type-tag">string</span>
+              </div>
+              <div class="form-desc">zoom 级别范围</div>
+              <div class="form-input-wrap">
+                <input type="text" value="5-15" class="filled">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Script Preview -->
+      <div style="padding: 16px 18px; border-bottom: 1px solid var(--border);">
+        <h3 style="font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-tertiary); margin-bottom: 12px; font-weight: 600;">合并脚本预览</h3>
+        <div class="script-box-wrap" style="margin:0;">
+          <div class="script-box">
+<span class="comment">#!/bin/bash</span><br>
+<span class="comment"># Pipeline: shp2geojson → clip_raster → gdal2tiles</span><br>
+<span class="comment"># Step 1: Shapefile 转 GeoJSON</span><br>
+<span class="cmd">ogr2ogr</span> <span class="flag">-f</span> <span class="arg">"GeoJSON"</span> <br>
+&nbsp;&nbsp;<span class="path">${STEP1_OUT}</span> <br>
+&nbsp;&nbsp;<span class="path">/data/beijing.shp</span> <br>
+&nbsp;&nbsp;<span class="flag">-t_srs</span> <span class="arg">EPSG:4326</span><br><br>
+<span class="comment"># Step 2: 栅格裁剪</span><br>
+<span class="cmd">gdalwarp</span> <span class="flag">-cutline</span> <span class="var">${STEP1_OUT}</span> <br>
+&nbsp;&nbsp;<span class="flag">-crop_to_cutline</span> <br>
+&nbsp;&nbsp;<span class="path">/data/dem.tif</span> <br>
+&nbsp;&nbsp;<span class="path">${STEP2_OUT}</span><br><br>
+<span class="comment"># Step 3: 生成瓦片</span><br>
+<span class="cmd">gdal2tiles.py</span> <span class="flag">-z</span> <span class="arg">5-15</span> <br>
+&nbsp;&nbsp;<span class="var">${STEP2_OUT}</span> <br>
+&nbsp;&nbsp;<span class="path">${OUTPUT_DIR}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="detail-footer">
+      <button class="btn-generate" onclick="alert('生成并执行合并脚本')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        生成并执行 Pipeline
+      </button>
+      <button class="btn-generate-secondary" onclick="alert('预览各步骤独立脚本')">预览分步脚本</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ===== State =====
+let state = {
+  locked: false,
+  lockedCardId: null,
+  browsingCardId: 'shp2geojson',
+};
+
+const cardData = {
+  shp2geojson: {
+    title: 'Shapefile 转 GeoJSON',
+    id: 'shp2geojson',
+    desc: '将 Shapefile 格式矢量数据转换为 GeoJSON，支持指定坐标系。使用 ogr2ogr 工具执行。',
+    tags: ['矢量', '转换'],
+    cat: 'vector',
+    tool: 'GDAL / ogr2ogr',
+    params: [
+      { name: 'input', required: true, type: 'file_path', desc: '输入 Shapefile 路径（.shp 及其 .shx, .dbf 需同目录）', default: '', value: '/data/beijing.shp' },
+      { name: 'output', required: true, type: 'file_path', desc: '输出 GeoJSON 文件路径', default: '工作区/output/&lt;name&gt;_&lt;timestamp&gt;.geojson', value: '' },
+      { name: 't_srs', required: false, type: 'crs', desc: '目标坐标参考系统', default: 'EPSG:4326', value: 'EPSG:4326' },
+    ]
+  },
+  reproject: {
+    title: '矢量数据重投影',
+    id: 'reproject',
+    desc: '将矢量数据投影到指定坐标参考系统 (CRS)。使用 ogr2ogr 工具执行。',
+    tags: ['矢量', '投影'],
+    cat: 'vector',
+    tool: 'GDAL / ogr2ogr',
+    params: [
+      { name: 'input', required: true, type: 'file_path', desc: '输入矢量文件路径', default: '', value: '' },
+      { name: 'output', required: true, type: 'file_path', desc: '输出文件路径', default: '工作区/output/&lt;name&gt;_&lt;timestamp&gt;.shp', value: '' },
+      { name: 't_srs', required: true, type: 'crs', desc: '目标坐标参考系统', default: '', value: '' },
+    ]
+  },
+  clip_raster: {
+    title: '栅格裁剪',
+    id: 'clip_raster',
+    desc: '使用矢量边界裁剪栅格数据，支持按几何范围或 Shapefile 边界。使用 gdalwarp 工具执行。',
+    tags: ['栅格', '裁剪'],
+    cat: 'raster',
+    tool: 'GDAL / gdalwarp',
+    params: [
+      { name: 'input', required: true, type: 'file_path', desc: '输入栅格文件路径', default: '', value: '' },
+      { name: 'output', required: true, type: 'file_path', desc: '输出栅格文件路径', default: '工作区/output/&lt;name&gt;_&lt;timestamp&gt;.tif', value: '' },
+      { name: 'cutline', required: true, type: 'file_path', desc: '裁剪边界 Shapefile 路径', default: '', value: '' },
+    ]
+  },
+  warp_reproject: {
+    title: '栅格重投影',
+    id: 'warp_reproject',
+    desc: '使用 gdalwarp 对栅格进行重投影和分辨率调整。',
+    tags: ['栅格', '投影'],
+    cat: 'raster',
+    tool: 'GDAL / gdalwarp',
+    params: [
+      { name: 'input', required: true, type: 'file_path', desc: '输入栅格文件路径', default: '', value: '' },
+      { name: 'output', required: true, type: 'file_path', desc: '输出栅格文件路径', default: '工作区/output/&lt;name&gt;_&lt;timestamp&gt;.tif', value: '' },
+      { name: 't_srs', required: true, type: 'crs', desc: '目标坐标参考系统', default: '', value: '' },
+    ]
+  },
+  gdal2tiles: {
+    title: '生成瓦片',
+    id: 'gdal2tiles',
+    desc: '将栅格切分为 TMS/XYZ 格式的地图瓦片，支持多级 zoom。',
+    tags: ['栅格', '瓦片'],
+    cat: 'raster',
+    tool: 'GDAL / gdal2tiles',
+    params: [
+      { name: 'input', required: true, type: 'file_path', desc: '输入栅格文件路径', default: '', value: '' },
+      { name: 'output_dir', required: true, type: 'file_path', desc: '输出瓦片目录', default: '工作区/output/&lt;name&gt;_tiles', value: '' },
+      { name: 'zoom', required: false, type: 'string', desc: 'zoom 级别范围', default: '5-15', value: '' },
+    ]
+  },
+  merge_shp: {
+    title: '合并 Shapefile',
+    id: 'merge_shp',
+    desc: '将多个 Shapefile 合并为一个文件，属性表自动整合。使用 ogr2ogr 工具执行。',
+    tags: ['矢量', '合并'],
+    cat: 'vector',
+    tool: 'GDAL / ogr2ogr',
+    params: [
+      { name: 'inputs', required: true, type: 'file_path', desc: '输入 Shapefile 路径列表（逗号分隔）', default: '', value: '' },
+      { name: 'output', required: true, type: 'file_path', desc: '输出合并后的文件路径', default: '工作区/output/&lt;name&gt;_&lt;timestamp&gt;.shp', value: '' },
+    ]
+  }
+};
+
+// ===== Mode Switching =====
+function switchMode(mode) {
+  document.querySelectorAll('.mode-container').forEach(el => el.classList.remove('active'));
+  document.getElementById('mode-' + mode).classList.add('active');
+
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  if (mode === 'task') {
+    document.getElementById('nav-task').classList.add('active');
+  } else if (mode === 'pipeline') {
+    document.getElementById('nav-pipeline').classList.add('active');
+  }
+}
+
+// ===== Single Task Functions =====
+function selectCard(el, index) {
+  const cardId = el.dataset.id;
+  state.browsingCardId = cardId;
+
+  document.querySelectorAll('#mode-task .card-list > .template-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+
+  renderDetailPanel(cardId);
+}
+
+function selectCardById(cardId) {
+  const el = document.querySelector('#mode-task .card-list > .template-card[data-id="' + cardId + '"]');
+  if (el) selectCard(el, 0);
+}
+
+function renderDetailPanel(cardId) {
+  const data = cardData[cardId];
+  if (!data) return;
+
+  const isBrowsingNonLocked = state.locked && state.lockedCardId !== cardId;
+  const isLocked = state.locked && state.lockedCardId === cardId;
+
+  const banner = document.getElementById('detailBanner');
+  if (state.locked) {
+    if (isBrowsingNonLocked) {
+      banner.innerHTML =
+        '<div class="task-banner browse">' +
+          '<div class="task-info">正在浏览 <strong>' + data.title + '</strong>（参考）</div>' +
+          '<button class="btn-small" onclick="backToLocked()">返回任务</button>' +
+        '</div>';
+      banner.style.display = 'block';
+    } else {
+      banner.innerHTML =
+        '<div class="task-banner task">' +
+          '<div class="task-info">当前任务 <strong>' + cardData[state.lockedCardId].title + '</strong><span class="task-id">' + state.lockedCardId + '</span></div>' +
+          '<button class="btn-small" onclick="abandonTask()">放弃</button>' +
+        '</div>';
+      banner.style.display = 'block';
+    }
+  } else {
+    banner.style.display = 'none';
+  }
+
+  let paramsHtml = '';
+  let filledCount = 0;
+  let dotsHtml = '';
+
+  data.params.forEach(p => {
+    const hasValue = p.value || (state.locked && state.lockedCardId === cardId);
+    if (p.value) filledCount++;
+    dotsHtml += '<span><span class="dot ' + (p.value ? 'ok' : 'missing') + '"></span>' + p.name + '</span>';
+
+    paramsHtml +=
+      '<div class="form-group">' +
+        '<div class="form-label">' +
+          p.name +
+          (p.required ? '<span class="required">* 必填</span>' : '') +
+          '<span class="type-tag">' + p.type + '</span>' +
+        '</div>' +
+        '<div class="form-desc">' + p.desc + '</div>' +
+        '<div class="form-input-wrap">' +
+          '<input type="text"' +
+            ' value="' + (p.value || '') + '"' +
+            ' placeholder="' + (p.default ? '留空则使用默认值' : '') + '"' +
+            ' class="' + (p.value ? 'filled' : '') + '"' +
+            ' onchange="checkParam(this)"' +
+          '>' +
+          (p.type === 'file_path' ? '<button class="file-btn">浏览</button>' : '') +
+        '</div>' +
+        (p.default ? '<div class="form-default">默认: ' + p.default + '</div>' : '') +
+      '</div>';
+  });
+
+  const catColors = { vector: 'badge-vector', raster: 'badge-raster', general: 'badge-general' };
+
+  let html =
+    '<div class="detail-header">' +
+      '<div class="detail-tags">' +
+        '<span class="badge ' + catColors[data.cat] + '">' + data.tags[0] + '</span>' +
+        '<span class="detail-tool">' + data.tool + '</span>' +
+      '</div>' +
+      '<h2>' + data.title + '</h2>' +
+      '<p>' + data.desc + '</p>' +
+    '</div>' +
+    '<div class="detail-section">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">' +
+        '<h3 style="margin:0;">参数</h3>' +
+        '<span style="font-size:11px;color:var(--success);font-weight:600;">' + filledCount + '/' + data.params.length + ' 已填写</span>' +
+      '</div>' +
+      '<div class="param-status-bar">' + dotsHtml + '</div>' +
+      paramsHtml +
+    '</div>';
+
+  document.getElementById('detailScroll').innerHTML = html;
+
+  const footer = document.getElementById('detailFooter');
+  footer.style.display = isLocked ? 'block' : 'none';
+}
+
+function lockTask() {
+  state.locked = true;
+  state.lockedCardId = 'shp2geojson';
+  state.browsingCardId = 'shp2geojson';
+
+  document.getElementById('statusDot').classList.add('active');
+  document.getElementById('statusText').textContent = '任务中';
+  document.getElementById('statusSub').textContent = 'shp2geojson';
+
+  document.querySelectorAll('#mode-task .card-list > .template-card').forEach(c => {
+    c.classList.remove('locked');
+    if (c.dataset.id === state.lockedCardId) c.classList.add('locked');
+  });
+
+  renderDetailPanel('shp2geojson');
+
+  addAgentMessage('<p>任务已锁定。你可以在右侧面板直接修改参数，然后点击「生成脚本」。</p>');
+}
+
+function abandonTask() {
+  state.locked = false;
+  state.lockedCardId = null;
+
+  document.getElementById('statusDot').classList.remove('active');
+  document.getElementById('statusText').textContent = '探索中';
+  document.getElementById('statusSub').textContent = '';
+
+  document.querySelectorAll('#mode-task .card-list > .template-card').forEach(c => c.classList.remove('locked'));
+
+  renderDetailPanel(state.browsingCardId);
+  addAgentMessage('<p>已放弃当前任务，回到探索状态。可以提出新需求或浏览其他模板。</p>');
+}
+
+function backToLocked() {
+  state.browsingCardId = state.lockedCardId;
+  const el = document.querySelector('#mode-task .card-list > .template-card[data-id="' + state.lockedCardId + '"]');
+  if (el) {
+    document.querySelectorAll('#mode-task .card-list > .template-card').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+  }
+  renderDetailPanel(state.lockedCardId);
+}
+
+function clearSession() {
+  state.locked = false;
+  state.lockedCardId = null;
+
+  document.getElementById('statusDot').classList.remove('active');
+  document.getElementById('statusText').textContent = '探索中';
+  document.getElementById('statusSub').textContent = '';
+
+  document.querySelectorAll('#mode-task .card-list > .template-card').forEach(c => {
+    c.classList.remove('locked');
+  });
+
+  document.getElementById('chatMessages').innerHTML =
+    '<div class="msg agent">' +
+      '<div class="avatar">AI</div>' +
+      '<div class="bubble">' +
+        '<p>会话已清空。有什么新的需求吗？</p>' +
+        '<div class="suggestions">' +
+          '<span class="chip" onclick="quickAsk(this)">Shapefile 怎么转 GeoJSON？</span>' +
+          '<span class="chip" onclick="quickAsk(this)">帮我配一下裁剪栅格的参数</span>' +
+          '<span class="chip" onclick="quickAsk(this)">什么是 CRS？</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  renderDetailPanel(state.browsingCardId);
+}
+
+function checkParam(input) {
+  if (input.value.trim()) {
+    input.classList.add('filled');
+    input.classList.remove('error');
+  } else {
+    input.classList.remove('filled');
+  }
+}
+
+function resetParams() {
+  document.querySelectorAll('.form-input-wrap input').forEach(i => {
+    i.value = '';
+    i.classList.remove('filled');
+  });
+  addAgentMessage('<p>参数已重置。必填项请重新填写。</p>');
+}
+
+function generateScript() {
+  addAgentMessage(
+    '<p>已根据参数生成 GDAL 脚本：</p>' +
+    '<div class="script-box-wrap">' +
+      '<div class="script-box-header">' +
+        '<span>生成的命令</span>' +
+        '<button class="btn-copy">' +
+          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>' +
+          '复制' +
+        '</button>' +
+      '</div>' +
+      '<div class="script-box">' +
+      '<span class="comment">#!/bin/bash</span><br>' +
+      '<span class="comment"># Shapefile 转 GeoJSON</span><br>' +
+      '<span class="cmd">ogr2ogr</span> <span class="flag">-f</span> <span class="arg">"GeoJSON"</span> \\<br>' +
+      '&nbsp;&nbsp;<span class="path">/data/gis-projects/demo/output/beijing_20250115_143022.geojson</span> \\<br>' +
+      '&nbsp;&nbsp;<span class="path">/data/beijing.shp</span> \\<br>' +
+      '&nbsp;&nbsp;<span class="flag">-t_srs</span> <span class="arg">EPSG:4326</span>' +
+      '</div>' +
+    '</div>' +
+    '<p style="font-size:12px;color:var(--text-secondary);">脚本已生成，请确认参数无误后执行。</p>' +
+    '<div class="action-bar">' +
+    '<button class="primary" onclick="executeScript(this)">执行脚本</button>' +
+    '<button onclick="addAgentMessage(\'<p>请在右侧面板修改参数，然后重新点击「生成脚本」。</p>\')">修改参数</button>' +
+    '<button class="danger" onclick="cancelScript(this)">取消</button>' +
+    '</div>'
+  );
+}
+
+function executeScript(el) {
+  addAgentMessage(
+    '<div class="exec-progress">' +
+      '<div class="exec-progress-header">' +
+        '<div class="progress-track"><div class="progress-fill" style="width:0%"></div></div>' +
+        '<span class="progress-text">0%</span>' +
+      '</div>' +
+      '<div class="exec-log">' +
+        '<div class="log-line"><span class="prompt">$</span> ogr2ogr -f "GeoJSON" ...</div>' +
+        '<div class="log-line"><span class="prompt">&gt;</span> <span class="success">0...10...20...</span></div>' +
+        '<div class="log-line" style="margin-top:4px"><span class="prompt">&gt;</span> 执行中<span class="typing-dots" style="margin-left:4px"><span></span><span></span><span></span></span></div>' +
+      '</div>' +
+    '</div>'
+  );
+  setTimeout(() => {
+    const fills = document.querySelectorAll('.progress-fill');
+    const texts = document.querySelectorAll('.progress-text');
+    if (fills.length) fills[fills.length - 1].style.width = '100%';
+    if (texts.length) texts[texts.length - 1].textContent = '100%';
+  }, 500);
+  setTimeout(() => {
+    addAgentMessage(
+      '<p>&#9989; 执行完成</p>' +
+      '<div style="background:var(--success-soft);border:1px solid #a7f3d0;border-radius:8px;padding:10px 14px;margin:8px 0;font-size:12.5px;color:#065f46;">' +
+      '输出文件: <code style="background:rgba(255,255,255,0.6);padding:1px 5px;border-radius:3px;">/data/gis-projects/demo/output/beijing_20250115_143022.geojson</code>' +
+      '</div>' +
+      '<p style="font-size:12.5px;color:var(--text-secondary);">任务已完成。还需要处理其他数据吗？</p>'
+    );
+  }, 1500);
+}
+function cancelScript(el) {
+  addAgentMessage('<p>已取消。会话保留，你可以在右侧面板修改参数后重新生成。</p>');
+}
+
+function quickAsk(el) {
+  addUserMessage(el.innerText);
+  setTimeout(() => {
+    addAgentMessage('请在左侧选择对应模板，然后在右侧面板填写参数并生成脚本。');
+  }, 500);
+}
+function showOtherCards(el) {
+  addAgentMessage('其他候选模板：<br>1. 矢量数据重投影（如果只需改 CRS）<br>2. 合并 Shapefile（如果有多个文件）');
+}
+
+function addUserMessage(html) {
+  const chat = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'msg user';
+  div.innerHTML = '<div class="avatar">我</div><div class="bubble">' + html + '</div>';
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+function addAgentMessage(html) {
+  const chat = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'msg agent';
+  div.innerHTML = '<div class="avatar">AI</div><div class="bubble">' + html + '</div>';
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function sendMessage() {
+  const textarea = document.querySelector('#mode-task .chat-input-wrap textarea');
+  const text = textarea.value.trim();
+  if (!text) return;
+  addUserMessage(escapeHtml(text));
+  textarea.value = '';
+  textarea.style.height = 'auto';
+  setTimeout(() => {
+    addAgentMessage('收到。如果是新任务，我会匹配模板并在右侧面板预填参数；如果是修改当前任务，请直接在右侧表单编辑。');
+  }, 500);
+}
+function handleEnter(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function filterCards(query) {
+  const cards = document.querySelectorAll('#mode-task .card-list > .template-card');
+  const q = query.toLowerCase();
+  cards.forEach(card => {
+    const text = card.innerText.toLowerCase();
+    card.style.display = text.includes(q) ? '' : 'none';
+  });
+}
+function filterTag(el, tag) {
+  document.querySelectorAll('#mode-task .tag-filter span').forEach(s => s.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ===== Pipeline Functions =====
+function toggleTask(header) {
+  const card = header.closest('.task-card');
+  const wasExpanded = card.classList.contains('expanded');
+  document.querySelectorAll('#mode-pipeline .task-card').forEach(c => c.classList.remove('expanded'));
+  if (!wasExpanded) {
+    card.classList.add('expanded');
+  }
+}
+
+function jumpToStep(stepIndex) {
+  document.querySelectorAll('#mode-pipeline .pipeline-step-mini').forEach((el, i) => {
+    el.classList.toggle('active', i === stepIndex);
+  });
+  document.querySelectorAll('#mode-pipeline .task-card').forEach((card, i) => {
+    card.classList.toggle('expanded', i === stepIndex);
+  });
+  const target = document.querySelector('#mode-pipeline .task-card[data-step="' + stepIndex + '"]');
+  if (target) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+// Auto-resize textarea
+document.querySelectorAll('.chat-input-wrap textarea').forEach(ta => {
+  ta.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+  });
+});
+</script>
+
+</body>
+</html>

@@ -78,8 +78,7 @@ gis-agent/
 ├── SourceCode/             # 源码、开发资源
 │   ├── src/                # 源代码目录
 │   │   ├── core/           # 核心领域逻辑（模板引擎、安全层、工作空间）
-│   │   ├── rag/            # RAG 管道（文档加载、切分、嵌入、检索）
-│   │   ├── llm/            # LLM 交互层（意图识别、参数抽取、问答）
+│   │   ├── llm/            # LLM 交互层（意图识别、参数抽取、问答、错误诊断）
 │   │   ├── cli/            # 命令行界面与交互状态机
 │   │   └── templates/      # Jinja2 模板文件（*.j2）
 │   ├── tests/              # 测试代码
@@ -278,8 +277,7 @@ gis-agent/
 | CODE-1 | **所有 GDAL 命令必须通过 Jinja2 模板渲染生成** | 严禁在代码中拼接 GDAL CLI 字符串，参见 spec.md P1 |
 | CODE-2 | **所有文件路径操作必须经过规范化层** | 调用 `workspace.resolve_path()` 或等效函数进行路径规范化，禁止直接使用 `os.path.join` 处理用户输入路径 |
 | CODE-3 | **所有 LLM 调用必须封装在 `llm/` 模块内** | 其他模块禁止直接调用 `anthropic` 客户端 |
-| CODE-4 | **所有 ChromaDB 操作必须封装在 `rag/` 模块内** | 其他模块禁止直接操作向量数据库 |
-| CODE-5 | **异常不得静默吞没** | 所有 `except` 块必须至少记录日志或向上转换异常 |
+| CODE-4 | **异常不得静默吞没** | 所有 `except` 块必须至少记录日志或向上转换异常 |
 | CODE-6 | **模板文件 (*.j2) 中的参数必须做转义处理** | 防止命令注入，参见 plan-security.md 中的转义策略 |
 
 ### 5.3 文档字符串规范
@@ -362,9 +360,9 @@ def function_name(param: str, optional: int = 0) -> bool:
 ├─────────────────────────────────────┤
 │  核心层 (core/)                     │  工作空间管理、模板引擎、安全校验
 ├─────────────────────────────────────┤
-│  应用层 (llm/ + rag/)               │  LLM 交互、意图识别、文档检索
+│  应用层 (llm/)                      │  LLM 交互、意图识别、文档问答
 ├─────────────────────────────────────┤
-│  基础设施层 (外部依赖)               │  anthropic、chromadb、jinja2、GDAL CLI
+│  基础设施层 (外部依赖)               │  anthropic、jinja2、GDAL CLI
 └─────────────────────────────────────┘
 ```
 
@@ -372,11 +370,10 @@ def function_name(param: str, optional: int = 0) -> bool:
 
 | 规则 | 内容 |
 |------|------|
-| DEP-1 | CLI 层可依赖 core、llm、rag 层 |
-| DEP-2 | core 层可依赖 llm、rag 层（用于模板渲染和参数校验） |
-| DEP-3 | llm 层仅可依赖 rag 层（用于 RAG 增强问答） |
-| DEP-4 | rag 层不依赖任何上层模块，但可依赖 config/（配置基础设施） |
-| DEP-5 | 任何层都可通过接口抽象依赖外部库，但禁止直接暴露外部库类型到上层 |
+| DEP-1 | CLI 层可依赖 core、llm 层 |
+| DEP-2 | core 层可依赖 llm 层（用于模板渲染和参数校验） |
+| DEP-3 | llm 层不依赖任何上层模块，但可依赖 core/ 获取模板元数据 |
+| DEP-4 | 任何层都可通过接口抽象依赖外部库，但禁止直接暴露外部库类型到上层 |
 
 ### 6.3 设计模式约定
 
@@ -475,8 +472,8 @@ pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 | P1 | **模板化命令，杜绝幻觉** | 所有 GDAL 命令字符串必须通过 `data/templates/` 下的 Jinja2 模板渲染，严禁任何动态字符串拼接生成命令 |
 | P2 | **先展后行** | CLI 层必须在调用执行层前打印完整脚本内容，并获得用户明确确认（Y/N） |
 | P3 | **最小权限** | 默认输出到工作空间内，输出文件加时间戳防覆盖；所有路径经规范化后使用 |
-| P4 | **文档知识只读** | RAG 模块仅读取 `SourceCode/data/` 下的本地文档 chunks，禁止调用外部 API 获取知识 |
-| P5 | **依赖极简** | `pyproject.toml` 的生产依赖以 `anthropic`、`chromadb`、`jinja2` 为主；`sentence-transformers` 作为 embedding 模型加载的必要依赖，允许纳入生产依赖 |
+| P4 | **模板知识唯一** | 用法指导类知识仅来源于 J2 模板元数据，基础概念类回答由 LLM 参数知识提供，禁止调用外部 API 获取知识 |
+| P5 | **极简依赖** | `pyproject.toml` 的生产依赖以 `anthropic`、`jinja2` 为主，不引入未经批准的第三方库 |
 
 ### 9.2 安全编码红线
 
@@ -498,7 +495,7 @@ pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 |------|------|------|
 | 产品需求规格 | `Document/spec.md` | 需求基线，所有设计的源头 |
 | 架构设计文档 | `Document/plan-architecture.md` | 系统级架构设计（待创建） |
-| RAG 模块设计 | `Document/plan-rag.md` | RAG 管道详细设计 |
+| ~~RAG 模块设计~~ | ~~`Document/plan-rag.md`~~ | ~~已废弃，见 ADR-0001~~ |
 | 安全模块设计 | `Document/plan-security.md` | 安全校验层详细设计（待创建） |
 | 交互模块设计 | `Document/plan-cli.md` | CLI 与状态机详细设计 |
 

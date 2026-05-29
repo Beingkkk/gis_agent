@@ -6,9 +6,9 @@
 
 | 能力 | 说明 |
 |------|------|
-| 文档问答 | 基于本地 GDAL 文档，解答工具使用问题 |
 | 任务脚本化 | 自然语言需求 → Jinja2 模板渲染 → 可执行脚本 |
-| 安全执行 | 工作空间隔离、路径白名单、执行前强制确认 |
+| 模板知识 | 模板内置概念/提示/常见错误，辅助使用 |
+| 安全执行 | 路径规范化、执行前强制确认、脚本安全扫描 |
 
 ## 环境准备
 
@@ -57,12 +57,9 @@ cp config/config.json.template config/config.json
 
 | 字段 | 说明 | 示例 |
 |------|------|------|
-| `llm.base_url` | LLM API 地址 | `https://api.kimi.com/coding/` |
+| `llm.base_url` | LLM API 地址 | `https://api.anthropic.com` |
 | `llm.auth_key` | API 密钥 | `sk-xxxxxxxx` |
-| `llm.model_name` | 模型名称 | `K2.6` |
-| `embedding.model_path` | 嵌入模型本地路径 | `SourceCode/model/embedding` |
-| `embedding.device` | 运行设备 | `cpu` 或 `cuda` |
-| `rag.top_k` | 文档检索返回数量 | `5` |
+| `llm.model_name` | 模型名称 | `claude-sonnet-4-6` |
 | `workspace.default_path` | 默认工作空间 | `.` |
 
 **环境变量覆盖**：敏感字段支持通过环境变量覆盖，避免密钥入仓。
@@ -155,15 +152,12 @@ gis-agent/
 │   ├── src/
 │   │   ├── cli/           # CLI 层：REPL、命令解析、脚本执行
 │   │   ├── core/          # 核心层：状态机、模板注册表、参数校验
-│   │   ├── llm/           # LLM 层：意图分类、参数抽取、文档问答
-│   │   ├── rag/           # RAG 层：文档检索、向量索引
-│   │   ├── templates/     # 模板引擎：Jinja2 渲染、扫描器
+│   │   ├── llm/           # LLM 层：意图分类、参数抽取、错误诊断
+│   │   ├── templates/     # 模板引擎：Jinja2 渲染、扫描器、安全校验
 │   │   └── config/        # 配置加载
 │   ├── tests/unit/        # 单元测试
 │   ├── data/
-│   │   ├── templates/     # .j2 模板文件（vector/raster/general）
-│   │   └── gdal-docs-chunks.json  # RAG 文档数据
-│   ├── model/embedding/   # 本地嵌入模型
+│   │   └── templates/     # .j2 模板文件（vector/raster/general）
 │   ├── config/            # 运行时配置（config.json）
 │   └── pyproject.toml
 └── README.md

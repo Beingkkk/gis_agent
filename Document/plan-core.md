@@ -194,6 +194,15 @@ def scan_templates(template_dir: Path) -> List[TemplateDef]:
 - LLM 诊断只需在首次进入时调用一次，结果缓存到 `error_context.diagnosis`
 - 用户输入语义分层：选项选择（1/2/3）vs 自然语言修改语句
 
+### DC-0070: SessionProcessor 支持可选 `output_fn` 回调用于 Q&A 流式输出
+
+**决策**: `SessionProcessor.__init__()` 新增 `output_fn: Optional[Callable[[str], None]] = None` 参数，并新增 `set_output_fn()` 后置设置方法。Q&A 路由（`_handle_idle` 中的 `__qa__` 分支）将该 callback 作为 `on_chunk` 传给 `answer_question()`。
+
+**理由**:
+- Processor 拥有"哪些响应应该流式"的决策权（仅 Q&A 流式，结构化调用不流式）
+- 可选注入，不注入时流式功能静默禁用（向后兼容）
+- 不直接依赖 CLI 层，只是一个 callable 类型的可选参数
+
 ---
 
 ## 3. 接口定义
@@ -387,8 +396,16 @@ class SessionProcessor:
         validator: ParamValidator,
         llm_client: LLMClient,
         prompt_builder: PromptBuilder,
+        output_fn: Optional[Callable[[str], None]] = None,
     ) -> None:
-        """注入依赖。"""
+        """注入依赖。
+
+        Args:
+            output_fn: 可选的输出回调，用于 Q&A 流式输出（DC-0070）。
+        """
+
+    def set_output_fn(self, fn: Optional[Callable[[str], None]]) -> None:
+        """后置设置输出回调（用于 REPL 创建后接线）。"""
 
     def process(self, session: Session, user_input: str) -> tuple[Session, str]:
         """处理一轮用户输入，返回新状态和响应文本。
@@ -791,6 +808,7 @@ CLI 层执行脚本
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.0.5 | 2026-05-29 | 新增 DC-0070：`SessionProcessor` 新增 `output_fn` 可选参数和 `set_output_fn()` 后置设置方法；Q&A 路由将 callback 透传至 `answer_question(on_chunk=...)`；§3.4 更新 `SessionProcessor` 接口定义 |
 | v1.0.4 | 2026-05-28 | 新增 DC-0048/DC-0049：执行失败后进入 `ERROR_RECOVERY` 状态，保留 template + params 上下文；`_handle_error_recovery()` 统一处理 LLM 诊断和用户选择修复路径；新增 `ExecutionErrorContext` 数据模型 |
 | v1.0.3 | 2026-05-28 | 新增 DC-0045：`Workspace.save_agents_md()` 支持程序追加写入 Agents.md，供 `/init` 斜杠命令使用（plan-cli DC-0067） |
 | v1.0.2 | 2026-05-28 | 空匹配（无精确对应模板）不再直接拒绝，改为进入 INTENT_CONFIRM 展示候选列表，附带友好说明 |

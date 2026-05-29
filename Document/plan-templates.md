@@ -29,6 +29,7 @@
 | P3 | 输出文件默认加时间戳防覆盖 |
 | CODE-1 | 所有 GDAL 命令字符串必须通过 `data/templates/` 下的 Jinja2 模板渲染 |
 | CODE-6 | 模板文件 (*.j2) 中的参数必须做转义处理 |
+| F1 | 文档问答：基于模板元数据回答用户问题 |
 | SEC-5 | 模板渲染后的命令字符串必须经安全校验层二次检查后方可提交执行 |
 
 ---
@@ -123,6 +124,42 @@ ogr2ogr -f "GeoJSON" {{ output | quote }} {{ input | quote }}
 - 团队内可能同时使用 Windows 和 Linux
 - GDAL CLI 命令本身跨平台，但脚本语法不同
 - 默认使用当前运行平台，支持 `--platform` 参数覆盖
+
+### DC-0055: 模板注释头扩展为知识元数据载体
+
+**决策**: `.j2` 模板注释头在现有 `@id`、`@name`、`@description`、`@param` 基础上，新增 `@concept`、`@note`、`@seealso`、`@common_error` 四种元数据标签。扫描器负责解析并注入 `TemplateDef` 的扩展字段。
+
+**标签格式**:
+
+| 标签 | 语法 | 用途 | 出现次数 |
+|------|------|------|---------|
+| `@concept` | `{# @concept "术语" — 解释文本 #}` | 定义模板涉及的基础概念 | 0-N |
+| `@note` | `{# @note 提示文本 #}` | 使用前提、注意事项 | 0-N |
+| `@seealso` | `{# @seealso template_id #}` | 关联相关模板 ID | 0-N |
+| `@common_error` | `{# @common_error "错误文本" — 原因与修复 #}` | 记录典型错误及处理 | 0-N |
+
+**示例**:
+```jinja2
+{# @id raster/reproject #}
+{# @name 栅格重投影 #}
+{# @description 使用 gdalwarp 对栅格数据进行坐标系转换 #}
+{# @concept "重采样" — 改变像素网格时计算新像素值的方法 #}
+{# @note 如果源数据没有坐标系，需要先使用 gdal_edit 添加 #}
+{# @seealso raster/translate_format #}
+{# @common_error "ERROR 6: No coordinate system" — 输入文件缺少坐标系，需先添加 #}
+{# @param input file_path required 输入栅格文件 #}
+{# @param output file_path required 输出路径 #}
+```
+
+**理由**:
+- 模板同时是可执行脚本和结构化知识卡片，知识与行动同源
+- 注释格式与现有 `@param` 语法一致，扫描器可统一解析
+- 人工编码的知识质量高于自动解析的 HTML chunks
+
+**扫描器扩展**:
+- `parse_j2_header()` 新增对上述四种标签的正则匹配
+- 解析结果存入 `TemplateDef` 的扩展字段：`concepts`、`notes`、`seealso`、`common_errors`
+- 未知标签忽略（向前兼容）
 
 ---
 
@@ -488,6 +525,7 @@ REM Done
 
 | 需求 ID | 设计决策 | 代码文件/函数 | 说明 |
 |:-------:|:--------:|:-------------:|------|
+| F1 | DC-0055 | `parse_j2_header()` 扩展标签解析 | 模板元数据作为问答知识源 |
 | F4 | DC-0050, DC-0054 | `TemplateEngine.render()` | Jinja2 模板渲染生成脚本 |
 | P1 | DC-0050, DC-0053 | 模板扫描器 + Jinja2 过滤器 | 模板化命令，禁止字符串拼接 |
 | P2 | DC-0054 | `RenderedScript.content` | 完整脚本展示 |
@@ -503,5 +541,6 @@ REM Done
 architecture-diagram.htmlarchitecture-diagram.h
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.1.0 | 2026-05-28 | 新增 DC-0055：模板注释头扩展为知识元数据载体，新增 `@concept`、`@note`、`@seealso`、`@common_error` 标签；更新需求追溯表 |
 | v1.0.1 | 2026-05-28 | quote_filter Windows 兼容：Windows 平台使用双引号包裹（cmd 不支持单引号字符串），Unix 仍使用 shlex.quote |
 | v1.0.0 | 2026-05-26 | 初版，定义模板目录结构、Jinja2 渲染、参数转义、安全校验、跨平台脚本生成 |

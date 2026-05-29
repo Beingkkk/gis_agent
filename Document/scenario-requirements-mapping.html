@@ -494,32 +494,35 @@
     </div>
   </div>
 
-  <!-- 场景4: 文档问答 -->
+  <!-- 场景4: 模板知识问答 -->
   <div class="scenario type-doc">
     <div class="scenario-header">
       <div class="scenario-icon">📚</div>
-      <div class="scenario-title">场景四：GDAL 工具文档问答</div>
-      <div class="scenario-type-badge">文档检索</div>
+      <div class="scenario-title">场景四：模板知识问答</div>
+      <div class="scenario-type-badge">知识问答</div>
     </div>
     <div class="scenario-body">
       <div class="dialogue">
         <div class="dialogue-label">会话流程</div>
         <div class="msg msg-user">
           <div class="msg-avatar">U</div>
-          <div class="msg-content">ogr2ogr 能输出哪些格式？</div>
+          <div class="msg-content">Shapefile 是什么？</div>
         </div>
         <div class="msg msg-agent">
           <div class="msg-avatar">A</div>
-          <div class="msg-content">基于 GDAL 官方文档，ogr2ogr 支持以下输出格式：<br>
-            • GeoJSON / GeoJSONSeq<br>
-            • ESRI Shapefile<br>
-            • GeoPackage<br>
-            • KML / CSV / SQLite...<br>
-            完整列表请参见文档。</div>
+          <div class="msg-content">Shapefile 是 ESRI 开发的矢量数据格式，由 .shp、.shx、.dbf 三个文件组成，是 GIS 领域最常用的数据交换格式之一。</div>
+        </div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">怎么把 SHP 转成 GeoJSON？</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">使用 ogr2ogr 命令转换。需要指定输入 SHP 路径和输出 GeoJSON 路径，可选源/目标坐标系。</div>
         </div>
         <div class="state-flow">
           <span class="state-badge active">IDLE</span>
-          <span class="state-badge">→ RAG 检索</span>
+          <span class="state-badge">→ 模板匹配</span>
           <span class="state-badge">→ LLM 生成回答 → 保持 IDLE</span>
         </div>
       </div>
@@ -527,15 +530,11 @@
         <div class="mapping-label">需求映射</div>
         <div class="req-row">
           <span class="req-id func">F1</span>
-          <span class="req-desc">文档问答：基于本地 GDAL HTML 文档，通过 ChromaDB 向量检索</span>
+          <span class="req-desc">文档问答：基础概念由 LLM 参数知识回答；用法指导基于模板元数据（@concept / @note / @param）</span>
         </div>
         <div class="req-row">
           <span class="req-id principle">P4</span>
-          <span class="req-desc">仅本地文档：RAG 只检索本地官方文档，不混合网络内容</span>
-        </div>
-        <div class="req-row">
-          <span class="req-id accept">AC-1</span>
-          <span class="req-desc">中英跨语言检索：中文问题匹配英文文档片段（多语言 Embedding）</span>
+          <span class="req-desc">模板知识唯一：用法指导类知识仅来源于 J2 模板元数据，不混合外部网络内容</span>
         </div>
         <div class="req-row">
           <span class="req-id func">F11</span>
@@ -698,7 +697,7 @@
         <div class="mapping-label">需求映射</div>
         <div class="req-row">
           <span class="req-id func">F10</span>
-          <span class="req-desc">错误诊断：捕获 stderr，结合 RAG 文档提供修复建议</span>
+          <span class="req-desc">错误诊断：捕获 stderr，结合模板 @common_error 元数据与 LLM 推理提供修复建议</span>
         </div>
         <div class="req-row">
           <span class="req-id func">F8</span>
@@ -767,7 +766,7 @@
         <tr>
           <td rowspan="5" style="font-weight:700;color:#4c51bf;background:#ebf4ff;">功能</td>
           <td class="tid">F1</td>
-          <td>基于本地 GDAL 文档的问答</td>
+          <td>基于模板元数据和 LLM 参数知识的问答</td>
           <td>场景四</td>
         </tr>
         <tr>
@@ -848,12 +847,12 @@
         </tr>
         <tr>
           <td class="tid">P4</td>
-          <td>仅检索本地文档</td>
+          <td>模板知识唯一：用法指导类知识仅来源于 J2 模板元数据</td>
           <td>场景四</td>
         </tr>
         <tr>
           <td class="tid">P5</td>
-          <td>最小依赖（anthropic, chromadb, jinja2）</td>
+          <td>最小依赖（anthropic, jinja2）</td>
           <td>全部</td>
         </tr>
         <tr>

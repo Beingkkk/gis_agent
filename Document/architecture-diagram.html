@@ -417,7 +417,7 @@
   </div>
 
   <div class="arrow-down">&#8595;</div>
-  <div class="dependency-note">CLI 层 &rarr; Core 层 + LLM 层 + RAG 层</div>
+  <div class="dependency-note">CLI 层 &rarr; Core 层 + LLM 层</div>
 
   <!-- Core 层 -->
   <div class="layer layer-core">
@@ -471,13 +471,13 @@
   </div>
 
   <div class="arrow-down">&#8595;</div>
-  <div class="dependency-note">Core 层 &rarr; App 层 (LLM + RAG)</div>
+  <div class="dependency-note">Core 层 &rarr; App 层 (LLM)</div>
 
   <!-- App 层 -->
   <div class="layer layer-app">
     <div class="layer-header">
       <span class="layer-badge">Layer 3</span>
-      <span>App 层 (llm/ + rag/) — 智能能力层</span>
+      <span>App 层 (llm/) — 智能能力层</span>
     </div>
     <div class="modules">
       <div class="module">
@@ -491,7 +491,7 @@
       </div>
       <div class="module">
         <div class="module-name"><span class="icon">&#128172;</span> Prompt 构建器</div>
-        <div class="module-desc">动态组装系统提示词：安全约束 + Agents.md + RAG 上下文 + 任务上下文</div>
+        <div class="module-desc">动态组装系统提示词：安全约束 + Agents.md + 模板知识上下文 + 任务上下文</div>
         <div class="module-meta">
           <span class="tag">DC-0032</span>
           <span class="tag">DC-0035</span>
@@ -499,19 +499,11 @@
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">&#128269;</span> 文档检索器</div>
-        <div class="module-desc">ChromaDB 向量检索，本地持久化，hash 懒构建，多语言 Embedding</div>
-        <div class="module-meta">
-          <span class="tag">DC-0021</span>
-          <span class="tag">DC-0024</span>
-          <span class="tag">DocumentRetriever</span>
-        </div>
-      </div>
-      <div class="module">
         <div class="module-name"><span class="icon">&#129504;</span> 业务接口函数</div>
-        <div class="module-desc">classify_intent() &middot; extract_params() &middot; answer_question()</div>
+        <div class="module-desc">classify_intent() &middot; extract_params() &middot; answer_question() &middot; analyze_execution_error()</div>
         <div class="module-meta">
           <span class="tag">DC-0031</span>
+          <span class="tag">DC-0036</span>
           <span class="tag">IntentResult</span>
           <span class="tag">ParamResult</span>
         </div>
@@ -538,14 +530,6 @@
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">&#128193;</span> ChromaDB</div>
-        <div class="module-desc">本地持久化向量数据库，SQLite 后端，~/.cache/gis-agent/chroma/</div>
-        <div class="module-meta">
-          <span class="tag">P5 锁定</span>
-          <span class="tag">CODE-4</span>
-        </div>
-      </div>
-      <div class="module">
         <div class="module-name"><span class="icon">&#128209;</span> Jinja2 模板引擎</div>
         <div class="module-desc">模板渲染 + 自定义过滤器 (quote / safe_path)，禁止字符串拼接</div>
         <div class="module-meta">
@@ -559,14 +543,6 @@
         <div class="module-meta">
           <span class="tag">外部</span>
           <span class="tag">subprocess.run</span>
-        </div>
-      </div>
-      <div class="module">
-        <div class="module-name"><span class="icon">&#129302;</span> Embedding 模型</div>
-        <div class="module-desc">paraphrase-multilingual-MiniLM-L12-v2，本地加载，中英跨语言检索</div>
-        <div class="module-meta">
-          <span class="tag">SourceCode/model/</span>
-          <span class="tag">SentenceTransformer</span>
         </div>
       </div>
     </div>
@@ -652,12 +628,6 @@
         <div class="ig-desc">模板扫描器</div>
       </div>
 
-      <!-- RAG 层 -->
-      <div class="ig-node ig-rag" style="grid-column:5;grid-row:4;">
-        <div class="ig-name">rag.retriever</div>
-        <div class="ig-desc">文档检索器</div>
-      </div>
-
       <!-- Config 层 -->
       <div class="ig-node ig-cfg" style="grid-column:6;grid-row:3;">
         <div class="ig-name">config.loader</div>
@@ -668,10 +638,6 @@
       <div class="ig-node ig-infra" style="grid-column:6;grid-row:4;">
         <div class="ig-name">anthropic</div>
         <div class="ig-desc">SDK</div>
-      </div>
-      <div class="ig-node ig-infra" style="grid-column:6;grid-row:5;">
-        <div class="ig-name">chromadb</div>
-        <div class="ig-desc">向量数据库</div>
       </div>
       <div class="ig-node ig-infra" style="grid-column:5;grid-row:5;">
         <div class="ig-name">jinja2</div>
@@ -705,11 +671,6 @@
         <div class="deps-cell"><span class="dep-tag core">core.processor</span></div>
         <div class="deps-cell"><span class="dep-tag tpl">templates.engine</span> <span class="dep-tag core">core.validator</span></div>
         <div class="deps-cell">参数校验与模板渲染</div>
-      </div>
-      <div class="deps-row">
-        <div class="deps-cell"><span class="dep-tag core">core.processor</span></div>
-        <div class="deps-cell"><span class="dep-tag rag">rag.retriever</span></div>
-        <div class="deps-cell">问答模式下的文档检索</div>
       </div>
       <div class="deps-row">
         <div class="deps-cell"><span class="dep-tag llm">llm.intent</span> <span class="dep-tag llm">llm.params</span> <span class="dep-tag llm">llm.qa</span></div>
@@ -803,12 +764,12 @@
         <div class="p-desc">默认输出到工作空间，输出文件自动加时间戳防覆盖。路径经规范化后使用。workspace v2.0 是记忆锚点，不是安全边界。</div>
       </div>
       <div class="security-item">
-        <div class="p-id">P4 — 仅本地文档</div>
-        <div class="p-desc">RAG 仅检索本地 GDAL 官方文档，不混合网络随机内容。文档来源可控、可审计。</div>
+        <div class="p-id">P4 — 模板知识唯一</div>
+        <div class="p-desc">用法指导类知识仅来源于 J2 模板元数据，基础概念类回答由 LLM 参数知识提供，禁止调用外部 API。</div>
       </div>
       <div class="security-item">
         <div class="p-id">P5 — 最小依赖</div>
-        <div class="p-desc">生产依赖仅锁定 anthropic、chromadb、jinja2 三个库。零额外运行时依赖，降低供应链攻击面。</div>
+        <div class="p-desc">生产依赖仅锁定 anthropic、jinja2 两个库。零额外运行时依赖，降低供应链攻击面。</div>
       </div>
     </div>
   </div>

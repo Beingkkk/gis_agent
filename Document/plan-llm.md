@@ -17,13 +17,13 @@
 
 ### 1.2 所属架构层次
 
-应用层（`llm/`）。被 core 层和 cli 层依赖，可依赖 rag 层获取检索上下文。
+应用层（`llm/`）。被 core 层和 cli 层依赖，可依赖 core/ 获取模板元数据。
 
 ### 1.3 对应需求项
 
 | 需求 ID | 需求描述 |
 |:-------:|---------|
-| F1 | 文档问答：RAG 检索后由 Claude 生成回答 |
+| F1 | 文档问答：基于模板元数据和 LLM 参数知识生成回答 |
 | F2 | 意图识别与分类：将自然语言映射到预定义模板 |
 | F3 | 参数抽取与追问：从输入中提取文件路径、坐标参考、选项等 |
 | F8 | 会话内记忆：单次对话中保留上下文 |
@@ -144,6 +144,30 @@
 3. **RAG 检索上下文**（问答场景）：相关 GDAL 文档片段
 4. **当前任务上下文**（参数抽取场景）：已确认的参数和待问字段
 
+### DC-0068: LLMClient 新增流式输出接口 `chat_stream()`
+
+**决策**: 新增 `chat_stream()` 方法，使用 `anthropic.messages.create(..., stream=True)` 返回 `Iterator[str]`。现有 `chat()` 保持不变，供结构化 JSON 调用者使用。
+
+**理由**:
+- Anthropic SDK 原生支持流式，实现成本低
+- 结构化调用（意图分类、参数抽取、错误诊断）必须等完整 JSON 才能解析，不适合流式
+- 只有 Q&A 场景（自然语言输出）适合流式输出
+- 分离职责：`chat()` 用于完整响应，`chat_stream()` 用于流式输出
+
+**实现要点**:
+- 复用 `_truncate_messages()` 的 token 截断逻辑
+- 无重试逻辑（流式调用一旦开始无法优雅重试）
+- 异常直接抛出，由调用方处理
+
+### DC-0069: `answer_question()` 支持可选 `on_chunk` 回调流式输出
+
+**决策**: `answer_question()` 新增 `on_chunk: Optional[Callable[[str], None]] = None` 参数。传入时内部调用 `client.chat_stream()` 逐块回调，同时累积完整文本返回。
+
+**理由**:
+- callback 是最轻量的跨层桥接方式，不破坏返回类型（仍为 `str`）
+- 完整文本仍需返回，以便保存到 `session.history`
+- 不传 callback 时行为完全不变（向后兼容）
+
 ---
 
 ## 3. 接口定义
@@ -242,6 +266,29 @@ class LLMClient:
         Design:
             DC-0033, DC-0034
         """
+
+    def chat_stream(
+        self,
+        system_prompt: str,
+        messages: List[Message],
+        temperature: float = 0.1,
+    ) -> Iterator[str]:
+        """流式发送对话请求，逐块生成文本。
+
+        使用 Anthropic SDK 的 stream=True 模式。不复用 chat() 的重试逻辑，
+        因为流式调用一旦开始无法优雅重试。
+
+        Args:
+            system_prompt: 系统提示词。
+            messages: 历史消息列表（不含当前轮次）。
+            temperature: 采样温度。
+
+        Yields:
+            文本块（text chunk）。
+
+        Design:
+            DC-0068
+        """
 ```
 
 ### 3.3 PromptBuilder 类
@@ -250,7 +297,7 @@ class LLMClient:
 class PromptBuilder:
     """系统提示词构建器。
 
-    负责将固定约束、Agents.md、RAG 上下文组装为系统提示词。
+    负责将固定约束、Agents.md、模板知识上下文组装为系统提示词。
 
     Design:
         DC-0032, DC-0035
@@ -263,13 +310,13 @@ class PromptBuilder:
 
     def build_system_prompt(
         self,
-        rag_context: Optional[str] = None,
+        template_context: Optional[str] = None,
         task_context: Optional[str] = None,
     ) -> str:
         """组装系统提示词。
 
         Args:
-            rag_context: RAG 检索到的文档片段（问答场景）。
+            template_context: 模板元数据上下文（问答场景）。
             task_context: 当前任务状态描述（参数抽取场景）。
 
         Returns:
@@ -343,50 +390,35 @@ def extract_params(
     """
 
 
-def extract_keywords(
-    user_input: str,
-    history: List[Message],
-    client: LLMClient,
-    builder: PromptBuilder,
-) -> List[str]:
-    """从用户问题中提炼搜索关键词，用于多路向量检索。
-
-    Args:
-        user_input: 用户问题。
-        history: 对话历史。
-        client: LLM 客户端。
-        builder: Prompt 构建器。
-
-    Returns:
-        1-5 个关键词/短语列表。LLM 返回无效 JSON 或空列表时，
-        fallback 到 [user_input]。
-
-    Design:
-        DC-0074
-    """
-
-
 def answer_question(
     user_input: str,
-    retrieved_docs: List[RetrievedDocument],
+    template_infos: List[TemplateInfo],
     history: List[Message],
     client: LLMClient,
     builder: PromptBuilder,
+    on_chunk: Optional[Callable[[str], None]] = None,
 ) -> str:
-    """基于检索到的文档生成问答回答。
+    """基于模板元数据生成问答回答。
+
+    基础概念类问题直接由 LLM 参数知识回答；
+    用法指导类问题基于匹配模板的元数据生成回答。
+
+    当 *on_chunk* 不为 None 时，通过流式 API 逐块输出，同时累积完整文本返回。
 
     Args:
         user_input: 用户问题。
-        retrieved_docs: RAG 检索结果。
+        template_infos: 匹配到的模板元数据列表（含 id、name、description、
+            concept、note、common_error 等）。
         history: 对话历史。
         client: LLM 客户端。
         builder: Prompt 构建器。
+        on_chunk: 可选的逐块输出回调（用于流式输出）。
 
     Returns:
-        自然语言回答。
+        自然语言回答（完整文本）。
 
     Design:
-        F1, P4
+        F1, P4, DC-0069
     """
 
 
@@ -515,30 +547,21 @@ extract_params()
 用户输入："ogr2ogr 能输出哪些格式？"
     │
     ▼
-extract_keywords() —— 关键词提炼
+模板匹配（基于 intent 相似度或关键词匹配）
     │
-    ├──→ PromptBuilder.build_system_prompt() + 关键词提炼指令
-    │       └── "请从用户问题中提炼 2-3 个搜索关键词，返回 JSON 数组"
+    ├──→ 匹配到相关模板 → 提取模板元数据
+    │       └── id, name, description, @concept, @note, @common_error
     │
-    ├──→ LLMClient.chat(temperature=0.1)
-    │       └── 返回 '["ogr2ogr output formats", "GDAL vector drivers", "ogr2ogr -f option"]'
-    │
-    ├──→ 解析 JSON 数组，去重、过滤空字符串
-    │       └── 失败 fallback → ["ogr2ogr 能输出哪些格式？"]
-    │
-    └──→ 返回关键词列表
+    └──→ 未匹配到模板 → 标记为"概念性问题"（走 LLM 参数知识）
             │
             ▼
-    RAG 多路检索（rag.DocumentRetriever.search_multi）
-            │
-            └── 返回合并去重后的文档 chunks
-                    │
-                    ▼
     answer_question()
             │
-            ├──→ PromptBuilder.build_system_prompt(rag_context=文档片段)
-            │       ├── 固定约束："基于以下 GDAL 官方文档回答..."
-            │       └── RAG 上下文："[1] ogr2ogr 文档片段... [2] 驱动列表..."
+            ├──→ PromptBuilder.build_system_prompt(template_context=模板元数据)
+            │       ├── 固定约束："基于以下模板元数据回答用法问题；
+            │       │              若为基础概念，使用你的参数知识回答；
+            │       │              不要编造模板中未定义的参数"
+            │       └── 模板上下文："模板: shp2geojson\n描述: ...\n概念: ..."
             │
             ├──→ 构造 user prompt：用户原始问题
             │
@@ -618,7 +641,7 @@ analyze_execution_error()
 | 模块 | 接口 | 用途 |
 |------|------|------|
 | `config` | `get_config()` | 读取 LLM 连接参数 |
-| `rag` | `DocumentRetriever.search()` | 文档问答时检索上下文 |
+| `core` | `TemplateDef`（模板元数据） | 文档问答时获取模板知识上下文 |
 | `workspace` | `Workspace.load_agents_md()` | 获取 Agents.md 内容 |
 
 ### 5.2 向下暴露
@@ -659,9 +682,8 @@ analyze_execution_error()
 | 不重试 4xx | mock 401，验证只调用 1 次 |
 | JSON 解析失败 | 非 JSON 响应时抛 LLMResponseError |
 | 无效 template_id | 返回的 ID 不在列表中时 confidence=0 |
-| **关键词提炼** | LLM 返回 JSON 数组 → 正确解析为关键词列表 |
-| **关键词 fallback** | 无效 JSON / 空列表 → fallback 到原句 |
-| **关键词去重截断** | 重复/空字符串被过滤，超出 5 个被截断 |
+| **模板知识问答** | 匹配到模板时，回答基于模板元数据；未匹配时基于 LLM 参数知识 |
+| **流式输出** | `chat_stream()` 逐块 yield 文本；`answer_question(on_chunk=...)` 回调被正确调用 |
 | **错误诊断 Prompt 构建** | 系统提示词包含 GDAL 诊断专家角色，user prompt 包含模板/参数/执行结果 |
 | **错误诊断 JSON 解析** | markdown code block 被 strip，解析失败时 fallback 到保守 diagnosis |
 | **错误诊断非法 key 过滤** | fixed_params 包含不在模板参数列表中的 key 时被过滤 |
@@ -677,7 +699,7 @@ analyze_execution_error()
 
 - `LLMClient` 整体 mock：直接返回预设的 JSON 字符串，跳过网络请求
 - `anthropic.Anthropic` patch：验证请求参数（temperature、messages 格式）
-- `rag.DocumentRetriever` mock：返回预设的 RetrievedDocument 列表
+- `core.TemplateRegistry` mock：返回预设的 TemplateDef 列表（用于问答模板匹配）
 
 ---
 
@@ -685,14 +707,14 @@ analyze_execution_error()
 
 | 需求 ID | 设计决策 | 代码文件/函数 | 说明 |
 |:-------:|:--------:|:-------------:|------|
-| F1 | DC-0035, DC-0074 | `answer_question()`, `extract_keywords()` | RAG 增强文档问答 + 关键词提炼 |
+| F1 | DC-0035 | `answer_question()` | 基于模板元数据和 LLM 参数知识的文档问答 |
 | F2 | DC-0031, DC-0032 | `classify_intent()` | 意图分类 |
 | F3 | DC-0031, DC-0032 | `extract_params()` | 参数抽取与追问 |
 | F8 | DC-0033 | Token 截断逻辑 | 会话记忆上下文管理 |
 | F10 | DC-0036 | `analyze_execution_error()` | 执行错误 LLM 诊断 + 结构化修复建议 |
 | F11 | DC-0035 | `PromptBuilder` | Agents.md 注入系统提示词 |
 | P1 | DC-0032 | 系统提示词固定约束 | 模板化命令规则 |
-| P4 | DC-0035 | `answer_question()` RAG 上下文 | 仅基于本地文档回答 |
+| P4 | DC-0035 | `answer_question()` 模板上下文 | 基于模板元数据回答用法问题 |
 | CODE-3 | DC-0031 | `LLMClient` 封装 | anthropic SDK 不外泄 |
 | SEC-1 | DC-0030 | Config 读取 auth_key | 不硬编码 API Key |
 
@@ -702,6 +724,7 @@ analyze_execution_error()
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.3.0 | 2026-05-29 | 新增 DC-0068/DC-0069：LLMClient 新增 `chat_stream()` 流式接口；`answer_question()` 新增 `on_chunk` 回调参数；§3.2 更新 LLMClient 接口、§3.4 更新 `answer_question` 签名、§7 新增流式测试 |
 | v1.2.0 | 2026-05-28 | 新增 DC-0036：`analyze_execution_error()` 接口，将 ExecutionResult + template + params 传给 LLM，返回结构化 `ErrorDiagnosis`；新增 §3.1 `ErrorDiagnosis`、§3.4 `analyze_execution_error()`、§4.4 错误诊断流程、§7.1 测试策略、§8 需求追溯 |
 | v1.1.1 | 2026-05-28 | `classify_intent` Prompt 改进：不再要求 LLM 留空 template_id，而是始终返回最接近的模板并用 confidence 反映匹配程度；§4.1 数据流更新 |
 | v1.1.0 | 2026-05-28 | 新增 `extract_keywords()` 接口（§3.4、§4.3、§7）；更新文档问答流程为关键词提炼 + 多路召回；更新需求追溯表 |

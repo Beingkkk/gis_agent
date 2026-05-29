@@ -163,6 +163,51 @@ gis-agent/
 └── README.md
 ```
 
+## 开发工具
+
+### 批量生成 J2 模板
+
+`scripts/generate_templates.py` 是一个开发时工具，用于从 GDAL HTML 文档批量生成 Jinja2 模板。当你需要扩充模板库（如 GDAL 版本升级、新增工具支持）时，使用此工具替代手工编写。
+
+**工作原理**：HTML 解析 → LLM 生成模板定义 → LLM 审核 → 渲染为 `.j2` 文件。
+
+**前置条件**：
+- 已配置有效的 LLM API 密钥（`config/config.json`）
+- 已构建 GDAL 文档（`Document/Resource/gdal/build/doc/build/html/programs`）
+
+**执行命令**：
+
+```bash
+cd SourceCode
+
+# 批量生成（从 programs 目录生成到 data/templates/）
+python scripts/generate_templates.py \
+  --source ../Document/Resource/gdal/build/doc/build/html/programs \
+  --output data/templates/ \
+  --config config/config.json
+```
+
+**参数说明**：
+
+| 参数 | 说明 |
+|------|------|
+| `--source` | GDAL HTML 文档目录 |
+| `--output` | J2 模板输出目录 |
+| `--config` | 配置文件路径 |
+| `--strict` | 严格审核模式（任何 warning 视为失败） |
+| `--dry-run` | 空跑预览（不写入文件，但仍有 API 调用） |
+| `--force` | 强制重跑（忽略断点续传缓存） |
+| `--verbose` | 详细日志 |
+
+**断点续传**：工具会自动跳过已处理的文件（通过 `.generate_state.json` 跟踪）。中断后重新执行同一命令即可恢复。
+
+**审核队列**：生成或审核失败的文件会记录到 `.review_queue.jsonl`，可据此人工修正后补充模板。
+
+**注意事项**：
+- 该工具不是运行时组件，仅在开发时执行
+- 批量处理涉及大量 LLM API 调用，请注意 token 消耗
+- 生成的模板建议人工抽样检查后再提交
+
 ## 开发规范
 
 本项目遵循规范驱动设计（Specification-Driven Design）流程。编码前必须先完成对应模块的 plan 设计文档，详见 [Document/constitution.md](Document/constitution.md)。

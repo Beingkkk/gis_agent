@@ -47,8 +47,8 @@ Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker 
 - `cli/` may depend on `core/`, `llm/`, `templates/`
 - `core/` may depend on `llm/`, `templates/`
 - `llm/` may depend on `core/` (for `TemplateDef` knowledge metadata in Q&A)
-- `templates/` may depend on `core/` (models)
 - `templates/` may depend on `core/` (models + workspace)
+- `scripts/generate/` is a development-time tool, not a runtime layer. It imports from `rag.preprocess`, `llm.client`, `templates.engine`, `templates.scanner`.
 - External library types must not leak upward through layer boundaries
 
 **Key design patterns**:
@@ -113,6 +113,21 @@ User interaction layer. Exposed through `cli/__init__.py`.
 - **`commands.py`** — `SlashCommandHandler`: `/quit`, `/clear`, `/workspace`, `/templates`, `/status`, `/init` (persist session to Agents.md), `/help`
 - **`executor.py`** — `ScriptExecutor` with `ExecutionResult`: subprocess execution with timeout (300s), cwd=workspace.root, stdout/stderr capture
 - **`args.py`** — `argparse` wrapper for `--workspace`, `--config`, `--dry-run`
+
+### generate (`SourceCode/scripts/generate/`)
+
+**Development-time tool only (DC-0080).** Batch J2 template generator from GDAL HTML documentation. Not a runtime module.
+
+- **`generate_templates.py`** — Main CLI entry. Orchestrates the full pipeline: HTML parse → LLM generate → LLM review → J2 render → scan validation
+- **`extractor.py`** — HTML parsing, structured text extraction from GDAL program docs
+- **`generator.py`** — LLM generation phase: produces `TemplateDefinition` (JSON) from extracted text
+- **`reviewer.py`** — LLM review phase: quality checks the generated `TemplateDefinition`
+- **`renderer.py`** — Jinja2 rendering of the final `.j2` file from the validated definition
+- **`models.py`** — `TemplateDefinition`, `ReviewReport`, `GenerationResult` dataclasses
+- **`state.py`** — Breakpoint-resume tracking via `.generate_state.json`
+- **`queue.py`** — Failed/needs-review entries logged to `.review_queue.jsonl` for human triage
+
+**Key design**: Two-phase LLM workflow (DC-0081) — generation and review are separate prompts. Files failing either phase enter the review queue rather than being discarded. The tool skips already-processed files on restart (state tracking).
 
 ## CodeGraph
 
@@ -180,11 +195,34 @@ pytest tests/unit/test_something.py -v
 # Run a single test function
 pytest tests/unit/test_something.py::test_function_name -v
 
+# Run generate module tests
+pytest tests/unit/test_generate_models.py -v
+
 # Quick LLM end-to-end test (requires valid API key)
 python scripts/test_e2e_qa.py
+
+# Batch generate J2 templates from GDAL HTML docs (development only)
+python scripts/generate_templates.py \
+  --source ../Document/Resource/gdal/build/doc/build/html/programs \
+  --output data/templates/ \
+  --config config/config.json
+
+# Dry-run preview of template generation
+python scripts/generate_templates.py --source ... --output ... --dry-run
+
+# Force re-run (ignore breakpoint state)
+python scripts/generate_templates.py --source ... --output ... --force
 ```
 
 **pytest 工作目录约束**：测试路径 `tests/unit/` 是相对于 `SourceCode/` 解析的。在 `SourceCode/` 外运行 `pytest` 会因找不到测试文件而失败。始终在 `SourceCode/` 内执行测试命令。
+
+## Tool Configuration
+
+`pyproject.toml` configures the development toolchain. Key settings:
+
+- **ruff**: `line-length = 88`, `target-version = "py310"`. `per-file-ignores` exempts `scripts/generate/*.py` and `tests/unit/test_generate_*.py` from import-sorting (`I001`) and line-length (`E501`) rules — these files contain LLM-generated JSON strings and long template bodies where strict formatting is impractical.
+- **mypy**: `strict = true`, `python_version = "3.10"`
+- **pytest**: `pythonpath = ["src"]` — eliminates manual `PYTHONPATH` setup when running from `SourceCode/`
 
 ## Coding Standards
 
@@ -213,10 +251,12 @@ Hard constraints from `Document/spec.md`:
 | `Document/plan-core.md` | Core module design (DC-0040~0049, DC-0070) — SessionProcessor, TemplateRegistry, ParamValidator, Session, Workspace, streaming output callback |
 | `Document/plan-cli.md` | CLI module design (DC-0060~0067, DC-0071) — REPL, ScriptExecutor, SlashCommandHandler, `/init` command, streaming output wiring |
 | `Document/plan-llm.md` | LLM module design (DC-0030~0036, DC-0068~0069) — LLMClient, PromptBuilder, classify_intent, extract_params, answer_question, analyze_execution_error, chat_stream |
+| `Document/plan-ux.md` | UX design (DC-UX-01~07) — React + FastAPI browser UI, Session state mapping, WebSocket streaming, Pipeline UI, J2 template generator UI. **Draft status** — not yet implemented |
+| `Document/plan-j2-generate.md` | J2 template batch generator design (DC-0080~0081) — two-phase LLM workflow (generate → review), HTML extraction, state tracking, review queue. Development-time tool only |
 | `Document/ADR-0001-remove-rag.md` | Architecture decision: removed RAG runtime, migrated knowledge source to J2 template metadata |
 | ~~`Document/plan-rag.md`~~ | ~~Deprecated~~ — RAG runtime removed per ADR-0001; `rag.preprocess` remains as development tool |
 | `Document/plan-templates.md` | Template engine design (DC-0050~0054) — TemplateEngine, scanner, security checker |
-| `SourceCode/config/config.json.template` | LLM and embedding configuration template; copy to `config.json` and set credentials |
+| `SourceCode/config/config.json.template` | Configuration template; copy to `config.json` and set credentials. Note: template still contains deprecated `embedding`/`rag` sections, but code no longer reads them (ADR-0001) |
 | `SourceCode/src/core/processor.py` | Session state machine — the central orchestrator of the conversation lifecycle |
 | `SourceCode/src/core/models.py` | SessionState, Session, ParamDef, TemplateDef dataclasses |
 | `SourceCode/src/core/registry.py` | TemplateRegistry — in-memory index of scanned templates |
@@ -229,6 +269,12 @@ Hard constraints from `Document/spec.md`:
 | `SourceCode/src/llm/params.py` | Parameter extraction (`extract_params`) |
 | `SourceCode/src/llm/qa.py` | Template-knowledge-based Q&A (`answer_question`, ADR-0001) |
 | `SourceCode/src/llm/diagnosis.py` | Execution error diagnosis (`analyze_execution_error`, DC-0036) |
+| `SourceCode/scripts/generate_templates.py` | Main CLI for batch J2 template generation from GDAL HTML docs |
+| `SourceCode/scripts/generate/generator.py` | LLM generation phase: HTML text → `TemplateDefinition` JSON |
+| `SourceCode/scripts/generate/reviewer.py` | LLM review phase: quality gate for generated template definitions |
+| `SourceCode/scripts/generate/renderer.py` | Renders final `.j2` file from validated `TemplateDefinition` |
+| `SourceCode/scripts/generate/state.py` | Breakpoint-resume state tracking (`.generate_state.json`) |
+| `SourceCode/scripts/generate/queue.py` | Failed entry tracking (`.review_queue.jsonl`) |
 | `SourceCode/data/gdal-docs-chunks.json` | Development reference: GDAL documentation chunks for batch J2 template generation (not used at runtime) |
 | `SourceCode/tasks/tasks-core.md` | Core implementation task breakdown (T-CORE-01~05) |
 | `SourceCode/tasks/tasks-cli.md` | CLI implementation task breakdown (T-CLI-01~10) |
@@ -265,5 +311,5 @@ After adding a template, restart the CLI to pick it up (templates are scanned at
 - When modifying code, verify the change aligns with the locked plan. If the plan needs updating, follow the change control process in `Document/constitution.md`.
 - The `llm/` module is the **only** code allowed to import `anthropic` (CODE-3). Never add anthropic imports outside `llm/`.
 - `Document/Resource/` is gitignored; do not commit its contents.
-- `SourceCode/model/embedding/` contains large model files and should not be committed.
+- `SourceCode/model/embedding/` contains large model files (deprecated per ADR-0001, no longer used at runtime); should not be committed.
 - `SourceCode/config/config.json` is gitignored; never commit credentials.

@@ -24,8 +24,17 @@ class WorkspaceConfig:
 
 
 @dataclass(frozen=True)
+class APIConfig:
+    """FastAPI server configuration."""
+
+    host: str = "0.0.0.0"
+    port: int = 8000
+
+
+@dataclass(frozen=True)
 class Config:
     """Global configuration root object."""
 
     llm: LLMConfig
     workspace: WorkspaceConfig
+    api: APIConfig = APIConfig()

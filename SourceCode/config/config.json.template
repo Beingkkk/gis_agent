@@ -4,17 +4,12 @@
     "auth_key": "",
     "model_name": "K2.6"
   },
-  "embedding": {
-    "model_path": "SourceCode/model/embedding",
-    "device": "cpu"
-  },
-  "rag": {
-    "chunk_size": 512,
-    "chunk_overlap": 128,
-    "top_k": 5
-  },
   "workspace": {
     "default_path": ".",
     "allow_parent_access": false
+  },
+  "api": {
+    "host": "0.0.0.0",
+    "port": 8000
   }
 }

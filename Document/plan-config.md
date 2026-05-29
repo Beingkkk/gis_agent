@@ -17,16 +17,14 @@
 
 ### 1.2 所属架构层次
 
-基础设施层（横切关注点，被 CLI / core / llm / rag 各层依赖）。
+基础设施层（横切关注点，被 CLI / core / llm 各层依赖）。
 
 ### 1.3 对应需求项
 
 | 需求 ID | 需求描述 |
 |:-------:|---------|
-| F1 | RAG 参数（chunk_size、top_k 等）需可配置 |
 | F7 | 工作空间默认路径需可配置 |
 | — | LLM 连接参数（base_url、auth_key、model_name）需集中管理 |
-| — | Embedding 模型路径需可配置 |
 
 ---
 
@@ -48,7 +46,7 @@
 
 ### DC-0002: 配置项按功能域分层
 
-**决策**: 配置顶层按功能域分组：`llm`、`embedding`、`rag`、`workspace`。
+**决策**: 配置顶层按功能域分组：`llm`、`workspace`。
 
 **理由**:
 - 避免扁平命名空间膨胀（如 `llm_base_url` vs `llm.base_url`）
@@ -59,9 +57,8 @@
 ```json
 {
   "llm": { "base_url": "", "auth_key": "", "model_name": "" },
-  "embedding": { "model_path": "", "device": "cpu" },
-  "rag": { "chunk_size": 512, "chunk_overlap": 128, "top_k": 5 },
-  "workspace": { "default_path": ".", "allow_parent_access": false }
+  "workspace": { "default_path": ".", "allow_parent_access": false },
+  "api": { "host": "0.0.0.0", "port": 8000 }
 }
 ```
 
@@ -117,21 +114,6 @@ class LLMConfig:
 
 
 @dataclass(frozen=True)
-class EmbeddingConfig:
-    """Embedding 模型配置。"""
-    model_path: str
-    device: Literal["cpu", "cuda"] = "cpu"
-
-
-@dataclass(frozen=True)
-class RAGConfig:
-    """RAG 检索配置。"""
-    chunk_size: int = 512
-    chunk_overlap: int = 128
-    top_k: int = 5
-
-
-@dataclass(frozen=True)
 class WorkspaceConfig:
     """工作空间默认配置。"""
     default_path: str = "."
@@ -139,12 +121,18 @@ class WorkspaceConfig:
 
 
 @dataclass(frozen=True)
+class APIConfig:
+    """FastAPI 服务器配置。"""
+    host: str = "0.0.0.0"
+    port: int = 8000
+
+
+@dataclass(frozen=True)
 class Config:
     """全局配置根对象。"""
     llm: LLMConfig
-    embedding: EmbeddingConfig
-    rag: RAGConfig
     workspace: WorkspaceConfig
+    api: APIConfig = APIConfig()
 ```
 
 ### 3.2 公共 API
@@ -195,13 +183,10 @@ def get_config() -> Config:
 | `llm.base_url` | str | 是 | — | 非空，合法 URL 格式 |
 | `llm.auth_key` | str | 是 | — | 非空，或通过环境变量提供 |
 | `llm.model_name` | str | 是 | — | 非空 |
-| `embedding.model_path` | str | 是 | — | 指向存在的目录或文件 |
-| `embedding.device` | str | 否 | `"cpu"` | 枚举：`cpu`、`cuda` |
-| `rag.chunk_size` | int | 否 | `512` | > 0 |
-| `rag.chunk_overlap` | int | 否 | `128` | >= 0，< chunk_size |
-| `rag.top_k` | int | 否 | `5` | > 0 |
 | `workspace.default_path` | str | 否 | `"."` | 非空 |
 | `workspace.allow_parent_access` | bool | 否 | `false` | — |
+| `api.host` | str | 否 | `"0.0.0.0"` | 非空 |
+| `api.port` | int | 否 | `8000` | 1–65535 |
 
 ---
 
@@ -248,11 +233,9 @@ def get_config() -> Config:
 | `GISAGENT_LLM_BASE_URL` | `llm.base_url` | `https://api.example.com` |
 | `GISAGENT_LLM_AUTH_KEY` | `llm.auth_key` | `sk-xxxxxxxx` |
 | `GISAGENT_LLM_MODEL_NAME` | `llm.model_name` | `claude-opus` |
-| `GISAGENT_EMBEDDING_MODEL_PATH` | `embedding.model_path` | `model/paraphrase-multilingual-MiniLM-L12-v2` |
-| `GISAGENT_EMBEDDING_DEVICE` | `embedding.device` | `cpu` |
-| `GISAGENT_RAG_CHUNK_SIZE` | `rag.chunk_size` | `512` |
-| `GISAGENT_RAG_TOP_K` | `rag.top_k` | `5` |
 | `GISAGENT_WORKSPACE_DEFAULT_PATH` | `workspace.default_path` | `/data/gis` |
+| `GISAGENT_API_HOST` | `api.host` | `127.0.0.1` |
+| `GISAGENT_API_PORT` | `api.port` | `9000` |
 
 ---
 
@@ -266,8 +249,8 @@ def get_config() -> Config:
 
 | 接口 | 使用方 |
 |------|--------|
-| `load_config()` | `cli/main.py`（启动时调用） |
-| `get_config()` | `core/`、`llm/`、`rag/`、`cli/`（运行时使用） |
+| `load_config()` | `cli/main.py`、`api/main.py`（启动时调用） |
+| `get_config()` | `core/`、`llm/`、`cli/`、`api/`（运行时使用） |
 | `Config` 及子 dataclass | 所有上层模块（类型注解） |
 
 ---
@@ -279,8 +262,7 @@ def get_config() -> Config:
 | `FileNotFoundError` | 配置文件路径不存在 | 向上抛出让 CLI 打印友好错误后退出（退出码 2） |
 | `json.JSONDecodeError` | JSON 语法错误 | 同上，打印具体行列号 |
 | `ValueError` | 必填字段缺失 | 打印缺失字段名列表 |
-| `ValueError` | 类型不匹配（如 chunk_size 为字符串） | 打印期望类型与实际值 |
-| `ValueError` | 业务规则违反（overlap >= size） | 打印规则说明 |
+| `ValueError` | 类型不匹配 | 打印期望类型与实际值 |
 | `RuntimeError` | `get_config()` 在 `load_config()` 前调用 | 内部逻辑错误，打印堆栈 |
 
 > **注意**: 所有异常在抛出前必须通过标准 `logging` 记录 ERROR 级别日志（符合 CODE-5）。
@@ -296,7 +278,6 @@ def get_config() -> Config:
 | 完整有效配置加载 | 所有字段正确解析，返回 Config 对象 |
 | 缺失必填字段 | 抛出 ValueError，消息包含缺失字段名 |
 | 类型错误 | 字符串传入 int 字段时抛出 ValueError |
-| 业务规则违反 | `chunk_overlap >= chunk_size` 时抛出 ValueError |
 | 环境变量覆盖 | `GISAGENT_LLM_AUTH_KEY` 覆盖配置文件值 |
 | 默认值填充 | 省略可选字段时使用默认值 |
 | 未初始化访问 | `get_config()` 在 `load_config()` 前调用抛出 RuntimeError |
@@ -313,7 +294,6 @@ def get_config() -> Config:
 
 | 需求 ID | 设计决策 | 代码文件/函数 | 说明 |
 |:-------:|:--------:|:-------------:|------|
-| F1 | DC-0002 | `Config.rag` | RAG 参数集中配置 |
 | F7 | DC-0002 | `Config.workspace.default_path` | 工作空间默认路径 |
 | — | DC-0003 | `load_config()` 环境变量逻辑 | 敏感信息隔离 |
 | P5 | DC-0001 | `json` 标准库 | 零额外依赖 |
@@ -326,3 +306,4 @@ def get_config() -> Config:
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
 | v1.0.0 | 2026-05-26 | 初版，定义配置分层结构、校验规则、环境变量覆盖 |
+| v1.1.0 | 2026-05-29 | 新增 `api` 配置域（`host`、`port`），支持 FastAPI 服务器地址可配置 |

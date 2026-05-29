@@ -27,7 +27,6 @@ def processor_with_real_templates(
     real_template_dir: Path,
     tmp_path: Path,
     mock_llm_client: MagicMock,
-    mock_retriever: MagicMock,
 ) -> SessionProcessor:
     """SessionProcessor wired with real templates and mock LLM."""
     workspace = Workspace(tmp_path)
@@ -43,7 +42,6 @@ def processor_with_real_templates(
         template_engine=engine,
         llm_client=mock_llm_client,
         prompt_builder=prompt_builder,
-        retriever=mock_retriever,
     )
 
 
@@ -52,7 +50,7 @@ class TestIdleToPreview:
 
     @patch("core.processor.classify_intent")
     @patch("core.processor.extract_params")
-    def test_shp2geojson_full_flow(
+    def test_gdal_mdim_convert_full_flow(
         self,
         mock_extract: MagicMock,
         mock_classify: MagicMock,
@@ -60,12 +58,12 @@ class TestIdleToPreview:
     ) -> None:
         """Round 1: task description → Round 2: params → script preview."""
         mock_classify.return_value = IntentResult(
-            template_id="shp2geojson",
+            template_id="gdal_mdim_convert",
             confidence=0.95,
-            reasoning="User wants shapefile conversion",
+            reasoning="User wants multidimensional conversion",
         )
         mock_extract.return_value = ParamResult(
-            params={"input": "roads.shp", "output": "roads.geojson"},
+            params={"input": "input.nc", "output": "output.zarr"},
             missing=[],
             questions=[],
         )
@@ -74,40 +72,40 @@ class TestIdleToPreview:
 
         # Round 1: user describes the task
         session, response = processor_with_real_templates.process(
-            session, "把 roads.shp 转成 GeoJSON"
+            session, "把 NetCDF 转成 ZARR"
         )
         assert session.state == SessionState.PARAM_COLLECT
         assert session.template is not None
-        assert session.template.id == "shp2geojson"
+        assert session.template.id == "gdal_mdim_convert"
 
         # Round 2: user provides parameters
         session, response = processor_with_real_templates.process(
-            session, "输入 roads.shp，输出 roads.geojson"
+            session, "输入 input.nc，输出 output.zarr"
         )
         assert session.state == SessionState.SCRIPT_PREVIEW
-        assert "ogr2ogr" in response
-        assert "roads.shp" in response
-        assert "roads.geojson" in response
+        assert "gdal" in response
+        assert "input.nc" in response
+        assert "output.zarr" in response
 
     @patch("core.processor.classify_intent")
     @patch("core.processor.extract_params")
-    def test_reproject_full_flow(
+    def test_gdal_raster_as_features_full_flow(
         self,
         mock_extract: MagicMock,
         mock_classify: MagicMock,
         processor_with_real_templates: SessionProcessor,
     ) -> None:
-        """Reproject template: params include t_srs CRS."""
+        """gdal raster as features: params include optional of format."""
         mock_classify.return_value = IntentResult(
-            template_id="reproject",
+            template_id="gdal_raster_as_features",
             confidence=0.92,
-            reasoning="User wants reprojection",
+            reasoning="User wants raster to vector conversion",
         )
         mock_extract.return_value = ParamResult(
             params={
-                "input": "data.shp",
-                "output": "reprojected.shp",
-                "t_srs": "EPSG:4326",
+                "input": "dem.tif",
+                "output": "dem.geojson",
+                "of": "GeoJSON",
             },
             missing=[],
             questions=[],
@@ -116,52 +114,52 @@ class TestIdleToPreview:
         session = Session()
 
         session, _ = processor_with_real_templates.process(
-            session, "把 data.shp 重投影到 4326"
+            session, "把 dem.tif 转成矢量"
         )
         assert session.state == SessionState.PARAM_COLLECT
         assert session.template is not None
-        assert session.template.id == "reproject"
+        assert session.template.id == "gdal_raster_as_features"
 
         session, response = processor_with_real_templates.process(
-            session, "输入 data.shp，输出 reprojected.shp，目标 4326"
+            session, "输入 dem.tif，输出 dem.geojson，格式 GeoJSON"
         )
         assert session.state == SessionState.SCRIPT_PREVIEW
-        assert "ogr2ogr" in response
-        assert "EPSG:4326" in response
+        assert "gdal" in response
+        assert "dem.tif" in response
 
     @patch("core.processor.classify_intent")
     @patch("core.processor.extract_params")
-    def test_warp_reproject_raster_flow(
+    def test_gdal2xyz_raster_flow(
         self,
         mock_extract: MagicMock,
         mock_classify: MagicMock,
         processor_with_real_templates: SessionProcessor,
     ) -> None:
-        """Raster reprojection using gdalwarp."""
+        """Raster to XYZ conversion using gdal2xyz."""
         mock_classify.return_value = IntentResult(
-            template_id="warp_reproject",
+            template_id="gdal2xyz",
             confidence=0.9,
-            reasoning="User wants raster reprojection",
+            reasoning="User wants raster to XYZ conversion",
         )
         mock_extract.return_value = ParamResult(
             params={
-                "input": "dem.tif",
-                "output": "dem_4326.tif",
-                "t_srs": "EPSG:4326",
+                "src_dataset": "dem.tif",
+                "dst_dataset": "dem.xyz",
+                "band": "1",
             },
             missing=[],
             questions=[],
         )
 
         session = Session()
-        session, _ = processor_with_real_templates.process(session, "把 dem.tif 重投影")
+        session, _ = processor_with_real_templates.process(session, "把 dem.tif 转成 XYZ")
         assert session.state == SessionState.PARAM_COLLECT
 
         session, response = processor_with_real_templates.process(
-            session, "输入 dem.tif，输出 dem_4326.tif，目标 4326"
+            session, "输入 dem.tif，输出 dem.xyz，波段 1"
         )
         assert session.state == SessionState.SCRIPT_PREVIEW
-        assert "gdalwarp" in response
+        assert "gdal" in response
         assert "dem.tif" in response
 
     @patch("core.processor.classify_intent")
@@ -172,28 +170,27 @@ class TestIdleToPreview:
         mock_classify: MagicMock,
         processor_with_real_templates: SessionProcessor,
     ) -> None:
-        """shp2geojson without optional t_srs/s_srs still renders."""
+        """gdal_mdim_convert without optional of still renders."""
         mock_classify.return_value = IntentResult(
-            template_id="shp2geojson",
+            template_id="gdal_mdim_convert",
             confidence=0.95,
             reasoning="User wants conversion",
         )
         mock_extract.return_value = ParamResult(
-            params={"input": "roads.shp", "output": "roads.geojson"},
+            params={"input": "input.nc", "output": "output.zarr"},
             missing=[],
             questions=[],
         )
 
         session = Session()
-        session, _ = processor_with_real_templates.process(session, "转成 GeoJSON")
+        session, _ = processor_with_real_templates.process(session, "转成 ZARR")
         assert session.state == SessionState.PARAM_COLLECT
 
         session, response = processor_with_real_templates.process(
-            session, "roads.shp roads.geojson"
+            session, "input.nc output.zarr"
         )
         assert session.state == SessionState.SCRIPT_PREVIEW
-        # t_srs is optional, should not appear when not provided
-        # (the Jinja2 template uses {% if t_srs %})
+        # of is optional, should not appear when not provided
         rendered_text = response
-        assert "roads.shp" in rendered_text
-        assert "roads.geojson" in rendered_text
+        assert "input.nc" in rendered_text
+        assert "output.zarr" in rendered_text

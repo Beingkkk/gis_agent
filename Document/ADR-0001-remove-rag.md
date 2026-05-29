@@ -24,7 +24,7 @@
 
 ## 决策
 
-1. **移除 `rag/` 运行时模块**。`rag/retriever.py`、`rag/preprocess.py` 及相关单元测试全部删除。ChromaDB 向量数据库不再作为系统组件。
+1. **移除 `rag/` 运行时模块**。`rag/retriever.py` 及 ChromaDB 相关代码全部删除。`rag/preprocess.py` 保留作为开发工具（HTML 文本提取，用于 J2 模板批量生成），不参与运行时。
 
 2. **知识源迁移至 J2 模板元数据**。系统的本地知识唯一来源为 `data/templates/` 下的 `.j2` 文件及其注释头。模板同时承载"可执行脚本"和"结构化知识卡片"双重角色。
 

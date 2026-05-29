@@ -25,23 +25,22 @@ class TestEndToEndDryRun:
 
     @patch("core.processor.classify_intent")
     @patch("core.processor.extract_params")
-    def test_full_repl_session_shp2geojson(
+    def test_full_repl_session_gdal_mdim_convert(
         self,
         mock_extract: MagicMock,
         mock_classify: MagicMock,
         real_template_dir: Path,
         tmp_path: Path,
         mock_llm_client: MagicMock,
-        mock_retriever: MagicMock,
     ) -> None:
         """Simulate: describe task → provide params → see preview → dry-run skip."""
         mock_classify.return_value = IntentResult(
-            template_id="shp2geojson",
+            template_id="gdal_mdim_convert",
             confidence=0.95,
-            reasoning="Conversion to GeoJSON",
+            reasoning="Conversion to ZARR",
         )
         mock_extract.return_value = ParamResult(
-            params={"input": "roads.shp", "output": "roads.geojson"},
+            params={"input": "input.nc", "output": "output.zarr"},
             missing=[],
             questions=[],
         )
@@ -59,13 +58,12 @@ class TestEndToEndDryRun:
             template_engine=engine,
             llm_client=mock_llm_client,
             prompt_builder=prompt_builder,
-            retriever=mock_retriever,
         )
 
         # Simulate user inputs and capture outputs
         inputs = [
-            "把 roads.shp 转成 GeoJSON",  # Round 1: task description
-            "输入 roads.shp，输出 roads.geojson",  # Round 2: params
+            "把 input.nc 转成 ZARR",  # Round 1: task description
+            "输入 input.nc，输出 output.zarr",  # Round 2: params
             # REPL will auto-handle SCRIPT_PREVIEW → skip (dry_run)
             "/quit",  # Exit
         ]
@@ -102,10 +100,10 @@ class TestEndToEndDryRun:
 
         # Verify outputs contain expected content
         all_output = "\n".join(outputs)
-        assert "已识别任务" in all_output or "Shapefile" in all_output
+        assert "已识别任务" in all_output
         assert "脚本预览" in all_output
-        assert "ogr2ogr" in all_output
-        assert "roads.shp" in all_output
+        assert "gdal" in all_output
+        assert "input.nc" in all_output
         assert "dry-run" in all_output or "跳过" in all_output
         assert "再见" in all_output
 
@@ -116,8 +114,6 @@ class TestEndToEndDryRun:
         real_template_dir: Path,
         tmp_path: Path,
         mock_llm_client: MagicMock,
-        mock_retriever: MagicMock,
-        make_retrieved_docs: MagicMock,
     ) -> None:
         """Simulate: ask a question → get answer → quit."""
         mock_classify.return_value = IntentResult(
@@ -125,11 +121,8 @@ class TestEndToEndDryRun:
             confidence=0.9,
             reasoning="User is asking a question",
         )
-        mock_retriever.search.return_value = make_retrieved_docs(
-            ["GeoJSON is an open standard format..."]
-        )
 
-        with patch("core.processor.answer_question") as mock_answer:
+        with patch("llm.qa.answer_question") as mock_answer:
             mock_answer.return_value = "GeoJSON 是一种开放的地理数据交换格式..."
 
             workspace = Workspace(tmp_path)
@@ -145,7 +138,6 @@ class TestEndToEndDryRun:
                 template_engine=engine,
                 llm_client=mock_llm_client,
                 prompt_builder=prompt_builder,
-                retriever=mock_retriever,
             )
 
             inputs = [

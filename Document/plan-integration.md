@@ -5,7 +5,7 @@
 | 版本 | v1.1.0 |
 | 状态 | 设计基线 |
 | 日期 | 2026-05-28 |
-| 前置条件 | plan-core v1.0.0, plan-cli v1.0.0, plan-templates v1.0.0, plan-llm v1.0.0, plan-rag v1.0.1 全部已实现 |
+| 前置条件 | plan-core v1.0.0, plan-cli v1.0.0, plan-templates v1.0.0, plan-llm v1.0.0 全部已实现 |
 
 ---
 
@@ -13,7 +13,7 @@
 
 ### 1.1 目标
 
-全部底层模块（config/rag/llm/core/templates/cli）已实现并通过单元测试，但各模块之间的**衔接处**尚未经过系统性验证。本次集成工作的目标是：
+全部底层模块（config/llm/core/templates/cli）已实现并通过单元测试，但各模块之间的**衔接处**尚未经过系统性验证。本次集成工作的目标是：
 
 1. 建立集成测试基建设施，覆盖跨模块的关键衔接点
 2. 补充模板数量，使常见 GIS 操作的覆盖率达到可用水平
@@ -37,15 +37,14 @@
 
 ```
 [初始化链]
-parse_args → load_config → initialize(workspace) → get_retriever()
+parse_args → load_config → initialize(workspace)
 → scan_templates → TemplateRegistry → ParamValidator → TemplateEngine
 → LLMClient → PromptBuilder → SessionProcessor → ScriptExecutor → REPL
 
 [状态机链路]
 IDLE ──classify_intent──→ PARAM_COLLECT ──extract_params──→ SCRIPT_PREVIEW
   │                          │ ↑                            │
-  ├──extract_keywords──→ 关键词列表
-  ├──search_multi()──→ 多路召回文档（去重排序）
+  ├──_find_matching_templates──→ 匹配模板元数据
   ├──answer_question──→ 回答
   └──状态保持 IDLE         └──追问缺失参数─────────────────┘
 
@@ -62,7 +61,7 @@ SCRIPT_PREVIEW ──render_fn──→ RenderedScript ──subprocess──→
 | I3 | 无端到端验收测试 | 无法从用户角度验证可用性 | 编写 e2e 场景测试 |
 | I4 | README 启动指令与实际路径不一致 | 用户无法按文档启动 | 修正 README |
 | I5 | 模板引擎 `render()` 的 `platform=None` 分支未在集成中验证 | 跨平台渲染可能出错 | 集成测试中覆盖 |
-| I6 | Q&A 单次搜索召回率低，模糊中文问题匹配不到英文文档 | 问答体验差，答案相关性低 | 关键词提炼 + 多路召回 |
+| I6 | Q&A 基于模板元数据，需验证匹配逻辑 | 问答体验 | 集成测试中覆盖模板匹配 + answer_question 链路 |
 
 ---
 
@@ -88,7 +87,6 @@ SCRIPT_PREVIEW ──render_fn──→ RenderedScript ──subprocess──→
 
 **mock 策略**:
 - `LLMClient.chat()` → 返回预设的 JSON 字符串
-- `DocumentRetriever.search()` → 返回预设的 `RetrievedDocument` 列表
 - `TemplateEngine` → 使用真实的 `.j2` 文件
 
 ### DC-0072: 补充模板遵循已有注释头规范
@@ -108,26 +106,24 @@ SCRIPT_PREVIEW ──render_fn──→ RenderedScript ──subprocess──→
 - 避免依赖真实数据文件和 GDAL 环境
 - dry-run 模式已能验证脚本内容是否正确渲染
 
-### DC-0074: Q&A 采用关键词提炼 + 多路召回策略
+### DC-0074: Q&A 采用模板元数据匹配
 
-**决策**: 文档问答流程增加一层 LLM 关键词提炼：用户问题先由 LLM 拆解为 2-3 个搜索关键词，再对每个关键词分别执行向量检索，合并去重后作为回答上下文。
+**决策**: 文档问答流程基于模板元数据进行匹配，不再依赖向量检索。用户问题先由 `_find_matching_templates()` 通过关键词匹配模板 id、name、description 和 `@concept` 元数据，提取 Top-N 候选模板的元数据作为上下文，传入 `answer_question()` 生成回答。
 
 **理由**:
-- 单次原句搜索对模糊中文问题的召回率不足（如"GeoJSON 是什么"难以直接匹配到英文文档中的定义）
-- LLM 提炼的关键词包含英文技术术语，能更好地匹配英文文档的 embedding
-- 多路召回覆盖问题的多个概念维度，减少单查询的语义漂移
-- 去重和 distance 排序保证最终上下文质量不下降
+- RAG 向量检索已移除（ADR-0001），知识源唯一来源为模板元数据
+- 模板元数据（`@concept`、`@note`、`@common_error`）经过人工验证，准确率高于自动解析的 HTML chunks
+- 关键词匹配足够覆盖常见用法指导场景
+- 无 embedding 模型加载和 ChromaDB 索引构建的冷启动开销
 
-**参数**:
-- 每关键词召回数：`top_k_per_query=2`
-- 最大关键词数：5 个（超出截断）
-- 去重策略：按 `chunk.id` 去重，保留最小 `distance`（最相关）
-- 降级策略：关键词提炼失败时自动 fallback 到原句单路搜索
+**匹配逻辑**:
+- 按模板 id、name、description 做关键词匹配（各词出现 +1 分）
+- `@concept` 匹配（术语或解释中出现关键词 +2 分）
+- `@note` 匹配（+1 分）
+- 按得分降序取 Top-3 候选模板
+- 无匹配时 fallback 到 LLM 参数知识回答
 
-**新增/修改接口**:
-- `rag/retriever.py`: 新增 `DocumentRetriever.search_multi(queries, top_k_per_query)`
-- `llm/keywords.py`: 新增 `extract_keywords(user_input, history, client, builder)`
-- `core/processor.py`: `_handle_idle()` Q&A 分支改为 `extract_keywords` → `search_multi` → `answer_question`
+**设计**: ADR-0001, plan-templates.md DC-0055, plan-llm.md DC-0035
 
 ---
 
@@ -162,12 +158,6 @@ def mock_llm_client() -> MagicMock:
     client.chat.return_value = "{}"  # default empty JSON
     return client
 
-@pytest.fixture
-def mock_retriever() -> MagicMock:
-    """DocumentRetriever returning empty results by default."""
-    retriever = MagicMock()
-    retriever.search.return_value = []
-    return retriever
 ```
 
 ### 4.3 测试用例清单
@@ -191,7 +181,6 @@ def test_init_chain_builds_all_components(real_template_dir: Path) -> None:
 def test_idle_to_preview_with_real_template(
     real_template_dir: Path,
     mock_llm_client: MagicMock,
-    mock_retriever: MagicMock,
 ) -> None:
     """Simulate: user asks for shp2geojson → params provided → script rendered."""
 ```
@@ -207,19 +196,16 @@ def test_idle_to_preview_with_real_template(
 ```python
 def test_qa_flow_routes_to_answer_question(
     mock_llm_client: MagicMock,
-    mock_retriever: MagicMock,
 ) -> None:
-    """Simulate: user asks about SHP format → keywords → multi-search → answer returned."""
+    """Simulate: user asks about SHP format → template match → answer returned."""
 ```
 
 验证：
 - `classify_intent` 返回 `__qa__`
-- `extract_keywords()` 被调用，提炼出关键词列表
-- `retriever.search_multi(keywords, top_k_per_query=2)` 被调用
-- `answer_question()` 被调用，传入合并去重后的文档
+- `_find_matching_templates()` 根据关键词匹配模板元数据
+- `answer_question()` 被调用，传入匹配的模板列表
 - 响应包含答案文本
 - 状态保持在 `IDLE`
-- `extract_keywords` 失败时降级为原句单路搜索
 
 #### T-INT-04: 错误恢复
 
@@ -307,12 +293,12 @@ REM Done
 [test_idle_to_preview]
     │
     ▼
-fixtures: 真实模板目录 + mock LLM + mock Retriever
+fixtures: 真实模板目录 + mock LLM
     │
     ▼
 SessionProcessor(registry=真实注册表, validator=真实校验器,
                  template_engine=真实引擎, llm_client=mock,
-                 prompt_builder=真实, retriever=mock)
+                 prompt_builder=真实)
     │
     ├──→ Round 1: process(IDLE, "把 roads.shp 转成 GeoJSON")
     │       │
@@ -340,35 +326,31 @@ SessionProcessor(registry=真实注册表, validator=真实校验器,
     └──→ teardown
 ```
 
-### 6.2 Q&A 数据流（关键词提炼 + 多路召回）
+### 6.2 Q&A 数据流（模板元数据匹配）
 
 ```
 [test_qa_flow]
     │
     ▼
-fixtures: mock LLM + mock Retriever
+fixtures: mock LLM + 真实模板注册表
     │
     ▼
 SessionProcessor(registry=真实注册表, validator=真实校验器,
                  template_engine=真实引擎, llm_client=mock,
-                 prompt_builder=真实, retriever=mock)
+                 prompt_builder=真实)
     │
     ▼
 Round 1: process(IDLE, "shp格式是什么")
     │
     ├──→ mock classify_intent → IntentResult("__qa__", 0.88)
     │
-    ├──→ extract_keywords("shp格式是什么", history=[], ...)
-    │       ├──→ LLM 提炼关键词 → ["Shapefile format", "SHP GDAL driver"]
-    │       └──→ 返回关键词列表
+    ├──→ _find_matching_templates("shp格式是什么", top_n=3)
+    │       ├──→ 关键词匹配模板 id/name/description
+    │       ├──→ 匹配 @concept 元数据
+    │       └──→ 返回 [shp2geojson_def, merge_shp_def, ...]
     │
-    ├──→ retriever.search_multi(["Shapefile format", "SHP GDAL driver"], top_k_per_query=2)
-    │       ├──→ search("Shapefile format", top_k=2) → [doc1, doc2]
-    │       ├──→ search("SHP GDAL driver", top_k=2) → [doc2, doc3]
-    │       ├──→ 按 chunk.id 去重（doc2 重叠，保留更小 distance）
-    │       └──→ 按 distance 升序排序 → [doc1, doc2, doc3]
-    │
-    ├──→ answer_question("shp格式是什么", retrieved_docs=[doc1, doc2, doc3], ...)
+    ├──→ answer_question("shp格式是什么", templates=[shp2geojson_def, ...], ...)
+    │       ├──→ 提取模板元数据作为上下文
     │       └──→ 返回 "SHP（Shapefile）是 ESRI 开发的矢量数据格式..."
     │
     └──→ assert state == IDLE（问答不改变状态）
@@ -458,9 +440,9 @@ pytest tests/ -v
 | 编号 | 验收项 | 通过标准 |
 |:----:|--------|---------|
 | AC-I1 | 集成测试全部通过 | `pytest tests/integration/` 0 failures |
-| AC-I2 | 模板数量 | `get_retriever()` 返回 ≥ 10 个模板 |
+| AC-I2 | 模板数量 | `scan_templates()` 返回 ≥ 10 个模板 |
 | AC-I3 | dry-run 端到端 | 输入任务描述 → 参数收集 → 脚本预览 → dry-run 跳过，全流程无异常 |
-| AC-I4 | 问答端到端 | 输入 "ogr2ogr 是什么" → 返回 RAG 增强答案，状态保持 IDLE |
+| AC-I4 | 问答端到端 | 输入 "ogr2ogr 是什么" → 返回模板元数据增强答案，状态保持 IDLE |
 | AC-I5 | README 与代码一致 | README 中的启动指令在实际环境中可执行 |
 
 ---
@@ -521,7 +503,7 @@ Phase 4: 验收
 
 | 需求 ID | 设计决策 | 代码位置 | 说明 |
 |:-------:|:--------:|:--------:|------|
-| F1 | DC-0071 | `test_qa_flow.py` | RAG 问答集成验证 |
+| F1 | DC-0071 | `test_qa_flow.py` | 模板元数据问答集成验证 |
 | F2 | DC-0071 | `test_idle_to_preview.py` | 意图分类 + 模板映射集成验证 |
 | F3 | DC-0071 | `test_idle_to_preview.py` | 参数抽取 + 校验集成验证 |
 | F4 | DC-0071 | `test_idle_to_preview.py` | 模板渲染集成验证 |
@@ -531,8 +513,7 @@ Phase 4: 验收
 | I4 | DC-0070 | `README.md` | 启动指令修正 |
 | P1 | DC-0071 | `test_idle_to_preview.py` | 模板渲染（非字符串拼接）验证 |
 | P2 | DC-0073 | `test_end_to_end.py` | 先展后行流程验证 |
-| I6 | DC-0074 | `test_qa_flow.py`, `llm/keywords.py`, `rag/retriever.py` | 关键词提炼 + 多路召回优化 |
-| F1 | DC-0074 | `core/processor.py` `_handle_idle()` Q&A 分支 | RAG 问答链路升级 |
+| I6 | DC-0074 | `test_qa_flow.py`, `core/processor.py` | 模板元数据匹配问答 |
 
 ---
 
@@ -540,5 +521,6 @@ Phase 4: 验收
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.2.0 | 2026-05-28 | RAG 运行时移除（ADR-0001），DC-0074 改为模板元数据匹配策略；移除 retriever 引用，更新 §2.1、§3、§4.2、§4.3、§6、§8.3、§12 |
 | v1.1.0 | 2026-05-28 | 新增 DC-0074：Q&A 关键词提炼 + 多路召回策略；更新 §2.1 状态机链路、§4.3 T-INT-03、§6 Q&A 数据流、§12 需求追溯表 |
 | v1.0.0 | 2026-05-28 | 初版，定义集成测试基建设施、模板补充计划、端到端验收策略、启动体验修复 |

@@ -241,3 +241,12 @@ SourceCode/config/config.json
 # Template generator runtime files (regenerated on each run)
 SourceCode/data/templates/.generate_state.json
 SourceCode/data/templates/.review_queue.jsonl
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/package-lock.json
+frontend/pnpm-lock.yaml
+frontend/yarn.lock
+frontend/.env

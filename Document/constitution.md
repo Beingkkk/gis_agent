@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 |------|------|
 | 项目代号 | `gis-agent` |
-| 版本 | v1.1.0 |
+| 版本 | v1.2.0 |
 | 效力 | **最高约束**，所有开发活动必须遵守 |
 | 适用范围 | 本项目全部设计文档与源代码 |
 
@@ -80,7 +80,12 @@ gis-agent/
 │   │   ├── core/           # 核心领域逻辑（模板引擎、安全层、工作空间）
 │   │   ├── llm/            # LLM 交互层（意图识别、参数抽取、问答、错误诊断）
 │   │   ├── cli/            # 命令行界面与交互状态机
+│   │   ├── api/            # HTTP + WebSocket 适配层（浏览器 UI 后端）
 │   │   └── templates/      # Jinja2 模板文件（*.j2）
+│   ├── frontend/           # 浏览器前端（React + TypeScript + Vite）
+│   │   ├── src/            # 前端源码
+│   │   ├── index.html
+│   │   └── vite.config.ts
 │   ├── tests/              # 测试代码
 │   │   ├── unit/           # 单元测试
 │   │   ├── integration/    # 集成测试
@@ -356,7 +361,11 @@ def function_name(param: str, optional: int = 0) -> bool:
 
 ```
 ┌─────────────────────────────────────┐
-│  CLI 层 (cli/)                      │  用户交互、状态机、命令解析
+│  前端层 (frontend/)                 │  React + TypeScript 浏览器界面
+├─────────────────────────────────────┤
+│  API 层 (api/)                      │  FastAPI：HTTP + WebSocket 适配
+├─────────────────────────────────────┤
+│  CLI 层 (cli/)                      │  命令行交互、状态机、命令解析
 ├─────────────────────────────────────┤
 │  核心层 (core/)                     │  工作空间管理、模板引擎、安全校验
 ├─────────────────────────────────────┤
@@ -366,6 +375,8 @@ def function_name(param: str, optional: int = 0) -> bool:
 └─────────────────────────────────────┘
 ```
 
+**双入口说明**：`cli/` 与 `api/` + `frontend/` 为两种并行存在的用户交互入口，共享同一套 `core/` 与 `llm/` 业务逻辑。CLI 入口不依赖 API 入口，反之亦然。
+
 ### 6.2 依赖规则
 
 | 规则 | 内容 |
@@ -374,6 +385,9 @@ def function_name(param: str, optional: int = 0) -> bool:
 | DEP-2 | core 层可依赖 llm 层（用于模板渲染和参数校验） |
 | DEP-3 | llm 层不依赖任何上层模块，但可依赖 core/ 获取模板元数据 |
 | DEP-4 | 任何层都可通过接口抽象依赖外部库，但禁止直接暴露外部库类型到上层 |
+| DEP-5 | API 层可依赖 core、llm 层，与 CLI 层平级；禁止 API 层调用 CLI 层任何模块 |
+| DEP-6 | frontend 层不直接 import 后端代码，仅通过 HTTP / WebSocket 与 API 层通信 |
+| DEP-7 | CLI 与 API 为两个独立入口，互不依赖；二者可并行存在于同一代码库 |
 
 ### 6.3 设计模式约定
 
@@ -470,7 +484,7 @@ pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 | 原则编号 | 原则名称 | 编码层面的体现 |
 |:----:|---------|--------------|
 | P1 | **模板化命令，杜绝幻觉** | 所有 GDAL 命令字符串必须通过 `data/templates/` 下的 Jinja2 模板渲染，严禁任何动态字符串拼接生成命令 |
-| P2 | **先展后行** | CLI 层必须在调用执行层前打印完整脚本内容，并获得用户明确确认（Y/N） |
+| P2 | **先展后行** | 交互层（CLI 或 UI）必须在调用执行层前向用户完整展示脚本内容，并获得用户明确确认 |
 | P3 | **最小权限** | 默认输出到工作空间内，输出文件加时间戳防覆盖；所有路径经规范化后使用 |
 | P4 | **模板知识唯一** | 用法指导类知识仅来源于 J2 模板元数据，基础概念类回答由 LLM 参数知识提供，禁止调用外部 API 获取知识 |
 | P5 | **极简依赖** | `pyproject.toml` 的生产依赖以 `anthropic`、`jinja2` 为主，不引入未经批准的第三方库 |
@@ -498,6 +512,7 @@ pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 | ~~RAG 模块设计~~ | ~~`Document/plan-rag.md`~~ | ~~已废弃，见 ADR-0001~~ |
 | 安全模块设计 | `Document/plan-security.md` | 安全校验层详细设计（待创建） |
 | 交互模块设计 | `Document/plan-cli.md` | CLI 与状态机详细设计 |
+| 浏览器 UI 模块设计 | `Document/plan-ux.md` | React + FastAPI 浏览器界面设计 |
 
 ### 10.2 宪法修订记录
 
@@ -505,6 +520,7 @@ pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 |------|------|---------|--------|
 | v1.0.0 | 2026-05-26 | 初版发布，建立规范驱动设计工作流与项目规范 | - |
 | v1.1.0 | 2026-05-27 | 新增 §5.4 TDD 测试驱动开发规范，明确编码阶段的红-绿-重构循环与 TDD-1~TDD-5 纪律 | - |
+| v1.2.0 | 2026-05-29 | 架构扩展为双入口（CLI + Browser UI）：更新 §2.1 目录结构加入 `api/` 与 `frontend/`；§6.1 分层架构加入前端层与 API 层；§6.2 新增 DEP-5~DEP-7；§9.1 P2 泛化为"交互层确认" | - |
 
 ---
 

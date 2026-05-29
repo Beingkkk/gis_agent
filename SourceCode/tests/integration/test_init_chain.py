@@ -29,21 +29,10 @@ class TestInitChain:
         """Scanner discovers all 10 templates."""
         templates = scan_templates(real_template_dir)
 
-        assert len(templates) == 10
+        assert len(templates) >= 10
         ids = {t.id for t in templates}
-        expected = {
-            "shp2geojson",
-            "clip_raster",
-            "info_query",
-            "reproject",
-            "merge_shp",
-            "vector_clip",
-            "tif2png",
-            "warp_reproject",
-            "raster_info",
-            "build_overview",
-        }
-        assert ids == expected
+        # Templates are batch-generated from GDAL docs; verify some known ones exist
+        assert "gdal_info" in ids
 
     def test_template_registry_builds_from_real_scan(
         self,
@@ -53,9 +42,8 @@ class TestInitChain:
         templates = scan_templates(real_template_dir)
         registry = TemplateRegistry(templates, real_template_dir)
 
-        assert len(registry.list_templates()) == 10
-        assert registry.get_template("shp2geojson") is not None
-        assert registry.get_template("reproject") is not None
+        assert len(registry.list_templates()) >= 10
+        assert registry.get_template("gdal_info") is not None
 
     def test_template_engine_loads_all_templates(
         self,
@@ -77,7 +65,6 @@ class TestInitChain:
         real_template_dir: Path,
         tmp_path: Path,
         mock_llm_client: MagicMock,
-        mock_retriever: MagicMock,
     ) -> None:
         """SessionProcessor can be built with real registry/engine + mock LLM."""
         workspace = Workspace(tmp_path)
@@ -93,7 +80,6 @@ class TestInitChain:
             template_engine=engine,
             llm_client=mock_llm_client,
             prompt_builder=prompt_builder,
-            retriever=mock_retriever,
         )
 
         assert processor is not None
@@ -105,5 +91,5 @@ class TestInitChain:
         for t in templates:
             assert t.id, f"Template missing id: {t.template_file}"
             assert t.name, f"Template missing name: {t.template_file}"
-            # info_query and raster_info have only 1 param (input)
+            # Some templates like gdal_info have only 1 param (input)
             assert len(t.params) >= 1, f"Template {t.id} has no params"

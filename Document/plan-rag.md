@@ -2,121 +2,53 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.1.0 |
-| 状态 | **已废弃**（见 ADR-0001） |
+| 版本 | v2.0.0 |
+| 状态 | **已废弃**（RAG 运行时移除，见 ADR-0001） |
 | 作者 | - |
 | 日期 | 2026-05-28 |
 
----
-
-## 1. 设计概述
-
-### 1.1 模块职责
-
-构建并维护 GDAL 文档的向量检索管道：将 HTML 文档解析为结构化文本 chunks，通过 Embedding 模型编码存入 ChromaDB，提供语义检索接口供问答模块使用。本模块是**文档问答（F1）的基础设施**。
-
-### 1.2 所属架构层次
-
-应用层（`rag/`）。不依赖任何上层模块，仅向外暴露检索接口。
-
-### 1.3 对应需求项
-
-| 需求 ID | 需求描述 |
-|:-------:|---------|
-| F1 | 基于本地 GDAL 官方工具文档（HTML），通过 ChromaDB 向量检索 |
-| F10 | 错误诊断时检索相关文档给出修复建议 |
-| P4 | RAG 仅用于检索本地官方文档，不混合网络随机内容 |
-| AC-1 | 能从本地文档中检索并回答工具使用问题 |
+> **注意**: 本文档原始描述的 RAG 向量检索运行时（ChromaDB + embedding）已于 2026-05-28 移除。
+> `rag/` 目录现仅保留 `preprocess.py` 作为**开发工具**，用于从 GDAL HTML 文档提取结构化文本以批量生成 J2 模板。
+> 本文档保留作为 preprocess 模块的设计参考，§1-5 为原始 RAG 设计（已废弃），§6 为当前 preprocess-only 接口。
 
 ---
 
-## 2. 设计决策
+## 1. 设计概述（历史参考）
 
-### DC-0020: HTML 解析使用 Python 标准库 `html.parser`
+### 1.1 原模块职责（已废弃）
 
-**决策**: 预处理脚本使用标准库的 `html.parser.HTMLParser` 提取文本，不引入 `beautifulsoup4`。
+构建并维护 GDAL 文档的向量检索管道：将 HTML 文档解析为结构化文本 chunks，通过 Embedding 模型编码存入 ChromaDB，提供语义检索接口供问答模块使用。
 
-**理由**:
-- 符合 P5（依赖仅 anthropic、chromadb、jinja2）
-- GDAL 文档结构规整（Sphinx 生成），标准库足以处理
-- 预处理脚本属开发工具，不进入运行时依赖
+### 1.2 废弃原因
 
-**替代方案**:
-- BeautifulSoup：API 更友好，但多一个依赖
-- lxml：需要二进制编译，部署复杂
+见 `Document/ADR-0001-remove-rag.md`。核心原因：
+- 知识覆盖错位（HTML 文档不解释基础概念）
+- 用法指导不准（检索到的泛泛描述 vs 模板中的确切参数）
+- 运行时成本高（embedding 模型加载、ChromaDB 索引构建）
+- 知识与行动分离（RAG 能回答的不一定能执行）
 
-### DC-0021: 文档切分采用"语义切分 + 长度限制"双层策略
+### 1.3 替代方案
 
-**决策**: 第一层按 HTML 标题（h1-h6）切分为语义块，第二层对超过 chunk_size 的块按固定长度+重叠二次切分。
-
-**理由**:
-- 按标题切分保留文档结构，检索结果上下文完整
-- 固定长度切分保证 embedding 质量（过长文本语义稀释）
-- 重叠（overlap）防止跨边界信息丢失
-
-**切分参数**（来自 Config.rag）：
-- `chunk_size`: 512 tokens（按字符近似，一个汉字/英文单词约 1-2 token）
-- `chunk_overlap`: 128 字符
-- 最大 chunk：不超过 chunk_size 的 1.5 倍（即 768）
-
-### DC-0022: ChromaDB 使用本地持久化模式
-
-**决策**: ChromaDB 以 SQLite 后端本地持久化，数据库存放在用户级缓存目录（`~/.cache/gis-agent/chroma/`）。
-
-**理由**:
-- 不污染 Git 仓库（二进制数据库文件不适合版本控制）
-- 跨会话复用索引，满足 <3 秒启动要求
-- 用户级缓存目录遵循 XDG 规范
-
-### DC-0023: Embedding 模型从本地路径加载
-
-**决策**: `paraphrase-multilingual-MiniLM-L12-v2` 模型文件存放在 `SourceCode/model/`，运行时通过本地路径加载，不触发网络下载。
-
-**理由**:
-- 完全零外部网络依赖（符合 P4 / P5）
-- 模型随代码交付，版本可控
-- 启动时无需等待下载
-
-### DC-0024: 索引采用"内容 hash 检测 + 懒构建"策略
-
-**决策**: 运行时检测 JSON chunks 文件的 hash，与缓存中记录对比。若一致则直接加载 ChromaDB；若不一致或首次运行则重新 embedding。
-
-**理由**:
-- 日常启动直接加载缓存，满足 <3 秒要求
-- GDAL 文档更新时自动重建，无需手动干预
-- hash 检测开销极低（读取一次文件 vs 全量 embedding）
-
-### DC-0025: JSON Chunks 文件作为提交资源
-
-**决策**: 预处理后的文档 chunks 以 JSON 文件形式存放在 `SourceCode/data/`，纳入 Git 跟踪。
-
-**理由**:
-- 文本文件可 diff、可 review
-- 体积远小于原始 HTML（去除标记和噪音）
-- 新环境开箱即用，无需重新解析 HTML
-
-**JSON 格式**:
-```json
-{
-  "version": "1.0.0",
-  "source": "GDAL 3.10.0 documentation",
-  "generated_at": "2026-05-26",
-  "chunks": [
-    {
-      "id": "ogr2ogr-001",
-      "source_file": "programs/ogr2ogr.html",
-      "title": "ogr2ogr",
-      "section": "Synopsis",
-      "content": "ogr2ogr [-f format]...",
-      "token_estimate": 128
-    }
-  ]
-}
-```
+Q&A 知识源迁移至 J2 模板元数据（`@concept`、`@note`、`@common_error`、`@seealso`），详见 `Document/plan-templates.md` v1.1.0+ 和 `Document/plan-llm.md` v1.1.0+。
 
 ---
 
-## 3. 接口定义
+## 2. 保留组件：HTML 预处理（开发工具）
+
+### 2.1 职责
+
+`SourceCode/src/rag/preprocess.py` 提供 GDAL HTML 文档的结构化文本提取功能。仅用于：
+
+1. **J2 模板批量生成流水线**：`scripts/generate/extractor.py` 调用 `extract_text_from_html()` 从 GDAL HTML 提取 title、synopsis、description，供 LLM 生成 TemplateDefinition
+2. **文档 chunks 生成**：`scripts/preprocess_docs.py` 调用 `preprocess_directory()` 批量处理 GDAL HTML 为 JSON chunks（`data/gdal-docs-chunks.json`），作为开发参考资料
+
+### 2.2 不进入运行时
+
+`preprocess.py` 及其导出函数**不**被 `cli/`、`core/`、`llm/` 运行时模块导入。它是纯开发时工具，不参与 Agent 的任何运行时流程。
+
+---
+
+## 3. 接口定义（当前有效）
 
 ### 3.1 数据模型
 
@@ -127,187 +59,93 @@ from typing import List
 
 @dataclass(frozen=True)
 class DocumentChunk:
-    """文档块。"""
+    """文档块（用于 chunks JSON 输出）。"""
     id: str
     source_file: str
     title: str
     section: str
     content: str
     token_estimate: int
-
-
-@dataclass(frozen=True)
-class RetrievedDocument:
-    """检索结果。"""
-    chunk: DocumentChunk
-    distance: float  # ChromaDB 返回的 L2 距离，越小越相关
 ```
 
-### 3.2 检索器接口
+### 3.2 开发工具函数
 
 ```python
-from typing import List, Optional
+from pathlib import Path
+from typing import List
 
 
-class DocumentRetriever:
-    """GDAL 文档向量检索器。
+def extract_text_from_html(html_content: str) -> List[dict]:
+    """从 GDAL HTML 中提取结构化文本段落。
 
-    封装 ChromaDB 的初始化、索引构建和检索逻辑。
-    进程内单例，通过 get_retriever() 访问。
+    使用 html.parser.HTMLParser 解析 Sphinx 生成的 HTML，
+    返回按标题分组的段落列表。
+
+    Args:
+        html_content: 原始 HTML 字符串。
+
+    Returns:
+        段落列表，每个段落包含 title、section、content 等字段。
 
     Design:
-        DC-0021, DC-0022, DC-0023, DC-0024
+        DC-0020
     """
 
-    def __init__(self, collection_name: str = "gdal_docs") -> None:
-        """初始化检索器，自动加载或构建索引。
 
-        首次调用时会检查缓存：
-        - 缓存有效（hash 匹配）→ 直接加载
-        - 缓存无效/不存在 → 读取 JSON chunks → embedding → 存入 ChromaDB
+def preprocess_directory(
+    source_dir: Path,
+    output_path: Path,
+    include_patterns: List[str],
+    exclude_patterns: List[str],
+    chunk_size: int = 512,
+    chunk_overlap: int = 128,
+) -> int:
+    """批量预处理 GDAL HTML 文档目录为 JSON chunks 文件。
 
-        Args:
-            collection_name: ChromaDB collection 名称。
-        """
+    Args:
+        source_dir: GDAL HTML 文档根目录。
+        output_path: 输出 JSON 文件路径。
+        include_patterns: 包含的文件模式（如 ["programs/*.html"]。
+        exclude_patterns: 排除的文件模式（如 ["api/**"]。
+        chunk_size: 最大 chunk 长度（字符）。
+        chunk_overlap: 切分重叠长度。
 
-    def search(self, query: str, top_k: Optional[int] = None) -> List[RetrievedDocument]:
-        """语义检索与查询最相关的 GDAL 文档 chunks。
+    Returns:
+        生成的 chunk 数量。
 
-        Args:
-            query: 用户查询（中文或英文）。
-            top_k: 返回结果数量。默认从 Config.rag.top_k 读取。
-
-        Returns:
-            按相关性排序的文档列表（distance 升序）。
-
-        Raises:
-            RuntimeError: 索引未初始化完成。
-        """
-
-    def search_multi(
-        self,
-        queries: List[str],
-        top_k_per_query: Optional[int] = None,
-    ) -> List[RetrievedDocument]:
-        """多路召回：对每个 query 分别搜索，合并去重后按 relevance 排序。
-
-        Args:
-            queries: 搜索关键词/短语列表（由 LLM 提炼）。
-            top_k_per_query: 每个 query 的返回数量。默认从 Config.rag.top_k 读取。
-
-        Returns:
-            去重后的文档列表（distance 升序）。同一 chunk 在不同 query 中出现时，
-            保留 distance 最小的结果。
-
-        Raises:
-            RuntimeError: 索引未初始化完成。
-
-        Design:
-            DC-0074
-        """
-
-    def is_ready(self) -> bool:
-        """索引是否已就绪。"""
-```
-
-### 3.3 模块级函数
-
-```python
-def get_retriever() -> DocumentRetriever:
-    """获取全局 DocumentRetriever 单例。
-
-    Raises:
-        RuntimeError: 在 ChromaDB 初始化失败时抛出。
-    """
-```
-
-### 3.4 预处理脚本（开发时运行）
-
-```python
-# scripts/preprocess_docs.py —— 不进入运行时，属开发工具
-
-def preprocess_html(
-    source_dir: Path,      # Document/Resource/gdal/build/doc/build/html/
-    output_path: Path,      # SourceCode/data/gdal-docs-chunks.json
-    include_patterns: List[str],  # ["programs/*.html", "drivers/**/*.html"]
-    exclude_patterns: List[str],  # ["api/**", "_*/**"]
-) -> None:
-    """将 GDAL HTML 文档预处理为 JSON chunks 文件。
-
-    开发者在 GDAL 文档更新时手动运行此脚本。
+    Design:
+        DC-0021
     """
 ```
 
 ---
 
-## 4. 数据流与控制流
+## 4. 数据流（当前有效）
 
-### 4.1 首次启动索引构建流程
+### 4.1 J2 模板生成流水线中的 HTML 提取
 
 ```
-[CLI 启动]
+GDAL HTML 文件
     │
     ▼
-初始化 Workspace
+scripts/generate/extractor.py::HtmlExtractor.extract()
+    │
+    ├──→ extract_text_from_html(html_content)
+    │       ├──→ 解析 HTML 结构（html.parser）
+    │       ├──→ 提取 title、synopsis、description
+    │       └──→ 返回结构化段落列表
     │
     ▼
-调用 get_retriever()
-    │
-    ├──→ 读取 Config.embedding.model_path
-    │
-    ├──→ 加载 SentenceTransformer 模型（本地）
-    │       └── 失败 → RuntimeError（模型文件缺失）
-    │
-    ├──→ 初始化 ChromaDB PersistentClient（~/.cache/gis-agent/chroma/）
-    │
-    ├──→ 计算 SourceCode/data/gdal-docs-chunks.json 的 hash
-    │
-    ├──→ 与缓存中记录的 hash 对比
-    │       │
-    │       ├──→ 匹配 → 跳过构建，返回 retriever
-    │       │
-    │       └──→ 不匹配/无缓存 → 进入构建流程
-    │               │
-    │               ├──→ 读取 JSON chunks 文件
-    │               ├──→ 逐 chunk 计算 embedding
-    │               ├──→ 写入 ChromaDB collection
-    │               ├──→ 记录当前 hash 到缓存元数据
-    │               └──→ 返回 retriever
+ExtractedDoc(title, synopsis, description, options=[])
     │
     ▼
-[就绪，可接受检索请求]
-```
-
-### 4.2 文档问答检索流程（多路召回）
-
-```
-用户提问："ogr2ogr 怎么转成 GeoJSON？"
+LLMTemplateGenerator.generate() → TemplateDefinition JSON
     │
     ▼
-LLM 提炼关键词 → ["ogr2ogr GeoJSON output", "ogr2ogr -f format", "vector conversion GDAL"]
-    │
-    ▼
-DocumentRetriever.search_multi(["ogr2ogr GeoJSON output", "ogr2ogr -f format", "vector conversion GDAL"], top_k_per_query=2)
-    │
-    ├──→ search("ogr2ogr GeoJSON output", top_k=2) → [doc_A, doc_B]
-    ├──→ search("ogr2ogr -f format", top_k=2) → [doc_B, doc_C]
-    ├──→ search("vector conversion GDAL", top_k=2) → [doc_D, doc_E]
-    │
-    ├──→ 按 chunk.id 去重（doc_B 出现两次，保留更小 distance）
-    ├──→ 按 distance 升序排序
-    │
-    └──→ 返回 List[RetrievedDocument] = [doc_B, doc_A, doc_C, doc_D, doc_E]
-            │
-            ▼
-        返回给 LLM 模块，作为上下文注入 Prompt
+renderer.render_j2() → .j2 模板文件
 ```
 
-**降级路径**：关键词提炼失败时，fallback 到原句单路搜索：
-```
-DocumentRetriever.search("ogr2ogr 怎么转成 GeoJSON？", top_k=5)
-```
-
-### 4.3 开发时预处理流程
+### 4.2 开发时文档预处理
 
 ```
 [开发者运行 scripts/preprocess_docs.py]
@@ -332,115 +170,46 @@ DocumentRetriever.search("ogr2ogr 怎么转成 GeoJSON？", top_k=5)
 
 ## 5. 依赖关系
 
-### 5.1 向上依赖
+### 5.1 使用方（开发时）
 
 | 模块 | 接口 | 用途 |
 |------|------|------|
-| `config` | `get_config()` | 读取 embedding 模型路径、rag 参数 |
+| `scripts/generate/extractor.py` | `extract_text_from_html()` | J2 模板生成流水线中的 HTML 文本提取 |
+| `scripts/preprocess_docs.py` | `preprocess_directory()` | 批量生成开发参考用的 JSON chunks |
 
-### 5.2 向下暴露
+### 5.2 外部依赖
 
-| 接口 | 使用方 |
-|------|--------|
-| `DocumentRetriever.search()` | `llm/`（文档问答时调用） |
-| `DocumentRetriever.is_ready()` | `cli/`（启动时检查状态） |
-| `get_retriever()` | `llm/`、 `cli/` |
-
-### 5.3 外部依赖
-
-| 库 | 用途 | 版本约束 |
-|---|------|---------|
-| `chromadb` | 向量数据库 | 按 pyproject.toml |
-| `sentence-transformers` | Embedding 模型加载 | 需评估是否额外引入（见下方讨论） |
-
-> **关于 sentence-transformers**: ChromaDB 的默认 `DefaultEmbeddingFunction` 使用 `onnxruntime` + 本地模型文件。若直接操作 ChromaDB 的底层 embedding 接口可能无需 sentence-transformers。但为明确控制模型加载路径，建议显式使用 `SentenceTransformer` 类。这会引入 `sentence-transformers` 及其依赖（`torch`、`transformers` 等），显著增加依赖树。
->
-> **替代方案**: 使用 ChromaDB 的 `EmbeddingFunction` 协议，自行实现一个轻量包装器，直接加载 ONNX 模型。这样避免 `torch` 依赖。需在 ADR 中记录此决策。
+| 库 | 用途 | 说明 |
+|---|------|------|
+| `html.parser` (stdlib) | HTML 解析 | 零额外依赖，符合 P5 |
 
 ---
 
-## 6. 异常与错误处理
+## 6. 测试策略
 
-| 异常类型 | 触发条件 | 处理策略 |
-|---------|---------|---------|
-| `RuntimeError` | 模型文件路径不存在或损坏 | CLI 启动时捕获，提示用户检查 `SourceCode/model/` 并退出 |
-| `RuntimeError` | ChromaDB 初始化失败（磁盘满、权限） | 同上，提示检查 `~/.cache/gis-agent/` 权限 |
-| `RuntimeError` | `search()` 在索引未完成时调用 | 内部逻辑错误，不应发生 |
-| `FileNotFoundError` | JSON chunks 文件缺失 | 启动时捕获，提示运行 `scripts/preprocess_docs.py` |
-| `json.JSONDecodeError` | JSON chunks 文件损坏 | 提示重新运行预处理脚本 |
-
----
-
-## 7. 测试策略
-
-### 7.1 单元测试覆盖
+仅测试 `preprocess.py` 中的解析逻辑（`tests/unit/test_preprocess.py`）。RAG 检索相关测试已全部删除。
 
 | 测试场景 | 验证点 |
 |---------|--------|
-| 检索基本功能 | 输入已知查询，返回非空结果列表 |
-| 相关性排序 | 结果按 distance 升序排列 |
-| top_k 限制 | 返回数量不超过配置值 |
-| 中文查询 | 中文问题能检索到英文文档 |
-| 空结果处理 | 无相关文档时返回空列表（不抛异常） |
-| 索引就绪检查 | `is_ready()` 在构建完成后返回 True |
-| **多路召回合并** | `search_multi()` 合并多 query 结果 |
-| **去重逻辑** | 同一 chunk 在不同 query 中出现时保留最小 distance |
-| **排序逻辑** | `search_multi()` 最终结果按 distance 升序 |
-
-### 7.2 集成测试场景
-
-- 端到端检索：预置小规模测试 chunks → 构建索引 → 查询 → 验证返回内容
-- 缓存命中：第二次启动不重新 embedding，直接加载
-- hash 变更检测：修改 JSON 文件后触发重建
-
-### 7.3 Mock 策略
-
-- 使用小型测试模型替代 120MB 完整模型（如加载一个维度相同的随机向量生成器）
-- 使用内存 ChromaDB（`chromadb.Client()` 而非 `PersistentClient`）加速测试
-- 测试 fixtures 放在 `tests/fixtures/docs/` 下
+| HTML 标题提取 | 正确解析 Sphinx HTML 的标题层级 |
+| Synopsis 提取 | 从 GDAL 程序文档中正确提取命令摘要 |
+| Description 提取 | 提取长描述文本 |
+| 噪音过滤 | 导航栏、页脚不被包含 |
+| 表格转文本 | HTML 表格转为 Markdown 格式 |
+| chunk 长度限制 | 超长文本按 chunk_size 切分 |
 
 ---
 
-## 8. 需求追溯表
+## 7. 需求追溯表（历史参考）
 
-| 需求 ID | 设计决策 | 代码文件/函数 | 说明 |
-|:-------:|:--------:|:-------------:|------|
-| F1 | DC-0021, DC-0024 | `DocumentRetriever.search()` | 文档检索管道 |
-| F10 | DC-0021 | `DocumentRetriever.search()` | 错误诊断文档检索 |
-| P4 | DC-0020, DC-0025 | JSON chunks + 本地模型 | 仅本地文档 |
-| AC-1 | DC-0021, DC-0023 | multilingual embedding | 中文查询匹配英文文档 |
-| CODE-4 | — | `rag/` 模块封装 | ChromaDB 不外泄 |
-| P5 | DC-0020 | `html.parser` | 零额外解析依赖 |
+原 RAG 设计的需求追溯。当前系统通过模板元数据满足以下需求：
 
----
-
-## 9. 实现顺序
-
-本模块采用**先预处理后 RAG**的串行实现策略：
-
-### Phase 1: 预处理脚本（先行）
-
-| 步骤 | 任务 | 输出 | 说明 |
-|------|------|------|------|
-| 1 | 创建 `SourceCode/src/rag/preprocess.py` 单元测试 | `tests/unit/test_preprocess.py` | TDD：先写测试，验证 HTML 解析、标题切分、长度限制等 |
-| 2 | 实现 HTML 解析与 chunk 生成逻辑 | `SourceCode/src/rag/preprocess.py` | 核心库函数，使用 `html.parser`，可被 pytest 导入测试 |
-| 3 | 实现 CLI 入口脚本 | `scripts/preprocess_docs.py` | 调用 `preprocess.py`，不进入运行时 |
-| 4 | 运行脚本生成 JSON | `SourceCode/data/gdal-docs-chunks.json` | 纳入 Git 跟踪的文本资源 |
-| 5 | 质量检查 | — | ruff、mypy、pytest 通过；验证 JSON 结构符合 §3 格式 |
-
-### Phase 2: RAG 检索模块
-
-| 步骤 | 任务 | 输出 | 说明 |
-|------|------|------|------|
-| 6 | 创建 RAG 单元测试 | `tests/unit/test_rag.py` | 使用 Phase 1 生成的 JSON 作为测试 fixture |
-| 7 | 实现 `DocumentRetriever` | `SourceCode/src/rag/retriever.py` | ChromaDB 封装、索引构建、语义检索 |
-| 8 | 实现模块公开 API | `SourceCode/src/rag/__init__.py` | 暴露 `get_retriever()`、`DocumentRetriever` 等 |
-| 9 | 集成验证 | — | 端到端检索测试、缓存命中测试、hash 变更检测 |
-
-**关键约束**：
-- Phase 1 的 JSON chunks 是 Phase 2 的**必要输入**，必须先完成
-- `scripts/preprocess_docs.py` 为开发工具，不列入运行时依赖（P5 仍满足）
-- `SourceCode/src/rag/preprocess.py` 属于 `rag/` 包的一部分，但仅开发时使用；其公开函数不暴露给上层模块
+| 需求 ID | 替代方案 | 说明 |
+|:-------:|:--------:|------|
+| F1 | `plan-templates.md` v1.1.0+ | 模板元数据 `@concept`/`@note` 回答用法问题 |
+| F10 | `plan-llm.md` DC-0036 | 基于模板 `@common_error` 的错误诊断 |
+| P4 | ADR-0001 | 知识仅来源于模板元数据，不检索外部文档 |
+| P5 | — | 移除 chromadb、sentence-transformers，生产依赖仅 anthropic + jinja2 |
 
 ---
 
@@ -448,6 +217,7 @@ DocumentRetriever.search("ogr2ogr 怎么转成 GeoJSON？", top_k=5)
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v2.0.0 | 2026-05-28 | RAG 运行时移除，文档重写为 preprocess-only 状态。保留 §3.2 接口定义、§4 数据流、§5 依赖关系作为开发工具参考 |
 | v1.1.0 | 2026-05-28 | 新增 `search_multi()` 接口（§3.2、§4.2、§7）；更新文档问答检索流程为多路召回 |
 | v1.0.1 | 2026-05-27 | 新增 §9 实现顺序，明确"先预处理后 RAG"的串行策略 |
 | v1.0.0 | 2026-05-26 | 初版，定义 HTML 预处理、语义切分、ChromaDB 封装、懒加载策略 |

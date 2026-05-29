@@ -17,7 +17,7 @@
 
 ### 1.2 所属架构层次
 
-CLI 层（`cli/`）。可依赖所有下层模块（core、llm、rag、workspace）。
+CLI 层（`cli/`）。可依赖所有下层模块（core、llm、templates、workspace）。
 
 ### 1.3 对应需求项
 
@@ -205,13 +205,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     1. 解析命令行参数
     2. 加载配置（config.load_config）
     3. 初始化工作空间（workspace.initialize）
-    4. 初始化 RAG 检索器（rag.get_retriever）
-    5. 初始化 LLM 客户端和 Prompt 构建器
-    6. 定位模板目录（由包路径推导 ``{pkg_root}/data/templates/``）
-    7. 扫描模板文件并构建 TemplateRegistry
-    8. 构建 SessionProcessor（含 TemplateRegistry、ParamValidator、LLMClient、PromptBuilder、TemplateEngine）
-    9. 构建 ScriptExecutor（含 workspace）
-   10. 启动 REPL 循环（注入 SessionProcessor + ScriptExecutor）
+    4. 初始化 LLM 客户端和 Prompt 构建器
+    5. 定位模板目录（由包路径推导 ``{pkg_root}/data/templates/``）
+    6. 扫描模板文件并构建 TemplateRegistry
+    7. 构建 SessionProcessor（含 TemplateRegistry、ParamValidator、LLMClient、PromptBuilder、TemplateEngine）
+    8. 构建 ScriptExecutor（含 workspace）
+    9. 启动 REPL 循环（注入 SessionProcessor + ScriptExecutor）
 
     Args:
         argv: 命令行参数列表。默认为 sys.argv[1:]。
@@ -384,7 +383,7 @@ workspace.initialize(workspace_path)
 打印 "正在加载文档检索系统（首次启动可能需要 1-2 分钟）..."
     │
     ▼
-get_retriever()  # RAG 初始化（加载 embedding 模型 + 检查索引缓存）
+# RAG 运行时已移除（ADR-0001），无需初始化检索器
     │
     ├──→ 成功 → 打印 "文档检索系统加载完成。" → 继续
     └──→ 失败（模型缺失）→ 打印错误，退出码 1
@@ -550,7 +549,6 @@ ScriptExecutor.execute(script)
 |------|------|------|
 | `config` | `load_config()`, `get_config()` | 配置加载 |
 | `workspace` | `initialize()`, `get_workspace()` | 工作空间初始化 |
-| `rag` | `get_retriever()` | RAG 检索器初始化 |
 | `llm` | `LLMClient`, `PromptBuilder` | LLM 组件初始化 |
 | `core` | `TemplateRegistry`, `ParamValidator`, `SessionProcessor` | 核心组件初始化 |
 | `core` | `Session`, `SessionState` | 会话状态管理 |
@@ -572,7 +570,6 @@ CLI 层是顶层，不向下暴露接口给其他模块。
 |---------|---------|---------|
 | `WorkspaceNotFoundError` | `--workspace` 目录不存在 | 启动时捕获，打印友好错误，退出码 2 |
 | `FileNotFoundError` | 配置文件不存在 | 同上 |
-| `RuntimeError` | RAG 模型缺失 | 启动时捕获，提示检查 `SourceCode/model/`，退出码 1 |
 | `KeyboardInterrupt` | 用户按 Ctrl+C | REPL 中捕获，提示使用 `/quit`，继续循环 |
 | `EOFError` | 用户按 Ctrl+D | REPL 中捕获，正常退出（退出码 0） |
 | `subprocess.TimeoutExpired` | 脚本执行超时 | 提示超时，终止进程，返回 IDLE |
@@ -649,5 +646,5 @@ CLI 层是顶层，不向下暴露接口给其他模块。
 | v1.0.4 | 2026-05-29 | 新增 DC-0071：REPL 新增 `output_fn` property 暴露输出函数；`main()` 启动流程新增 `processor.set_output_fn(repl.output_fn)` 接线步骤；Q&A 回答支持流式逐块输出；§2 新增设计决策、§3.3 更新 REPL 接口、§4.1 更新启动流程 |
 | v1.0.3 | 2026-05-28 | DC-0063 扩展：执行失败后不再直接返回 IDLE，而是构造 `ExecutionErrorContext` 并进入 `ERROR_RECOVERY` 状态；REPL 主循环和脚本执行流程图更新；测试策略新增错误恢复场景 |
 | v1.0.2 | 2026-05-28 | 新增 `/init` 斜杠命令（DC-0067）：将当前 Session 的任务意图、模板、参数追加写入 Agents.md，支持自动创建文件和边界情况处理 |
-| v1.0.1 | 2026-05-28 | REPL 执行结果输出格式改进：成功/失败均展示 stdout + stderr + 返回码 + 耗时；quote_filter Windows 兼容（双引号）；启动时增加 RAG 加载提示避免卡死感 |
+| v1.0.1 | 2026-05-28 | REPL 执行结果输出格式改进：成功/失败均展示 stdout + stderr + 返回码 + 耗时；quote_filter Windows 兼容（双引号）；移除 RAG 启动初始化 |
 | v1.0.0 | 2026-05-26 | 初版，定义 CLI 启动流程、REPL 循环、斜杠命令、用户确认、脚本执行沙箱 |

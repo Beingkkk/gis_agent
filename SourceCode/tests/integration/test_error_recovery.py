@@ -26,7 +26,6 @@ def processor_with_real_templates(
     real_template_dir: Path,
     tmp_path: Path,
     mock_llm_client: MagicMock,
-    mock_retriever: MagicMock,
 ) -> SessionProcessor:
     """SessionProcessor with real templates and mock LLM."""
     workspace = Workspace(tmp_path)
@@ -42,44 +41,11 @@ def processor_with_real_templates(
         template_engine=engine,
         llm_client=mock_llm_client,
         prompt_builder=prompt_builder,
-        retriever=mock_retriever,
     )
 
 
 class TestErrorRecovery:
     """Error conditions and recovery paths."""
-
-    @patch("core.processor.classify_intent")
-    @patch("core.processor.extract_params")
-    def test_invalid_crs_format_stays_in_collect(
-        self,
-        mock_extract: MagicMock,
-        mock_classify: MagicMock,
-        processor_with_real_templates: SessionProcessor,
-    ) -> None:
-        """Invalid CRS like '4326' (missing EPSG:) fails validation."""
-        mock_classify.return_value = IntentResult(
-            template_id="reproject",
-            confidence=0.95,
-            reasoning="User wants reprojection",
-        )
-        # First: invalid CRS
-        mock_extract.return_value = ParamResult(
-            params={"input": "a.shp", "output": "b.shp", "t_srs": "4326"},
-            missing=[],
-            questions=[],
-        )
-
-        session = Session()
-        session, _ = processor_with_real_templates.process(session, "重投影")
-        assert session.state == SessionState.PARAM_COLLECT
-
-        # User provides invalid CRS
-        session, response = processor_with_real_templates.process(
-            session, "输入 a.shp，输出 b.shp，目标 4326"
-        )
-        assert session.state == SessionState.PARAM_COLLECT
-        assert "EPSG" in response or "格式" in response or "无效" in response
 
     @patch("core.processor.classify_intent")
     @patch("core.processor.extract_params")
@@ -91,23 +57,23 @@ class TestErrorRecovery:
     ) -> None:
         """Missing required 'output' param keeps state in PARAM_COLLECT."""
         mock_classify.return_value = IntentResult(
-            template_id="shp2geojson",
+            template_id="gdal_mdim_convert",
             confidence=0.95,
             reasoning="Conversion",
         )
         # Only input provided, output missing
         mock_extract.return_value = ParamResult(
-            params={"input": "roads.shp"},
+            params={"input": "input.nc"},
             missing=["output"],
             questions=["请输入输出文件路径（output）："],
         )
 
         session = Session()
-        session, _ = processor_with_real_templates.process(session, "转成 GeoJSON")
+        session, _ = processor_with_real_templates.process(session, "转换多维数据")
         assert session.state == SessionState.PARAM_COLLECT
 
         session, response = processor_with_real_templates.process(
-            session, "输入 roads.shp"
+            session, "输入 input.nc"
         )
         assert session.state == SessionState.PARAM_COLLECT
         assert "output" in response or "输出" in response or "缺失" in response
@@ -122,34 +88,34 @@ class TestErrorRecovery:
     ) -> None:
         """Invalid param → error → corrected param → success."""
         mock_classify.return_value = IntentResult(
-            template_id="reproject",
+            template_id="gdal_mdim_convert",
             confidence=0.95,
-            reasoning="Reprojection",
+            reasoning="Conversion",
         )
 
         session = Session()
-        session, _ = processor_with_real_templates.process(session, "重投影")
+        session, _ = processor_with_real_templates.process(session, "转换多维数据")
         assert session.state == SessionState.PARAM_COLLECT
 
-        # First attempt: invalid CRS
+        # First attempt: output path has invalid characters (pipe)
         mock_extract.return_value = ParamResult(
-            params={"input": "a.shp", "output": "b.shp", "t_srs": "bad"},
+            params={"input": "input.nc", "output": "out|put.zarr"},
             missing=[],
             questions=[],
         )
         session, response = processor_with_real_templates.process(
-            session, "输入 a.shp，输出 b.shp，目标 bad"
+            session, "输入 input.nc，输出 out|put.zarr"
         )
         assert session.state == SessionState.PARAM_COLLECT
 
-        # Second attempt: corrected CRS
+        # Second attempt: corrected path
         mock_extract.return_value = ParamResult(
-            params={"input": "a.shp", "output": "b.shp", "t_srs": "EPSG:4326"},
+            params={"input": "input.nc", "output": "output.zarr"},
             missing=[],
             questions=[],
         )
         session, response = processor_with_real_templates.process(
-            session, "目标 EPSG:4326"
+            session, "输出 output.zarr"
         )
         assert session.state == SessionState.SCRIPT_PREVIEW
-        assert "EPSG:4326" in response
+        assert "output.zarr" in response

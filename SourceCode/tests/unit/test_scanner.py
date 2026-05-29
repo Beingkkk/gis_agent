@@ -196,18 +196,16 @@ def test_scan_real_templates() -> None:
 
     results = scan_templates(data_dir)
     ids = [t.id for t in results]
-    assert "shp2geojson" in ids
-    assert "clip_raster" in ids
-    assert "info_query" in ids
+    # Templates are batch-generated from GDAL docs; verify a known one exists
+    assert "gdal_info" in ids
 
-    # Verify params are parsed correctly for shp2geojson
-    shp = next(t for t in results if t.id == "shp2geojson")
-    assert shp.name == "Shapefile 转 GeoJSON"
-    param_names = [p.name for p in shp.params]
+    # Verify params are parsed correctly for gdal_info
+    info = next(t for t in results if t.id == "gdal_info")
+    assert info.name == "数据集信息查询"
+    param_names = [p.name for p in info.params]
     assert "input" in param_names
-    assert "output" in param_names
-    assert "t_srs" in param_names
 
-    t_srs = next(p for p in shp.params if p.name == "t_srs")
-    assert t_srs.required is False
-    assert t_srs.default == "EPSG:4326"
+    # Verify optional param parsing
+    of_param = next(p for p in info.params if p.name == "of")
+    assert of_param.required is False
+    assert of_param.type == "string"

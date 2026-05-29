@@ -11,9 +11,10 @@ Design: plan-config v1.0.0
 """
 
 from config.loader import get_config, load_config
-from config.models import Config, LLMConfig, WorkspaceConfig
+from config.models import APIConfig, Config, LLMConfig, WorkspaceConfig
 
 __all__ = [
+    "APIConfig",
     "Config",
     "LLMConfig",
     "WorkspaceConfig",

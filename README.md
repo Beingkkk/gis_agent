@@ -31,7 +31,19 @@ conda install -c conda-forge gdal -y
 ogr2ogr --version
 ```
 
-### 3. 安装 Python 依赖
+### 3. 安装 Node.js（浏览器 UI 需要）
+
+如果使用浏览器界面，需要 Node.js 18+：
+
+```bash
+# 进入前端目录
+cd SourceCode/frontend
+
+# 安装前端依赖（首次运行）
+npm install
+```
+
+### 4. 安装 Python 依赖
 
 ```bash
 # 进入源码目录
@@ -40,11 +52,11 @@ cd SourceCode
 # 安装生产依赖
 pip install -e .
 
-# 如需开发（包含测试和代码检查工具）
+# 如需开发（包含测试和代码检查工具，以及 FastAPI 后端依赖）
 pip install -e ".[dev]"
 ```
 
-### 4. 配置
+### 5. 配置
 
 复制配置模板并填入实际凭证：
 
@@ -61,17 +73,23 @@ cp config/config.json.template config/config.json
 | `llm.auth_key` | API 密钥 | `sk-xxxxxxxx` |
 | `llm.model_name` | 模型名称 | `claude-sonnet-4-6` |
 | `workspace.default_path` | 默认工作空间 | `.` |
+| `api.host` | API 服务绑定地址 | `0.0.0.0` |
+| `api.port` | API 服务端口 | `8000` |
 
-**环境变量覆盖**：敏感字段支持通过环境变量覆盖，避免密钥入仓。
+**环境变量覆盖**：敏感字段和常用配置支持通过环境变量覆盖，避免密钥入仓。
 
 ```bash
+# LLM 配置
 export GISAGENT_LLM_AUTH_KEY="sk-your-key"
 export GISAGENT_LLM_BASE_URL="https://api.example.com"
+
+# API 端口（开发时若 8000 被占用）
+export GISAGENT_API_PORT=9000
 ```
 
 变量命名规则：`GISAGENT_` + 配置路径（大写，`_` 连接），优先级高于配置文件。
 
-### 5. 工作空间配置（可选）
+### 6. 工作空间配置（可选）
 
 在工作空间根目录创建 `Agents.md`，为 Agent 提供项目级长期记忆：
 
@@ -90,28 +108,62 @@ export GISAGENT_LLM_BASE_URL="https://api.example.com"
 
 ## 启动
 
+GIS Agent 提供两种交互方式：命令行（CLI）和浏览器界面（Browser UI）。两者共享同一套 core/llm/templates 业务逻辑。
+
+### 浏览器界面（推荐）
+
+基于 React + FastAPI 的图形界面，支持模板卡片浏览、参数表单、流式对话、脚本预览与执行。
+
+**开发模式（前后端分离）**：
+
+```bash
+# 终端 1：启动后端 API
+cd SourceCode
+python start_api.py
+
+# 终端 2：启动前端 dev server
+cd SourceCode/frontend
+npm run dev
+```
+
+打开浏览器访问 `http://localhost:5173`。
+
+**生产模式**：
+
+```bash
+cd SourceCode/frontend
+npm run build    # 输出到 dist/
+
+cd ..
+python start_api.py    # FastAPI 自动托管前端静态文件
+```
+
+打开浏览器访问 `http://localhost:8000`（端口取决于 `config.json` 配置）。
+
+> **端口配置**：若默认端口冲突，修改 `config/config.json` 中的 `api.port`，同时同步 `frontend/.env` 中的 `VITE_API_PORT`。
+
 ### 命令行入口
 
 ```bash
-# 进入源码目录（必须在此目录下运行，因为模板和配置路径相对此目录）
+# 进入源码目录
 cd SourceCode
 
-# 基础启动（使用当前目录作为工作空间）
-python -m cli
+# 基础启动
+python start_cli.py
 
 # 指定工作空间
-python -m cli --workspace /path/to/project
+python start_cli.py --workspace /path/to/project
 
 # 指定配置文件
-python -m cli --config /path/to/config.json
+python start_cli.py --config /path/to/config.json
 
 # 空跑模式（只展示脚本不执行，首次使用建议）
-python -m cli --dry-run
+python start_cli.py --dry-run
 ```
 
-> **Windows 用户注意**：`pip install -e .` 安装的 `gis-agent` 命令在部分终端环境下不可用，请使用 `python -m cli` 启动。
+> **Windows 用户注意**：若 `python -m cli` 报错模块未找到，请使用 `python start_cli.py` 启动。
 
-### 交互命令
+### 交互命令（CLI 模式）
 
 进入 REPL 后可用以下斜杠命令：
 
@@ -150,15 +202,27 @@ gis-agent/
 ├── Document/               # 设计文档（spec/constitution/plan/ADR）
 ├── SourceCode/
 │   ├── src/
+│   │   ├── api/           # API 层：FastAPI + WebSocket 适配（浏览器 UI 后端）
 │   │   ├── cli/           # CLI 层：REPL、命令解析、脚本执行
 │   │   ├── core/          # 核心层：状态机、模板注册表、参数校验
 │   │   ├── llm/           # LLM 层：意图分类、参数抽取、错误诊断
 │   │   ├── templates/     # 模板引擎：Jinja2 渲染、扫描器、安全校验
 │   │   └── config/        # 配置加载
+│   ├── frontend/          # 浏览器 UI 前端（React + TypeScript + Vite）
+│   │   ├── src/
+│   │   │   ├── api/       # HTTP 客户端封装
+│   │   │   ├── components/# React 组件
+│   │   │   ├── hooks/     # Zustand 状态管理 + WebSocket
+│   │   │   ├── pages/     # 页面路由（主应用 / 生成器 / Pipeline）
+│   │   │   └── types/     # TypeScript 类型定义
+│   │   ├── package.json
+│   │   └── vite.config.ts
 │   ├── tests/unit/        # 单元测试
 │   ├── data/
 │   │   └── templates/     # .j2 模板文件（vector/raster/general）
 │   ├── config/            # 运行时配置（config.json）
+│   ├── start_api.py       # 浏览器 UI 启动脚本
+│   ├── start_cli.py       # CLI 启动脚本
 │   └── pyproject.toml
 └── README.md
 ```

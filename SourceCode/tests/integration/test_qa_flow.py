@@ -20,7 +20,7 @@ from templates import TemplateEngine, scan_templates
 
 
 @patch("core.processor.classify_intent")
-@patch("core.processor.answer_question")
+@patch("llm.qa.answer_question")
 def test_qa_route_returns_answer(
     mock_answer: MagicMock,
     mock_classify: MagicMock,

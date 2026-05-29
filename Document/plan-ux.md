@@ -346,11 +346,12 @@ interface TemplateDetail extends TemplateDef {
 frontend/
 ├── src/
 │   ├── main.tsx                    # 入口，启动时请求 /session 创建会话
-│   ├── App.tsx                     # 路由：/（主应用）/generator（模板生成器）
+│   ├── App.tsx                     # 路由：/ /generator /pipeline
 │   ├── api/
 │   │   ├── client.ts               # axios 实例，baseURL = "/api"
 │   │   ├── session.ts              # 会话相关 API 调用
 │   │   ├── templates.ts            # 模板相关 API 调用
+│   │   ├── pipeline.ts             # Pipeline API
 │   │   └── generator.ts            # 模板生成器 API
 │   ├── components/
 │   │   ├── Layout.tsx              # 三栏布局框架
@@ -370,11 +371,13 @@ frontend/
 │   │   └── useTemplates.ts         # 模板列表和详情
 │   ├── pages/
 │   │   ├── MainPage.tsx            # 主应用页面
-│   │   └── GeneratorPage.tsx       # 模板生成器页面
+│   │   ├── GeneratorPage.tsx       # 模板生成器页面
+│   │   └── PipelinePage.tsx        # Pipeline 编排页面
 │   └── types/
 │       └── index.ts                # TypeScript 类型定义
 ├── index.html
-└── vite.config.ts
+├── vite.config.ts
+└── .env.template                   # 前端环境变量模板（API 端口）
 ```
 
 ---
@@ -412,15 +415,29 @@ cd SourceCode
 
 # 方式 1：开发模式（前后端分离启动）
 # 终端 1
-python -m api.main --reload
+python start_api.py
 
 # 终端 2
 cd frontend && npm run dev
 
 # 方式 2：生产模式（后端托管前端静态文件）
 # 前端 build 后，FastAPI 挂载 static 目录
-python -m api.main
-# 自动打开浏览器访问 http://localhost:8000
+python start_api.py
+# 访问 http://localhost:8000
+```
+
+### 端口配置
+
+后端端口通过 `config/config.json` 的 `api.port` 配置，默认 8000：
+```json
+{
+  "api": { "host": "0.0.0.0", "port": 9000 }
+}
+```
+
+前端开发服务器通过 `frontend/.env` 同步代理目标：
+```
+VITE_API_PORT=9000
 ```
 
 ---
@@ -429,8 +446,8 @@ python -m api.main
 
 UX 方案**不删除**现有 CLI 代码。`cli/` 目录保持完整，与 `api/` 并行存在：
 
-- `python -m cli.main` → 启动命令行版本
-- `python -m api.main` → 启动浏览器版本
+- `python start_cli.py` → 启动命令行版本
+- `python start_api.py` → 启动浏览器版本
 
 两套入口共享 core/llm/templates，互不干扰。CLI 的维护成本不增加。
 
@@ -452,3 +469,12 @@ UX 方案**不删除**现有 CLI 代码。`cli/` 目录保持完整，与 `api/`
 - `axios` — HTTP 客户端
 
 **现有依赖不变**：`anthropic`, `jinja2`（P5 仍然满足）
+
+---
+
+## 附录：变更记录
+
+| 版本 | 日期 | 变更内容 |
+|------|------|---------|
+| v1.0.0 | 2026-05-29 | 初版，定义 React + FastAPI 浏览器 UI 方案 |
+| v1.1.0 | 2026-05-29 | 新增 `/pipeline` 路由；启动方式改为 `start_api.py`/`start_cli.py`；端口支持前后端配置同步 |

@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from config.models import Config, LLMConfig, WorkspaceConfig
+from config.models import APIConfig, Config, LLMConfig, WorkspaceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,8 @@ def _apply_env_overrides(raw: dict[str, Any]) -> dict[str, Any]:
             "allow_parent_access",
             bool,
         ),
+        "GISAGENT_API_HOST": ("api", "host", str),
+        "GISAGENT_API_PORT": ("api", "port", int),
     }
 
     for env_name, (section, key, cast_type) in env_map.items():
@@ -129,6 +131,12 @@ def _fill_defaults(raw: dict[str, Any]) -> dict[str, Any]:
     workspace.setdefault("default_path", ".")
     workspace.setdefault("allow_parent_access", False)
 
+    if "api" not in raw:
+        raw["api"] = {}
+    api = raw["api"]
+    api.setdefault("host", "0.0.0.0")
+    api.setdefault("port", 8000)
+
     return raw
 
 
@@ -143,6 +151,10 @@ def _build_config(raw: dict[str, Any]) -> Config:
         workspace=WorkspaceConfig(
             default_path=raw["workspace"].get("default_path", "."),
             allow_parent_access=raw["workspace"].get("allow_parent_access", False),
+        ),
+        api=APIConfig(
+            host=raw["api"].get("host", "0.0.0.0"),
+            port=raw["api"].get("port", 8000),
         ),
     )
 

@@ -237,3 +237,7 @@ SourceCode/model/**
 
 # Config file with sensitive credentials (use config.json.template as reference)
 SourceCode/config/config.json
+
+# Template generator runtime files (regenerated on each run)
+SourceCode/data/templates/.generate_state.json
+SourceCode/data/templates/.review_queue.jsonl

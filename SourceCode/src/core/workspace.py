@@ -220,6 +220,26 @@ def get_workspace() -> Workspace:
     return _workspace_instance
 
 
+def change_workspace(root: Path) -> Workspace:
+    """Change the global workspace singleton to a new root.
+
+    Re-initializes the workspace with the new path. Old references
+    to the previous workspace will be stale.
+
+    Args:
+        root: New workspace root directory.
+
+    Returns:
+        New Workspace instance.
+
+    Raises:
+        WorkspaceNotFoundError: Directory does not exist or is not a dir.
+    """
+    global _workspace_instance
+    _workspace_instance = Workspace(root)
+    return _workspace_instance
+
+
 def _reset_singleton() -> None:
     """Reset the global singleton. For testing only."""
     global _workspace_instance

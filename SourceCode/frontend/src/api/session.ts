@@ -52,3 +52,13 @@ export async function clearSession(sessionId: string): Promise<SessionSnapshot> 
   const resp = await apiClient.post(`/session/${sessionId}/clear`)
   return resp.data
 }
+
+export async function updateWorkspace(
+  sessionId: string,
+  path: string
+): Promise<SessionSnapshot> {
+  const resp = await apiClient.post(`/session/${sessionId}/workspace`, {
+    path,
+  })
+  return resp.data
+}

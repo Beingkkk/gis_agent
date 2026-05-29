@@ -11,6 +11,7 @@ import {
   lockTemplate,
   submitParams,
   clearSession,
+  updateWorkspace,
 } from '../api/session'
 import { listTemplates, getTemplate } from '../api/templates'
 import type { TemplateDef, TemplateDetail } from '../types'
@@ -24,10 +25,12 @@ export default function MainPage() {
     templates,
     scriptPreview,
     isLoading,
+    workspace,
     setSession,
     addMessage,
     setLoading,
     setTemplates,
+    setWorkspace,
   } = useSession()
 
   const [inputText, setInputText] = useState('')
@@ -35,7 +38,16 @@ export default function MainPage() {
   const [execLog, setExecLog] = useState<string[]>([])
   const [isExecuting, setIsExecuting] = useState(false)
   const { connect: connectExec } = useWebSocket()
-  const chatBottomRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const el = textareaRef.current
+    if (el) {
+      el.style.height = 'auto'
+      el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+    }
+  }, [inputText])
 
   // Initialize: create session + load templates
   useEffect(() => {
@@ -51,11 +63,6 @@ export default function MainPage() {
     }
     init()
   }, [setSession, setTemplates])
-
-  // Scroll chat to bottom
-  useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, execLog])
 
   // Load template detail when selected
   const handleSelectTemplate = useCallback(
@@ -82,22 +89,24 @@ export default function MainPage() {
 
     const text = inputText.trim()
     setInputText('')
-    addMessage({ role: 'user', content: text })
     setLoading(true)
 
     try {
       const result = await processIntent(sessionId, text)
       setSession(result)
 
-      // Add agent response based on state
+      // Only add extra UI message for states that need it
+      // IDLE responses are already in result.history from backend
       if (result.state === 'INTENT_CONFIRM') {
         const candidates = result.task_context.candidates || []
-        addMessage({
-          role: 'agent',
-          content: `找到 ${candidates.length} 个候选模板，请点击确认：`,
-          type: 'cards',
-          meta: { candidates },
-        })
+        if (candidates.length > 0) {
+          addMessage({
+            role: 'agent',
+            content: `找到 ${candidates.length} 个候选模板，请点击确认：`,
+            type: 'cards',
+            meta: { candidates },
+          })
+        }
       } else if (result.state === 'PARAM_COLLECT') {
         addMessage({
           role: 'agent',
@@ -109,13 +118,8 @@ export default function MainPage() {
           const detail = await getTemplate(result.task_context.template_id)
           setSelectedTemplate(detail)
         }
-      } else {
-        addMessage({
-          role: 'agent',
-          content: '请从左栏选择一个模板开始。',
-          type: 'text',
-        })
       }
+      // IDLE (exploratory Q&A): history already contains backend reply, no extra message needed
     } catch (e) {
       addMessage({
         role: 'agent',
@@ -220,11 +224,32 @@ export default function MainPage() {
 
   // Return to param editing
   const handleEditParams = () => {
-    // Just switch state visually; params remain in taskContext
     if (sessionId && selectedTemplate) {
       lockTemplate(sessionId, selectedTemplate.id)
         .then((s) => setSession(s))
         .catch(() => {})
+    }
+  }
+
+  // Update workspace path
+  const handleUpdateWorkspace = async (path: string) => {
+    if (!sessionId) return
+    try {
+      const result = await updateWorkspace(sessionId, path)
+      setSession(result)
+      setSelectedTemplate(null)
+      setExecLog([])
+      // Use absolute path returned by backend
+      if (result.workspace) {
+        setWorkspace(result.workspace)
+      }
+    } catch (e) {
+      console.error('切换工作空间失败:', e)
+      addMessage({
+        role: 'agent',
+        content: '切换工作空间失败: ' + String(e),
+        type: 'error',
+      })
     }
   }
 
@@ -237,18 +262,12 @@ export default function MainPage() {
 
   return (
     <Layout
-      state={state}
       leftPanel={
-        <div className="p-4">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
-            模板
-          </h2>
-          <TemplateCardList
-            templates={templates}
-            selectedId={selectedTemplate?.id || null}
-            onSelect={handleSelectTemplate}
-          />
-        </div>
+        <TemplateCardList
+          templates={templates}
+          selectedId={selectedTemplate?.id || null}
+          onSelect={handleSelectTemplate}
+        />
       }
       rightPanel={
         <DetailPanel
@@ -284,33 +303,43 @@ export default function MainPage() {
         ]}
         state={state}
         isLoading={isLoading}
+        workspace={workspace}
         onSelectTemplate={handleSelectFromChat}
+        onClearSession={handleCancel}
+        onUpdateWorkspace={handleUpdateWorkspace}
       />
 
       {/* Input area */}
-      <div className="border-t border-gray-200 bg-white p-3">
-        <div className="flex gap-2">
-          <input
-            type="text"
+      <div className="border-t border-slate-200 bg-white px-5 py-3 flex-shrink-0">
+        <div className="flex gap-2 items-end bg-white border border-slate-200 rounded-2xl px-3 py-1.5 shadow-sm focus-within:border-blue-500 focus-within:shadow-[0_0_0_3px_rgba(37,99,235,0.08),0_1px_3px_rgba(0,0,0,0.06)] transition-all">
+          <textarea
+            ref={textareaRef}
+            rows={1}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
               state === 'PARAM_COLLECT'
                 ? '在右栏填写参数...'
-                : '输入需求，如"shp转geojson"...'
+                : '描述需求，如"shp转geojson"...'
             }
             disabled={isLoading || isExecuting}
-            className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50"
+            className="flex-1 border-none outline-none resize-none text-sm leading-relaxed py-2 bg-transparent text-slate-900 min-h-[22px] max-h-[120px] disabled:opacity-50"
           />
           <button
             onClick={handleSend}
             disabled={isLoading || isExecuting || !inputText.trim()}
-            className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
+            className="w-8 h-8 rounded-[10px] bg-blue-600 text-white flex items-center justify-center flex-shrink-0 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-[0_1px_4px_rgba(37,99,235,0.2)]"
           >
-            发送
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
           </button>
         </div>
+        <p className="text-[11px] text-slate-400 mt-2 text-center">
+          按 Enter 发送，Shift + Enter 换行
+        </p>
       </div>
     </Layout>
   )

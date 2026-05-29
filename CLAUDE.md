@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GIS Agent (`gis-agent`) is a command-line assistant for GIS data processing using GDAL tools. It accepts natural language requests in Chinese, maps them to predefined Jinja2 templates, generates batch scripts, and executes them only after explicit user confirmation.
+GIS Agent (`gis-agent`) is a natural-language assistant for GIS data processing using GDAL tools. It accepts Chinese requests, maps them to predefined Jinja2 templates, generates batch scripts, and executes them only after explicit user confirmation.
+
+The project provides **two UIs**: a command-line REPL (`cli/`) and a browser-based React UI (`frontend/` + `api/`). Both share the same `core/llm/templates` business logic.
 
 The project strictly follows Specification-Driven Design: no code without a preceding design document.
 
@@ -36,14 +38,20 @@ Document/constitution.md  →  Document/spec.md  →  Document/plan-*.md  →  S
 Strict layered architecture. Upper layers may call lower layers; **reverse dependencies are prohibited**.
 
 ```
-CLI layer (cli/)        → REPL, slash commands, script execution, main entry            [done]
-Core layer (core/)      → workspace, template registry, param validator, session processor [done]
-App layer (llm/)        → LLM interaction, intent classification, template-knowledge Q&A  [done]
-Infra layer             → anthropic SDK, jinja2, GDAL CLI                              [done]
-Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker           [done]
+Frontend (frontend/)    → React + TypeScript + Vite browser UI               [done]
+API layer (api/)        → FastAPI REST + WebSocket adapters for browser UI    [done]
+CLI layer (cli/)        → REPL, slash commands, script execution              [done]
+Core layer (core/)      → workspace, template registry, param validator,
+                          session processor                                   [done]
+App layer (llm/)        → LLM interaction, intent classification,
+                          template-knowledge Q&A                              [done]
+Infra layer             → anthropic SDK, jinja2, GDAL CLI                     [done]
+Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker [done]
 ```
 
 **Dependency rules**:
+- `frontend/` calls `api/` via HTTP/WebSocket only; never imports Python code
+- `api/` may depend on `core/`, `llm/`, `templates/`
 - `cli/` may depend on `core/`, `llm/`, `templates/`
 - `core/` may depend on `llm/`, `templates/`
 - `llm/` may depend on `core/` (for `TemplateDef` knowledge metadata in Q&A)
@@ -52,7 +60,7 @@ Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker 
 - External library types must not leak upward through layer boundaries
 
 **Key design patterns**:
-- GDAL commands are rendered via Jinja2 templates in `SourceCode/data/templates/` — **never** string-concatenated
+- GDAL commands are rendered via Jinja2 templates in `data/templates/` — **never** string-concatenated
 - Workspace is a memory anchor (v2.0), not a security boundary — paths are normalized, not sandboxed
 - LLM calls (`anthropic`) are encapsulated in `llm/` only (CODE-3)
 - Session is immutable — every state transition returns a new `Session` instance via `with_*` methods
@@ -68,6 +76,19 @@ Configuration loading with validation and environment variable overrides.
 - Supports `GISAGENT_*` env overrides
 - **Note**: Module uses `from config import ...` imports (not `from src.config`), because `SourceCode/src/` is added to `PYTHONPATH` at runtime.
 - **Security**: `config.json` is gitignored; use `config.json.template` as reference.
+
+### api (`SourceCode/src/api/`)
+
+FastAPI REST + WebSocket adapter layer for the browser UI. Reuses core/llm/templates; does not duplicate business logic.
+
+- **`main.py`** — FastAPI app factory, CORS, route registration, dependency initialization
+- **`dependencies.py`** — Singleton DI: `SessionManager`, `TemplateRegistry`, `ParamValidator`, `TemplateEngine`, `LLMClient`, `PromptBuilder`, `Workspace`
+- **`routes/session.py`** — Session lifecycle: create, intent, lock, params, execute trigger, clear, **workspace update**
+- **`routes/templates.py`** — Template listing and detail queries
+- **`routes/pipeline.py`** — Pipeline preview and execution
+- **`routes/generator.py`** — J2 template generator API
+- **`websocket/chat.py`** — Streaming Q&A WebSocket
+- **`websocket/execute.py`** — Real-time script execution log WebSocket
 
 ### rag (`SourceCode/src/rag/`)
 
@@ -92,7 +113,7 @@ LLM interaction layer — the only module allowed to call the anthropic SDK (COD
 Business logic core. All exposed through `core/__init__.py`.
 
 - **`models.py`** — `SessionState` (6-state Enum: IDLE, INTENT_CONFIRM, PARAM_COLLECT, SCRIPT_PREVIEW, EXECUTING, ERROR_RECOVERY), `Session` (immutable dataclass with `with_*` methods), `ParamDef`, `TemplateDef`, `ExecutionErrorContext`
-- **`workspace.py`** — `Workspace(root)`, `resolve_path()` (normalization, no scope restriction v2.0), `generate_output_path()` (timestamp), `load_agents_md()`, `save_agents_md()` (append content, auto-create file with header), singleton via `initialize()` / `get_workspace()`
+- **`workspace.py`** — `Workspace(root)`, `resolve_path()` (normalization, no scope restriction v2.0), `generate_output_path()` (timestamp), `load_agents_md()`, `save_agents_md()` (append content, auto-create file with header), singleton via `initialize()` / `get_workspace()`, `change_workspace()` for runtime switching
 - **`registry.py`** — `TemplateRegistry(templates, template_dir)` — in-memory dict index from scanner results
 - **`validator.py`** — `ParamValidator(workspace)` — type-specific validation chain (file_path, crs, string, boolean, integer). `must_exist` field on `ParamDef` controls existence checks. No "path sandbox" validation — workspace is not a security boundary.
 - **`processor.py`** — `SessionProcessor(registry, validator, template_engine, llm_client, prompt_builder, output_fn=None)` — state machine dispatcher: IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW → EXECUTING → (失败) → ERROR_RECOVERY. `_handle_script_preview()` generates script text only; Y/N confirmation lives in CLI layer. Q&A route (`__qa__` template) uses `_find_matching_templates()` (keyword matching against template metadata) → `answer_question()` with optional `on_chunk` for streaming output (DC-0070). `_handle_error_recovery()` performs LLM diagnosis and presents repair options (auto-fix / manual edit / abandon). Execution acts as a natural breakpoint: success → full session reset; failure → history cleared, task context preserved (DC-0067).
@@ -113,6 +134,17 @@ User interaction layer. Exposed through `cli/__init__.py`.
 - **`commands.py`** — `SlashCommandHandler`: `/quit`, `/clear`, `/workspace`, `/templates`, `/status`, `/init` (persist session to Agents.md), `/help`
 - **`executor.py`** — `ScriptExecutor` with `ExecutionResult`: subprocess execution with timeout (300s), cwd=workspace.root, stdout/stderr capture
 - **`args.py`** — `argparse` wrapper for `--workspace`, `--config`, `--dry-run`
+
+### frontend (`SourceCode/frontend/`)
+
+React + TypeScript + Vite browser UI. Communicates with `api/` via HTTP/WebSocket.
+
+- **`src/api/`** — axios client, session/template/pipeline/generator API wrappers
+- **`src/components/`** — Layout, NavSidebar, ChatArea, ChatMessage, TemplateCardList, DetailPanel, ParamForm, ScriptPreview
+- **`src/hooks/`** — `useSession` (Zustand store), `useWebSocket`
+- **`src/pages/`** — MainPage, PipelinePage, GeneratorPage
+- **`src/types/`** — TypeScript interfaces shared with backend API responses
+- **Tailwind CSS** with custom blue-600 primary theme matching UX prototype
 
 ### generate (`SourceCode/scripts/generate/`)
 
@@ -154,6 +186,8 @@ If `.codegraph/` does not exist, ask the user: *"Want me to run `codegraph init 
 
 GDAL is installed via Conda. Python dependencies are minimal and fixed.
 
+**Conda environment**: `gis-agent` at `C:\Users\PC\.conda\envs\gis-agent` (Python 3.11.15).
+
 ```bash
 # Verify GDAL
 ogr2ogr --version
@@ -169,7 +203,7 @@ ogr2ogr --version
 
 ## Commands
 
-The project uses `ruff` for formatting/linting, `mypy --strict` for type checking, and `pytest` for testing. `pyproject.toml` configures `pythonpath = ["src"]` so `PYTHONPATH` does not need to be set manually when running from `SourceCode/`.
+### Python (backend)
 
 ```bash
 cd SourceCode
@@ -200,8 +234,64 @@ pytest tests/unit/test_generate_models.py -v
 
 # Quick LLM end-to-end test (requires valid API key)
 python scripts/test_e2e_qa.py
+```
 
-# Batch generate J2 templates from GDAL HTML docs (development only)
+**pytest 工作目录约束**：测试路径 `tests/unit/` 是相对于 `SourceCode/` 解析的。在 `SourceCode/` 外运行 `pytest` 会因找不到测试文件而失败。始终在 `SourceCode/` 内执行测试命令。
+
+### Frontend
+
+```bash
+cd SourceCode/frontend
+
+# Install dependencies (first time)
+npm install
+
+# Start dev server
+npm run dev
+
+# Build for production
+npm run build
+
+# Preview production build
+npm run preview
+```
+
+### Running the Application
+
+**Browser UI (development — separate terminals)**:
+```bash
+# Terminal 1: backend API
+cd SourceCode
+python start_api.py
+
+# Terminal 2: frontend dev server
+cd SourceCode/frontend
+npm run dev
+# Open http://localhost:5173
+```
+
+**Browser UI (production)**:
+```bash
+cd SourceCode/frontend
+npm run build
+cd ..
+python start_api.py
+# Open http://localhost:8000 (port from config.json)
+```
+
+**CLI**:
+```bash
+cd SourceCode
+python start_cli.py
+python start_cli.py --workspace /path/to/project
+python start_cli.py --dry-run
+```
+
+### Development Tools
+
+```bash
+# Batch generate J2 templates from GDAL HTML docs
+cd SourceCode
 python scripts/generate_templates.py \
   --source ../Document/Resource/gdal/build/doc/build/html/programs \
   --output data/templates/ \
@@ -213,8 +303,6 @@ python scripts/generate_templates.py --source ... --output ... --dry-run
 # Force re-run (ignore breakpoint state)
 python scripts/generate_templates.py --source ... --output ... --force
 ```
-
-**pytest 工作目录约束**：测试路径 `tests/unit/` 是相对于 `SourceCode/` 解析的。在 `SourceCode/` 外运行 `pytest` 会因找不到测试文件而失败。始终在 `SourceCode/` 内执行测试命令。
 
 ## Tool Configuration
 
@@ -251,17 +339,19 @@ Hard constraints from `Document/spec.md`:
 | `Document/plan-core.md` | Core module design (DC-0040~0049, DC-0070) — SessionProcessor, TemplateRegistry, ParamValidator, Session, Workspace, streaming output callback |
 | `Document/plan-cli.md` | CLI module design (DC-0060~0067, DC-0071) — REPL, ScriptExecutor, SlashCommandHandler, `/init` command, streaming output wiring |
 | `Document/plan-llm.md` | LLM module design (DC-0030~0036, DC-0068~0069) — LLMClient, PromptBuilder, classify_intent, extract_params, answer_question, analyze_execution_error, chat_stream |
-| `Document/plan-ux.md` | UX design (DC-UX-01~07) — React + FastAPI browser UI, Session state mapping, WebSocket streaming, Pipeline UI, J2 template generator UI. **Draft status** — not yet implemented |
+| `Document/plan-ux.md` | UX design (DC-UX-01~07) — React + FastAPI browser UI, Session state mapping, WebSocket streaming, Pipeline UI, J2 template generator UI |
 | `Document/plan-j2-generate.md` | J2 template batch generator design (DC-0080~0081) — two-phase LLM workflow (generate → review), HTML extraction, state tracking, review queue. Development-time tool only |
 | `Document/ADR-0001-remove-rag.md` | Architecture decision: removed RAG runtime, migrated knowledge source to J2 template metadata |
 | ~~`Document/plan-rag.md`~~ | ~~Deprecated~~ — RAG runtime removed per ADR-0001; `rag.preprocess` remains as development tool |
 | `Document/plan-templates.md` | Template engine design (DC-0050~0054) — TemplateEngine, scanner, security checker |
 | `SourceCode/config/config.json.template` | Configuration template; copy to `config.json` and set credentials. Note: template still contains deprecated `embedding`/`rag` sections, but code no longer reads them (ADR-0001) |
+| `SourceCode/src/api/routes/session.py` | Session state machine REST API — intent processing with LLM Q&A fallback, workspace switching, candidate scoring |
+| `SourceCode/src/api/dependencies.py` | FastAPI dependency injection singletons; `update_workspace()` recreates ParamValidator + TemplateEngine on workspace switch |
 | `SourceCode/src/core/processor.py` | Session state machine — the central orchestrator of the conversation lifecycle |
 | `SourceCode/src/core/models.py` | SessionState, Session, ParamDef, TemplateDef dataclasses |
 | `SourceCode/src/core/registry.py` | TemplateRegistry — in-memory index of scanned templates |
 | `SourceCode/src/core/validator.py` | ParamValidator — type-specific parameter validation chain |
-| `SourceCode/src/core/workspace.py` | Workspace management: path normalization, timestamps, Agents.md load/save |
+| `SourceCode/src/core/workspace.py` | Workspace management: path normalization, timestamps, Agents.md load/save, runtime `change_workspace()` |
 | `SourceCode/src/templates/engine.py` | Jinja2 template rendering with quote/safe_path filters and post-render security check |
 | `SourceCode/src/templates/scanner.py` | .j2 file scanner — parses Jinja2 comment headers into TemplateDef |
 | `SourceCode/src/llm/client.py` | Anthropic SDK wrapper with retry and token truncation |
@@ -269,6 +359,10 @@ Hard constraints from `Document/spec.md`:
 | `SourceCode/src/llm/params.py` | Parameter extraction (`extract_params`) |
 | `SourceCode/src/llm/qa.py` | Template-knowledge-based Q&A (`answer_question`, ADR-0001) |
 | `SourceCode/src/llm/diagnosis.py` | Execution error diagnosis (`analyze_execution_error`, DC-0036) |
+| `SourceCode/frontend/src/pages/MainPage.tsx` | Main browser UI page — session lifecycle, template selection, param submission, script execution |
+| `SourceCode/frontend/src/components/TemplateCardList.tsx` | Left sidebar template cards with search, category filter, template ID display |
+| `SourceCode/frontend/src/components/ChatArea.tsx` | Chat messages + workspace path editor in header |
+| `SourceCode/frontend/tailwind.config.js` | Tailwind theme: blue-600 primary, custom shadows/radii matching UX prototype |
 | `SourceCode/scripts/generate_templates.py` | Main CLI for batch J2 template generation from GDAL HTML docs |
 | `SourceCode/scripts/generate/generator.py` | LLM generation phase: HTML text → `TemplateDefinition` JSON |
 | `SourceCode/scripts/generate/reviewer.py` | LLM review phase: quality gate for generated template definitions |
@@ -313,3 +407,5 @@ After adding a template, restart the CLI to pick it up (templates are scanned at
 - `Document/Resource/` is gitignored; do not commit its contents.
 - `SourceCode/model/embedding/` contains large model files (deprecated per ADR-0001, no longer used at runtime); should not be committed.
 - `SourceCode/config/config.json` is gitignored; never commit credentials.
+- The browser UI (`frontend/`) and CLI (`cli/`) are parallel entry points sharing `core/llm/templates`. Changes to business logic affect both UIs.
+- Workspace switching (`POST /session/{id}/workspace`) recreates `ParamValidator` and `TemplateEngine` singletons because they hold `Workspace` references. The core `Workspace` singleton is updated via `change_workspace()`.

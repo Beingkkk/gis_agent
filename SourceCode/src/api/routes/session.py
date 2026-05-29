@@ -8,20 +8,28 @@ Design:
     T-UX-02 (DC-UX-02, DC-UX-03)
 """
 
+from pathlib import Path
 from typing import Any, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+import asyncio
+
 from api.dependencies import (
     SessionManager,
+    get_llm_client,
+    get_prompt_builder,
     get_registry,
     get_session_manager,
     get_template_engine,
     get_validator,
+    update_workspace,
 )
 from core.models import Session, SessionState
+from core.workspace import WorkspaceNotFoundError
+from llm.qa import answer_question
 
 router = APIRouter(prefix="/session", tags=["session"])
 
@@ -40,6 +48,7 @@ class SessionResponse(BaseModel):
     script_preview: Optional[str]
     error_context: Optional[dict[str, Any]]
     history: list[dict[str, str]]
+    workspace: str
 
 
 class IntentRequest(BaseModel):
@@ -58,6 +67,12 @@ class ParamsRequest(BaseModel):
     """Parameter submission."""
 
     params: dict[str, str]
+
+
+class WorkspaceRequest(BaseModel):
+    """Workspace path update."""
+
+    path: str
 
 
 class ExecutionTriggerResponse(BaseModel):
@@ -128,6 +143,11 @@ def _build_session_response(session_id: str, session: Session) -> SessionRespons
         except Exception:
             script_preview = None
 
+    # Get current workspace absolute path
+    from api.dependencies import get_workspace
+
+    workspace_path = str(get_workspace().root)
+
     return SessionResponse(
         session_id=session_id,
         state=session.state.name,
@@ -135,6 +155,7 @@ def _build_session_response(session_id: str, session: Session) -> SessionRespons
         script_preview=script_preview,
         error_context=None,
         history=history,
+        workspace=workspace_path,
     )
 
 
@@ -180,9 +201,10 @@ async def process_intent(
 ) -> SessionResponse:
     """Process user intent from natural language input.
 
-    Simplified implementation: keyword-matches template name/id
-    against available templates. Falls back to INTENT_CONFIRM
-    with all templates as candidates.
+    Three routes:
+    1. Exact keyword match → PARAM_COLLECT (direct task)
+    2. Exploratory question → IDLE with text reply (Q&A)
+    3. Partial/no match → INTENT_CONFIRM with top-N candidates
 
     Args:
         session_id: Session UUID.
@@ -195,13 +217,14 @@ async def process_intent(
     session = _get_session_or_404(session_id, session_manager)
     registry = get_registry()
 
-    user_input = request.input.strip().lower()
-    if not user_input:
+    user_input = request.input.strip()
+    user_input_lower = user_input.lower()
+    if not user_input_lower:
         return _build_session_response(session_id, session)
 
-    # Try keyword match against template names and ids
+    # -- Route 1: Exact keyword match → direct PARAM_COLLECT --
     for template in registry.list_templates():
-        if template.id.lower() in user_input or template.name.lower() in user_input:
+        if template.id.lower() in user_input_lower or template.name.lower() in user_input_lower:
             new_session = (
                 session.with_state(SessionState.PARAM_COLLECT)
                 .with_template(template)
@@ -214,11 +237,110 @@ async def process_intent(
             session_manager.update_session(session_id, new_session)
             return _build_session_response(session_id, new_session)
 
-    # No match → INTENT_CONFIRM with all candidates
-    candidates = registry.list_templates()
+    # -- Route 2: Exploratory question → IDLE Q&A reply --
+    _EXPLORATORY_MARKERS = {
+        "什么", "哪些", "怎么", "如何", "为什么", "能否", "可以",
+        "支持", "介绍", "说明", "解释", "了解", "知道",
+    }
+    _QUESTION_PATTERNS = ("?", "？", "吗", "么", "呢", "吧")
+    is_question = (
+        user_input.endswith(_QUESTION_PATTERNS)
+        or any(m in user_input_lower for m in _EXPLORATORY_MARKERS)
+    )
+
+    if is_question:
+        # -- Route 2a: Q&A via LLM (with template metadata context) --
+        # Find relevant templates as knowledge context
+        all_templates = registry.list_templates()
+
+        def _qa_score(t: Any) -> int:
+            s = 0
+            for word in user_input_lower.split():
+                if len(word) < 2:
+                    continue
+                if word in t.id.lower() or word in t.name.lower():
+                    s += 2
+                if word in (t.description or "").lower():
+                    s += 1
+                for term, _ in t.concepts:
+                    if word in term.lower():
+                        s += 3
+            return s
+
+        scored = [(t, _qa_score(t)) for t in all_templates]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        context_templates = [t for t, s in scored if s > 0][:5]
+
+        # Fallback: include a few diverse templates if no match
+        if not context_templates and all_templates:
+            context_templates = all_templates[:3]
+
+        try:
+            llm_client = get_llm_client()
+            prompt_builder = get_prompt_builder()
+            reply = await asyncio.to_thread(
+                answer_question,
+                user_input=request.input,
+                templates=context_templates,
+                history=list(session.history),
+                client=llm_client,
+                builder=prompt_builder,
+            )
+        except Exception as exc:
+            logger = __import__("logging").getLogger(__name__)
+            logger.warning("LLM Q&A failed: %s", exc)
+            # Fallback: static helpful reply
+            reply = (
+                "抱歉，当前无法调用 LLM 回答你的问题。"
+                "你可以从左栏浏览模板卡片，或直接描述具体数据处理需求。"
+            )
+
+        new_session = (
+            session.with_state(SessionState.IDLE)
+            .with_history(
+                __import__("llm.models", fromlist=["Message"]).Message(
+                    role="user", content=request.input
+                )
+            )
+            .with_history(
+                __import__("llm.models", fromlist=["Message"]).Message(
+                    role="agent", content=reply
+                )
+            )
+        )
+        session_manager.update_session(session_id, new_session)
+        return _build_session_response(session_id, new_session)
+
+    # -- Route 3: Partial match → INTENT_CONFIRM with top-N candidates --
+    def _score(template: Any) -> int:
+        """Relevance score: higher = more relevant."""
+        score = 0
+        tid = template.id.lower()
+        tname = template.name.lower()
+        tdesc = (template.description or "").lower()
+        for word in user_input_lower.split():
+            if len(word) < 2:
+                continue
+            if word in tid:
+                score += 3
+            if word in tname:
+                score += 2
+            if word in tdesc:
+                score += 1
+        return score
+
+    all_templates = registry.list_templates()
+    scored = [(t, _score(t)) for t in all_templates]
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    # Take top candidates with a score threshold, fallback to first 5
+    top_candidates = [t for t, s in scored if s > 0][:5]
+    if not top_candidates:
+        top_candidates = all_templates[:5]
+
     new_session = (
         session.with_state(SessionState.INTENT_CONFIRM)
-        .with_candidates(candidates)
+        .with_candidates(top_candidates)
         .with_history(
             __import__("llm.models", fromlist=["Message"]).Message(
                 role="user", content=request.input
@@ -386,6 +508,46 @@ async def clear_session(
         SessionResponse in IDLE state.
     """
     _get_session_or_404(session_id, session_manager)
+    session_manager.clear_session(session_id)
+    cleared = session_manager.get_session(session_id)
+    assert cleared is not None
+    return _build_session_response(session_id, cleared)
+
+
+@router.post("/{session_id}/workspace", response_model=SessionResponse)
+async def update_session_workspace(
+    session_id: str,
+    request: WorkspaceRequest,
+    session_manager: SessionManager = Depends(get_session_manager),
+) -> SessionResponse:
+    """Update workspace path, reset session, and recreate dependent components.
+
+    Validates that the new path exists and is a directory before switching.
+    Clears the session state as a side effect.
+
+    Args:
+        session_id: Session UUID.
+        request: WorkspaceRequest with new path.
+        session_manager: SessionManager dependency.
+
+    Returns:
+        Cleared SessionResponse with new workspace context.
+
+    Raises:
+        HTTPException: 400 if path invalid, 404 if session not found.
+    """
+    _get_session_or_404(session_id, session_manager)
+
+    try:
+        new_path = Path(request.path).resolve()
+        update_workspace(new_path)
+    except WorkspaceNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid workspace path: {exc}"
+        ) from exc
+
     session_manager.clear_session(session_id)
     cleared = session_manager.get_session(session_id)
     assert cleared is not None

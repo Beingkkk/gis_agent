@@ -15,6 +15,7 @@ Design:
 """
 
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from core.models import Session
@@ -230,6 +231,35 @@ def get_workspace() -> Workspace:
     from core import workspace as core_workspace
 
     return core_workspace.get_workspace()
+
+
+def update_workspace(root: Path) -> Workspace:
+    """Change workspace root and recreate dependent singletons.
+
+    Updates the core workspace singleton and refreshes
+    ParamValidator / TemplateEngine to use the new workspace.
+
+    Args:
+        root: New workspace root directory path.
+
+    Returns:
+        New Workspace instance.
+    """
+    from core.workspace import change_workspace
+    from templates import TemplateEngine
+
+    global _workspace_instance, _validator_instance, _template_engine_instance
+
+    new_workspace = change_workspace(root)
+    _workspace_instance = new_workspace
+
+    # Recreate components that hold workspace references
+    _validator_instance = ParamValidator(new_workspace)
+    # Template directory is fixed relative to source tree
+    template_dir = Path(__file__).parent.parent.parent / "data" / "templates"
+    _template_engine_instance = TemplateEngine(template_dir, new_workspace)
+
+    return new_workspace
 
 
 def _reset_dependencies() -> None:

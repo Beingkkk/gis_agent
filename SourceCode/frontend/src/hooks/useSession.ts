@@ -22,11 +22,13 @@ interface SessionStore {
   scriptPreview: string | null
   isLoading: boolean
   templates: TemplateDef[]
+  workspace: string | null
 
   setSession: (snapshot: SessionSnapshot) => void
   addMessage: (msg: ChatMessage) => void
   setLoading: (loading: boolean) => void
   setTemplates: (templates: TemplateDef[]) => void
+  setWorkspace: (path: string) => void
   reset: () => void
 }
 
@@ -39,6 +41,7 @@ const initialState = {
   scriptPreview: null,
   isLoading: false,
   templates: [] as TemplateDef[],
+  workspace: null as string | null,
 }
 
 export const useSession = create<SessionStore>((set) => ({
@@ -52,6 +55,7 @@ export const useSession = create<SessionStore>((set) => ({
       scriptPreview: snapshot.script_preview,
       messages: snapshot.history,
       lockedTemplateId: snapshot.task_context.template_id,
+      workspace: snapshot.workspace,
     }),
 
   addMessage: (msg) =>
@@ -62,6 +66,8 @@ export const useSession = create<SessionStore>((set) => ({
   setLoading: (loading) => set({ isLoading: loading }),
 
   setTemplates: (templates) => set({ templates }),
+
+  setWorkspace: (path) => set({ workspace: path }),
 
   reset: () => set(initialState),
 }))

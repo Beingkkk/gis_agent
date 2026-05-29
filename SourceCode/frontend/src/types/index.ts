@@ -25,6 +25,7 @@ export interface SessionSnapshot {
   script_preview: string | null
   error_context: ErrorContext | null
   history: ChatMessage[]
+  workspace: string
 }
 
 export interface ChatMessage {

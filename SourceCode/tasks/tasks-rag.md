@@ -2,8 +2,8 @@
 
 | 项目 | 内容 |
 |------|------|
-| 来源 Plan | [plan-rag](../Document/plan-rag.md) v1.0.1 |
-| 状态 | 待实现 |
+| 来源 Plan | ~~[plan-rag](../Document/plan-rag.md)~~ 已废弃（见 ADR-0001） |
+| 状态 | **已废弃** |
 | 创建日期 | 2026-05-27 |
 
 ---

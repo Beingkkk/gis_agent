@@ -1,14 +1,13 @@
-"""RAG module — GDAL document retrieval.
+"""RAG module — GDAL document preprocessing (development only).
 
-Public API:
-    DocumentRetriever, RetrievedDocument, get_retriever
+This module is no longer part of the runtime. The retriever has been
+removed per ADR-0001. Only preprocess utilities remain for batch
+generating J2 templates from GDAL HTML documentation.
 
-Preprocess (development only):
+Public API (development):
     preprocess.preprocess_directory()
 
-Design: plan-rag v1.0.1
+Design: ADR-0001
 """
 
-from rag.retriever import DocumentRetriever, RetrievedDocument, get_retriever
-
-__all__ = ["DocumentRetriever", "RetrievedDocument", "get_retriever"]
+__all__: list[str] = []

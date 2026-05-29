@@ -46,7 +46,7 @@ class TemplateDef:
     """Template definition (from template registry).
 
     Design:
-        DC-0041
+        DC-0041, DC-0055
     """
 
     id: str
@@ -54,6 +54,11 @@ class TemplateDef:
     description: str
     template_file: str
     params: List[ParamDef] = field(default_factory=list)
+    # Knowledge metadata fields (ADR-0001 / DC-0055)
+    concepts: List[tuple[str, str]] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
+    seealso: List[str] = field(default_factory=list)
+    common_errors: List[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -167,9 +172,7 @@ class Session:
             error_context=self.error_context,
         )
 
-    def with_error(
-        self, error_context: Optional[ExecutionErrorContext]
-    ) -> "Session":
+    def with_error(self, error_context: Optional[ExecutionErrorContext]) -> "Session":
         """附加/更新错误上下文。
 
         Design:
@@ -197,4 +200,19 @@ class Session:
             params=self.params,
             candidates=self.candidates,
             error_context=None,
+        )
+
+    def clear_history(self) -> "Session":
+        """清空对话历史（执行断点后重置上下文）。
+
+        Design:
+            DC-0067
+        """
+        return Session(
+            state=self.state,
+            history=[],
+            template=self.template,
+            params=self.params,
+            candidates=self.candidates,
+            error_context=self.error_context,
         )

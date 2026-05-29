@@ -1,6 +1,6 @@
 """Unit tests for llm.prompts module.
 
-Design: DC-0032, DC-0035
+Design: DC-0032, DC-0035, ADR-0001
 """
 
 from llm.prompts import PromptBuilder
@@ -48,22 +48,22 @@ class TestBuildSystemPrompt:
         # Should not contain placeholder for missing agents_md
         assert "Agents.md" not in prompt
 
-    def test_contains_rag_context_when_provided(self) -> None:
-        """DC-0035, P4: RAG context included for Q&A scene."""
-        rag_ctx = "[1] ogr2ogr supports GeoJSON output..."
+    def test_contains_template_context_when_provided(self) -> None:
+        """DC-0035, P4: Template knowledge context included for Q&A scene."""
+        tpl_ctx = "【模板 1】shp2geojson（Shapefile 转 GeoJSON）"
         builder = PromptBuilder()
-        prompt = builder.build_system_prompt(rag_context=rag_ctx)
+        prompt = builder.build_system_prompt(template_context=tpl_ctx)
 
+        assert "shp2geojson" in prompt
         assert "GeoJSON" in prompt
-        assert "ogr2ogr" in prompt
 
-    def test_omits_rag_context_when_none(self) -> None:
-        """DC-0035: No RAG section when no context."""
+    def test_omits_template_context_when_none(self) -> None:
+        """DC-0035: No template context section when none provided."""
         builder = PromptBuilder()
         prompt = builder.build_system_prompt()
 
-        # RAG-specific markers should not appear
-        assert "文档片段" not in prompt
+        # Template context markers should not appear
+        assert "模板知识上下文" not in prompt
 
     def test_contains_task_context_when_provided(self) -> None:
         """DC-0035: Task context included for param extraction."""
@@ -76,9 +76,9 @@ class TestBuildSystemPrompt:
     def test_prompt_order_fixed_constraints_first(self) -> None:
         """DC-0035: Fixed constraints come first in prompt."""
         agents_md = "Project config"
-        rag_ctx = "Document context"
+        tpl_ctx = "Template context"
         builder = PromptBuilder(agents_md=agents_md)
-        prompt = builder.build_system_prompt(rag_context=rag_ctx)
+        prompt = builder.build_system_prompt(template_context=tpl_ctx)
 
         # Safety constraints should appear before dynamic content
         safety_idx = prompt.find("模板")

@@ -251,9 +251,9 @@ class TestExtractParams:
     ) -> None:
         """F3: Markdown JSON code block is stripped before parsing."""
         client.chat.return_value = (
-            '```json\n'
+            "```json\n"
             '{"params": {"input": "a.shp"}, "missing": [], "questions": []}\n'
-            '```'
+            "```"
         )
 
         result = extract_params(

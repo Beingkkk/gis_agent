@@ -1,6 +1,11 @@
 {# @id vector_clip #}
 {# @name 矢量裁剪 #}
 {# @description 使用边界矢量裁剪另一个矢量数据 #}
+{# @concept "矢量裁剪" — 用多边形边界切出矢量数据中位于边界内的部分 #}
+{# @concept "-clipsrc" — ogr2ogr 的裁剪参数，指定裁剪边界数据源 #}
+{# @note 裁剪边界可以是 Shapefile、GeoJSON 等任意 OGR 支持的矢量格式 #}
+{# @seealso raster/clip_raster — 栅格数据的裁剪 #}
+{# @common_error "Cannot find clipsrc layer" — 裁剪边界文件无法读取或不含有效图层 #}
 {# @param input file_path required 输入矢量文件路径 #}
 {# @param output file_path required 输出矢量文件路径 #}
 {# @param clip file_path required 裁剪边界矢量文件路径 #}

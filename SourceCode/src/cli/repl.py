@@ -66,6 +66,15 @@ class REPL:
         self._output_fn = output_fn if output_fn is not None else print
         self._render_fn = render_fn
 
+    @property
+    def output_fn(self) -> Callable[[str], None]:
+        """Return the output function for injection into processor.
+
+        Design:
+            DC-0071
+        """
+        return self._output_fn
+
     def run(self, session: Session) -> None:
         """Start the REPL loop.
 
@@ -138,13 +147,21 @@ class REPL:
                 self._output_fn("请输入 Y 确认执行，或 N 取消。")
 
     def _execute_script(self, session: Session) -> Session:
-        """Execute the script and return to IDLE.
+        """Execute the script and reset session context.
+
+        Execution acts as a natural breakpoint: all prior conversation
+        history is discarded. On success the session is fully reset.
+        On failure the task context (template, params, error) is
+        preserved for recovery, but history is cleared.
 
         Args:
             session: Session containing the script to execute.
 
         Returns:
-            Session in IDLE state.
+            New Session in IDLE (success) or ERROR_RECOVERY (failure).
+
+        Design:
+            DC-0067
         """
         if self._render_fn is None:
             self._output_fn("警告：未配置脚本渲染，跳过执行。")
@@ -152,27 +169,29 @@ class REPL:
 
         script = self._render_fn(session)
         # Show command summary before execution for transparency
-        cmd_summary = (
-            script.command_lines[0] if script.command_lines else "GDAL 命令"
-        )
+        cmd_summary = script.command_lines[0] if script.command_lines else "GDAL 命令"
         self._output_fn(f"正在执行：{cmd_summary}")
         self._output_fn("（大型文件处理可能需要一些时间，请稍候...）")
         result = self._executor.execute(script)
         self._output_fn(self._format_execution_result(result))
 
         if result.success:
-            return session.with_state(SessionState.IDLE)
+            # Full reset — task completed, fresh start
+            return Session(state=SessionState.IDLE)
 
-        # Execution failed → enter ERROR_RECOVERY with context (DC-0063 扩展)
+        # Execution failed → enter ERROR_RECOVERY with context.
+        # Preserve task state, clear history for focused diagnosis.
         error_ctx = ExecutionErrorContext(
             returncode=result.returncode,
             stdout=result.stdout,
             stderr=result.stderr,
             duration_ms=result.duration_ms,
         )
-        return (
-            session.with_state(SessionState.ERROR_RECOVERY)
-            .with_error(error_ctx)
+        return Session(
+            state=SessionState.ERROR_RECOVERY,
+            template=session.template,
+            params=session.params,
+            error_context=error_ctx,
         )
 
     @staticmethod

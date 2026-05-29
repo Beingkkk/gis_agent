@@ -8,10 +8,9 @@ Design: DC-0036
 import json
 import logging
 import re
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from llm.client import LLMClient
-from llm.exceptions import LLMResponseError
 from llm.models import ErrorDiagnosis, Message
 from llm.prompts import PromptBuilder
 
@@ -60,17 +59,17 @@ def analyze_execution_error(
         f"标准输出：\n{stdout or '(无)'}\n\n"
         f"错误输出：\n{stderr or '(无)'}\n\n"
         f"请分析错误根因，输出严格 JSON（不要 Markdown 代码块）：\n"
-        f'{{\n'
+        f"{{\n"
         f'  "cause": "错误根因，用中文简洁描述",\n'
         f'  "suggestion": "修复建议，用中文描述",\n'
         f'  "fixed_params": {{"参数名": "修正后的值"}},\n'
         f'  "confidence": 0.0到1.0,\n'
         f'  "can_auto_fix": true或false\n'
-        f'}}\n\n'
-        f'can_auto_fix 判定规则：\n'
-        f'- true：仅涉及参数值修改（如路径、坐标系、格式）即可修复\n'
-        f'- false：需要用户手动解决系统级问题（如权限、GDAL版本、数据损坏）\n'
-        f'confidence < 0.5 时，can_auto_fix 必须设为 false。'
+        f"}}\n\n"
+        f"can_auto_fix 判定规则：\n"
+        f"- true：仅涉及参数值修改（如路径、坐标系、格式）即可修复\n"
+        f"- false：需要用户手动解决系统级问题（如权限、GDAL版本、数据损坏）\n"
+        f"confidence < 0.5 时，can_auto_fix 必须设为 false。"
     )
 
     messages = list(history)
@@ -104,10 +103,18 @@ def _parse_diagnosis_response(response: str) -> ErrorDiagnosis:
         logger.error("Failed to parse diagnosis response as JSON: %s", response)
         return _fallback_diagnosis()
 
-    required_fields = ("cause", "suggestion", "fixed_params", "confidence", "can_auto_fix")
+    required_fields = (
+        "cause",
+        "suggestion",
+        "fixed_params",
+        "confidence",
+        "can_auto_fix",
+    )
     for field in required_fields:
         if field not in parsed:
-            logger.error("Missing field '%s' in diagnosis response: %s", field, response)
+            logger.error(
+                "Missing field '%s' in diagnosis response: %s", field, response
+            )
             return _fallback_diagnosis()
 
     cause = str(parsed["cause"])
@@ -129,7 +136,7 @@ def _parse_diagnosis_response(response: str) -> ErrorDiagnosis:
     )
 
 
-def _filter_fixed_params(raw: Dict) -> Dict[str, str]:
+def _filter_fixed_params(raw: dict[str, Any]) -> dict[str, str]:
     """Filter fixed_params to only string keys and string values.
 
     Non-string keys/values are converted to string or dropped.

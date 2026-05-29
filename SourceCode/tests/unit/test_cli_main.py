@@ -1,6 +1,6 @@
 """Tests for CLI main entry point.
 
-Design: plan-cli v1.0.0 (DC-0060, DC-0061)
+Design: plan-cli v1.0.0 (DC-0060, DC-0061), ADR-0001
 """
 
 from pathlib import Path
@@ -24,7 +24,6 @@ class TestMainSuccessPath:
     @patch("cli.main.ParamValidator")
     @patch("cli.main.TemplateRegistry")
     @patch("cli.main.scan_templates")
-    @patch("cli.main.get_retriever")
     @patch("cli.main.get_workspace")
     @patch("cli.main.initialize")
     @patch("cli.main.load_config")
@@ -35,7 +34,6 @@ class TestMainSuccessPath:
         mock_load_config: MagicMock,
         mock_initialize: MagicMock,
         mock_get_workspace: MagicMock,
-        mock_get_retriever: MagicMock,
         mock_scan_templates: MagicMock,
         mock_template_registry: MagicMock,
         mock_param_validator: MagicMock,
@@ -59,7 +57,6 @@ class TestMainSuccessPath:
         ws = Workspace(tmp_path)
         mock_initialize.return_value = ws
         mock_get_workspace.return_value = ws
-        mock_get_retriever.return_value = MagicMock()
 
         mock_scan_templates.return_value = [
             TemplateDef(id="t1", name="Test", description="", template_file="t.j2"),
@@ -72,7 +69,6 @@ class TestMainSuccessPath:
 
         assert result == 0
         mock_initialize.assert_called_once()
-        mock_get_retriever.assert_called_once()
         mock_scan_templates.assert_called_once()
         mock_repl_instance.run.assert_called_once()
 
@@ -85,7 +81,6 @@ class TestMainSuccessPath:
     @patch("cli.main.ParamValidator")
     @patch("cli.main.TemplateRegistry")
     @patch("cli.main.scan_templates")
-    @patch("cli.main.get_retriever")
     @patch("cli.main.get_workspace")
     @patch("cli.main.initialize")
     @patch("cli.main.load_config")
@@ -96,7 +91,6 @@ class TestMainSuccessPath:
         mock_load_config: MagicMock,
         mock_initialize: MagicMock,
         mock_get_workspace: MagicMock,
-        mock_get_retriever: MagicMock,
         mock_scan_templates: MagicMock,
         mock_template_registry: MagicMock,
         mock_param_validator: MagicMock,
@@ -121,7 +115,6 @@ class TestMainSuccessPath:
         ws = Workspace(tmp_path)
         mock_initialize.return_value = ws
         mock_get_workspace.return_value = ws
-        mock_get_retriever.return_value = MagicMock()
 
         mock_scan_templates.return_value = [
             TemplateDef(id="t1", name="Test1", description="", template_file="a.j2"),
@@ -146,7 +139,6 @@ class TestMainSuccessPath:
     @patch("cli.main.ParamValidator")
     @patch("cli.main.TemplateRegistry")
     @patch("cli.main.scan_templates")
-    @patch("cli.main.get_retriever")
     @patch("cli.main.get_workspace")
     @patch("cli.main.initialize")
     @patch("cli.main.load_config")
@@ -157,7 +149,6 @@ class TestMainSuccessPath:
         mock_load_config: MagicMock,
         mock_initialize: MagicMock,
         mock_get_workspace: MagicMock,
-        mock_get_retriever: MagicMock,
         mock_scan_templates: MagicMock,
         mock_template_registry: MagicMock,
         mock_param_validator: MagicMock,
@@ -180,7 +171,7 @@ class TestMainSuccessPath:
         ws = Workspace(tmp_path)
         mock_initialize.return_value = ws
         mock_get_workspace.return_value = ws
-        mock_get_retriever.return_value = MagicMock()
+
         mock_scan_templates.return_value = []
 
         mock_repl_instance = MagicMock()
@@ -245,37 +236,4 @@ class TestMainFailurePaths:
             "配置" in captured.out
             or "config" in captured.out.lower()
             or "不存在" in captured.out
-        )
-
-    @patch("cli.main.get_retriever")
-    @patch("cli.main.initialize")
-    @patch("cli.main.load_config")
-    @patch("cli.main.parse_args")
-    def test_rag_init_failure(
-        self,
-        mock_parse_args: MagicMock,
-        mock_load_config: MagicMock,
-        mock_initialize: MagicMock,
-        mock_get_retriever: MagicMock,
-        tmp_path: Path,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        """RAG initialization failure returns exit code 1."""
-        from cli.args import CLIArgs
-
-        mock_parse_args.return_value = CLIArgs(workspace=tmp_path)
-        mock_config = MagicMock()
-        mock_config.workspace.default_path = str(tmp_path)
-        mock_load_config.return_value = mock_config
-        mock_initialize.return_value = Workspace(tmp_path)
-        mock_get_retriever.side_effect = RuntimeError("model missing")
-
-        result = main(["--workspace", str(tmp_path)])
-
-        assert result == 1
-        captured = capsys.readouterr()
-        assert (
-            "RAG" in captured.out
-            or "初始化" in captured.out
-            or "model" in captured.out.lower()
         )

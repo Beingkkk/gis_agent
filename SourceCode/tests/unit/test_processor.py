@@ -1,6 +1,6 @@
 """Tests for core.processor module.
 
-Design: DC-0040, DC-0043, DC-0044
+Design: DC-0040, DC-0043, DC-0044, ADR-0001
 """
 
 from pathlib import Path
@@ -41,6 +41,8 @@ def sample_templates() -> list[TemplateDef]:
                 ParamDef("output", "file_path", True, "Output GeoJSON path"),
                 ParamDef("t_srs", "crs", False, "Target CRS", default="EPSG:4326"),
             ],
+            concepts=[("Shapefile", "ESRI 开发的矢量数据格式")],
+            notes=["输出路径自动加时间戳"],
         ),
         TemplateDef(
             id="clip_raster",
@@ -216,16 +218,14 @@ def test_idle_no_match_goes_to_intent_confirm(
 
 
 # ---------------------------------------------------------------------------
-# IDLE state: Q&A route
+# IDLE state: Q&A route (template knowledge)
 # ---------------------------------------------------------------------------
 
 
 @patch("core.processor.classify_intent")
-@patch("core.processor.extract_keywords")
-@patch("core.processor.answer_question")
+@patch("llm.qa.answer_question")
 def test_idle_qa_route_returns_answer(
     mock_answer: MagicMock,
-    mock_extract_keywords: MagicMock,
     mock_classify: MagicMock,
     registry: TemplateRegistry,
     validator: ParamValidator,
@@ -233,17 +233,13 @@ def test_idle_qa_route_returns_answer(
     mock_llm_client: MagicMock,
     mock_prompt_builder: MagicMock,
 ) -> None:
-    """LLM routes to __qa__ -> keywords -> multi-search -> answer -> IDLE."""
+    """LLM routes to __qa__ -> template matching -> answer -> IDLE."""
     mock_classify.return_value = IntentResult(
         template_id="__qa__",
         confidence=0.9,
         reasoning="User is asking about SHP format",
     )
-    mock_extract_keywords.return_value = ["Shapefile format", "SHP GDAL"]
     mock_answer.return_value = "SHP 是 Shapefile 格式，由 ESRI 开发..."
-
-    mock_retriever = MagicMock()
-    mock_retriever.search_multi.return_value = []
 
     processor = SessionProcessor(
         registry=registry,
@@ -251,7 +247,6 @@ def test_idle_qa_route_returns_answer(
         template_engine=mock_template_engine,
         llm_client=mock_llm_client,
         prompt_builder=mock_prompt_builder,
-        retriever=mock_retriever,
     )
 
     session = Session()
@@ -259,30 +254,85 @@ def test_idle_qa_route_returns_answer(
 
     assert new_session.state == SessionState.IDLE
     assert "SHP" in response
-    mock_extract_keywords.assert_called_once()
-    mock_retriever.search_multi.assert_called_once_with(
-        ["Shapefile format", "SHP GDAL"], top_k_per_query=2
-    )
     mock_answer.assert_called_once()
+    # Verify templates were passed to answer_question
+    call_kwargs = mock_answer.call_args.kwargs
+    assert "templates" in call_kwargs
 
 
 @patch("core.processor.classify_intent")
-def test_idle_qa_route_no_retriever_returns_error(
+@patch("llm.qa.answer_question")
+def test_idle_qa_route_with_template_knowledge(
+    mock_answer: MagicMock,
     mock_classify: MagicMock,
-    processor: SessionProcessor,
+    registry: TemplateRegistry,
+    validator: ParamValidator,
+    mock_template_engine: MagicMock,
+    mock_llm_client: MagicMock,
+    mock_prompt_builder: MagicMock,
 ) -> None:
-    """LLM routes to __qa__ but retriever is None -> error message."""
+    """Q&A route passes matched templates with knowledge metadata."""
     mock_classify.return_value = IntentResult(
         template_id="__qa__",
         confidence=0.9,
-        reasoning="User is asking a question",
+        reasoning="User is asking about shapefile",
+    )
+    mock_answer.return_value = "Shapefile 是 ESRI 开发的矢量格式..."
+
+    processor = SessionProcessor(
+        registry=registry,
+        validator=validator,
+        template_engine=mock_template_engine,
+        llm_client=mock_llm_client,
+        prompt_builder=mock_prompt_builder,
     )
 
     session = Session()
-    new_session, response = processor.process(session, "geojson是什么")
+    processor.process(session, "shapefile是什么")
 
-    assert new_session.state == SessionState.IDLE
-    assert "不可用" in response
+    # The matched templates should include shp2geojson (has concept about Shapefile)
+    call_kwargs = mock_answer.call_args.kwargs
+    templates = call_kwargs["templates"]
+    assert len(templates) > 0
+    assert any(t.id == "shp2geojson" for t in templates)
+
+
+@patch("core.processor.classify_intent")
+@patch("llm.qa.answer_question")
+def test_idle_qa_route_passes_output_fn(
+    mock_answer: MagicMock,
+    mock_classify: MagicMock,
+    registry: TemplateRegistry,
+    validator: ParamValidator,
+    mock_template_engine: MagicMock,
+    mock_llm_client: MagicMock,
+    mock_prompt_builder: MagicMock,
+) -> None:
+    """DC-0070: Q&A route passes output_fn as on_chunk to answer_question."""
+    mock_classify.return_value = IntentResult(
+        template_id="__qa__",
+        confidence=0.9,
+        reasoning="User is asking",
+    )
+    mock_answer.return_value = "answer"
+
+    def my_output(text: str) -> None:
+        pass
+
+    processor = SessionProcessor(
+        registry=registry,
+        validator=validator,
+        template_engine=mock_template_engine,
+        llm_client=mock_llm_client,
+        prompt_builder=mock_prompt_builder,
+        output_fn=my_output,
+    )
+
+    session = Session()
+    processor.process(session, "what is shp")
+
+    call_kwargs = mock_answer.call_args.kwargs
+    assert call_kwargs["on_chunk"] is my_output
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +418,7 @@ def test_intent_confirm_question_goes_to_idle(
     processor: SessionProcessor,
     registry: TemplateRegistry,
 ) -> None:
-    """User asks a question in intent confirm -> routed to _handle_idle for re-classification."""
+    """User asks a question in intent confirm -> routed to _handle_idle."""
     mock_classify.return_value = IntentResult(
         template_id="__qa__",
         confidence=0.9,
@@ -591,6 +641,48 @@ def test_build_param_prompt_no_params() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Template matching helper
+# ---------------------------------------------------------------------------
+
+
+def test_find_matching_templates_matches_keywords(
+    sample_templates: list[TemplateDef],
+    tmp_path: Path,
+) -> None:
+    """_find_matching_templates matches against template metadata."""
+    registry = TemplateRegistry(sample_templates, tmp_path)
+    processor = SessionProcessor(
+        registry=registry,
+        validator=MagicMock(),
+        template_engine=MagicMock(),
+        llm_client=MagicMock(),
+        prompt_builder=MagicMock(),
+    )
+
+    matched = processor._find_matching_templates("shapefile是什么", top_n=3)
+    assert len(matched) > 0
+    assert any(t.id == "shp2geojson" for t in matched)
+
+
+def test_find_matching_templates_empty_for_irrelevant(
+    sample_templates: list[TemplateDef],
+    tmp_path: Path,
+) -> None:
+    """_find_matching_templates returns empty list for irrelevant queries."""
+    registry = TemplateRegistry(sample_templates, tmp_path)
+    processor = SessionProcessor(
+        registry=registry,
+        validator=MagicMock(),
+        template_engine=MagicMock(),
+        llm_client=MagicMock(),
+        prompt_builder=MagicMock(),
+    )
+
+    matched = processor._find_matching_templates("天气预报", top_n=3)
+    assert len(matched) == 0
+
+
+# ---------------------------------------------------------------------------
 # ERROR_RECOVERY state
 # ---------------------------------------------------------------------------
 
@@ -650,7 +742,7 @@ def test_error_recovery_confirm_auto_fix_goes_to_preview(
     registry: TemplateRegistry,
     mock_template_engine: MagicMock,
 ) -> None:
-    """User selects '1' with can_auto_fix=True → SCRIPT_PREVIEW with fixed params."""
+    """User selects '1' with can_auto_fix=True -> SCRIPT_PREVIEW with fixed params."""
     mock_template_engine.render.return_value = RenderedScript(
         content='ogr2ogr -f "GeoJSON" out.geojson C:\\data\\roads.shp',
         command_lines=['ogr2ogr -f "GeoJSON" out.geojson C:\\data\\roads.shp'],
@@ -685,6 +777,7 @@ def test_error_recovery_confirm_auto_fix_goes_to_preview(
     assert new_session.state == SessionState.SCRIPT_PREVIEW
     assert new_session.error_context is None
     assert new_session.params["input"] == "C:\\data\\roads.shp"
+    assert new_session.history == []
     assert "已自动修正参数" in response
     mock_template_engine.render.assert_called_once()
 
@@ -693,7 +786,7 @@ def test_error_recovery_manual_edit_goes_to_param_collect(
     processor: SessionProcessor,
     registry: TemplateRegistry,
 ) -> None:
-    """User selects '2' → PARAM_COLLECT with error_context cleared."""
+    """User selects '2' -> PARAM_COLLECT with error_context and history cleared."""
     shp_template = registry.get_template("shp2geojson")
     assert shp_template is not None
 
@@ -721,13 +814,14 @@ def test_error_recovery_manual_edit_goes_to_param_collect(
     assert new_session.state == SessionState.PARAM_COLLECT
     assert new_session.error_context is None
     assert new_session.template == shp_template
+    assert new_session.history == []
 
 
 def test_error_recovery_abandon_goes_to_idle(
     processor: SessionProcessor,
     registry: TemplateRegistry,
 ) -> None:
-    """User selects '3' → IDLE with all context cleared."""
+    """User selects '3' -> IDLE with all context cleared."""
     shp_template = registry.get_template("shp2geojson")
     assert shp_template is not None
 
@@ -764,7 +858,7 @@ def test_error_recovery_abandon_goes_to_idle(
 def test_error_recovery_no_error_context_goes_to_idle(
     processor: SessionProcessor,
 ) -> None:
-    """ERROR_RECOVERY without error_context → IDLE with error message."""
+    """ERROR_RECOVERY without error_context -> IDLE with error message."""
     session = Session(state=SessionState.ERROR_RECOVERY)
     new_session, response = processor.process(session, "anything")
 
@@ -777,7 +871,7 @@ def test_error_recovery_unknown_input_treated_as_param_edit(
     registry: TemplateRegistry,
     mock_template_engine: MagicMock,
 ) -> None:
-    """Unknown input in ERROR_RECOVERY → PARAM_COLLECT (parameter modification)."""
+    """Unknown input in ERROR_RECOVERY -> PARAM_COLLECT (parameter modification)."""
     shp_template = registry.get_template("shp2geojson")
     assert shp_template is not None
 

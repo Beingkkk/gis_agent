@@ -1,6 +1,10 @@
 {# @id merge_shp #}
 {# @name 合并 Shapefile #}
 {# @description 将多个 Shapefile 合并为一个文件 #}
+{# @concept "Shapefile 合并" — 将多个同结构的 Shapefile 追加到同一个文件中 #}
+{# @note 待追加的 Shapefile 必须与主文件的字段结构一致，否则会报错 #}
+{# @seealso vector/shp2geojson — 合并后可转为 GeoJSON #}
+{# @common_error "Field  of different type" — 两个 Shapefile 的字段类型不匹配 #}
 {# @param input file_path required 输入主 Shapefile 路径 #}
 {# @param append file_path required 待追加的 Shapefile 路径 #}
 {# @param output file_path required 输出合并后的路径 #}

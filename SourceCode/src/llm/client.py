@@ -6,6 +6,7 @@ Design: DC-0030, DC-0031, DC-0033, DC-0034
 import json
 import logging
 import time
+from collections.abc import Iterator
 from typing import List, Optional
 
 import anthropic
@@ -295,4 +296,66 @@ class LLMClient:
             temperature=temperature,
             max_tokens=4096,
         )
-        return response.content[0].text  # type: ignore[union-attr]
+        # response.content may contain ThinkingBlock (type="thinking")
+        # in addition to TextBlock. Find the first text block.
+        for block in response.content:
+            if getattr(block, "type", None) == "text":
+                return block.text  # type: ignore[union-attr]
+        raise LLMResponseError("No text content in LLM response")
+
+    def chat_stream(
+        self,
+        system_prompt: str,
+        messages: List[Message],
+        temperature: float = 0.1,
+        current_input: str = "",
+    ) -> Iterator[str]:
+        """Stream LLM response as text chunks.
+
+        Uses Anthropic SDK's streaming API. No retry logic —
+        failures are raised immediately since retries are awkward
+        mid-stream.
+
+        Args:
+            system_prompt: System prompt.
+            messages: History messages.
+            temperature: Sampling temperature.
+            current_input: Current user input (for truncation).
+
+        Yields:
+            Text chunks as the model generates them.
+
+        Design:
+            DC-0068
+        """
+        api_messages = list(messages)
+        if current_input:
+            api_input = current_input
+        elif api_messages:
+            api_input = api_messages[-1].content
+        else:
+            api_input = ""
+
+        truncated = self._truncate_messages(
+            system_prompt, api_messages, api_input
+        )
+        api_msg_list = [
+            {"role": m.role, "content": m.content} for m in truncated
+        ]
+
+        # Anthropic SDK 0.104.1: messages.create(stream=True) returns
+        # Stream[RawMessageStreamEvent], not MessageStream. Iterate directly
+        # and extract text from content_block_delta events.
+        with self._anthropic.messages.create(  # type: ignore[union-attr]
+            model=self._model_name,
+            system=system_prompt,
+            messages=api_msg_list,  # type: ignore[arg-type]
+            temperature=temperature,
+            max_tokens=4096,
+            stream=True,
+        ) as stream:
+            for event in stream:
+                if event.type == "content_block_delta":
+                    delta = event.delta  # type: ignore[union-attr]
+                    if hasattr(delta, "text"):
+                        yield delta.text

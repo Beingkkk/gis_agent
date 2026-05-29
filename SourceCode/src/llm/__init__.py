@@ -6,15 +6,16 @@ Public API:
     classify_intent — Map user input to template
     extract_params — Extract template parameters from user input
     analyze_execution_error — LLM-driven execution error diagnosis
-    answer_question — RAG-enhanced document Q&A
+    answer_question — Template-knowledge-based Q&A
     Message, IntentResult, ParamResult, TemplateInfo, ErrorDiagnosis — Data models
     LLMError, LLMConnectionError, LLMRateLimitError, LLMContextError,
     LLMAuthError, LLMResponseError — Exceptions
 
-Design: plan-llm v1.0.0 (DC-0030 ~ DC-0035)
+Design: plan-llm v1.1.0 (DC-0030 ~ DC-0036), ADR-0001
 """
 
 from llm.client import LLMClient
+from llm.diagnosis import analyze_execution_error
 from llm.exceptions import (
     LLMAuthError,
     LLMConnectionError,
@@ -23,9 +24,7 @@ from llm.exceptions import (
     LLMRateLimitError,
     LLMResponseError,
 )
-from llm.diagnosis import analyze_execution_error
 from llm.intent import classify_intent
-from llm.keywords import extract_keywords
 from llm.models import ErrorDiagnosis, IntentResult, Message, ParamResult, TemplateInfo
 from llm.params import extract_params
 from llm.prompts import PromptBuilder
@@ -36,7 +35,6 @@ __all__ = [
     "PromptBuilder",
     "classify_intent",
     "extract_params",
-    "extract_keywords",
     "analyze_execution_error",
     "answer_question",
     "Message",

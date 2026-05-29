@@ -2,7 +2,7 @@
 
 Wires together all modules and starts the REPL.
 
-Design: plan-cli v1.0.0 (DC-0060, DC-0061)
+Design: plan-cli v1.0.0 (DC-0060, DC-0061), ADR-0001
 """
 
 import logging
@@ -24,7 +24,6 @@ from core import (
 )
 from core.workspace import WorkspaceNotFoundError
 from llm import LLMClient, PromptBuilder
-from rag.retriever import get_retriever
 from templates import RenderedScript, TemplateEngine, scan_templates
 
 logger = logging.getLogger(__name__)
@@ -37,11 +36,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         1. Parse command-line arguments
         2. Load configuration
         3. Initialize workspace
-        4. Initialize RAG retriever
-        5. Scan templates and build registry
-        6. Build SessionProcessor with all dependencies
-        7. Build ScriptExecutor
-        8. Start REPL loop
+        4. Scan templates and build registry
+        5. Build SessionProcessor with all dependencies
+        6. Build ScriptExecutor
+        7. Start REPL loop
 
     Args:
         argv: Command-line arguments. Defaults to sys.argv[1:].
@@ -73,22 +71,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"工作空间初始化失败：{exc}")
         return 2
 
-    # 4. Initialize RAG retriever
-    print("正在加载文档检索系统（首次启动可能需要 1-2 分钟）...")
-    try:
-        retriever = get_retriever()
-    except RuntimeError as exc:
-        print(f"RAG 初始化失败：{exc}")
-        return 1
-    print("文档检索系统加载完成。")
-
-    # 5. Locate template directory and scan templates
-    # __file__ = src/cli/main.py → parent.parent.parent = project_root/SourceCode
+    # 4. Locate template directory and scan templates
+    # __file__ = src/cli/main.py -> parent.parent.parent = project_root/SourceCode
     template_dir = Path(__file__).parent.parent.parent / "data" / "templates"
     templates = scan_templates(template_dir)
     registry = TemplateRegistry(templates, template_dir)
 
-    # 6. Build core components
+    # 5. Build core components
     validator = ParamValidator(get_workspace())
     template_engine = TemplateEngine(template_dir, get_workspace())
     llm_client = LLMClient()
@@ -103,10 +92,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         template_engine=template_engine,
         llm_client=llm_client,
         prompt_builder=prompt_builder,
-        retriever=retriever,
     )
 
-    # 7. Build executor and REPL
+    # 6. Build executor and REPL
     executor = ScriptExecutor(get_workspace())
     slash_handler = SlashCommandHandler()
 
@@ -129,7 +117,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         render_fn=render_fn,
     )
 
-    # 8. Print welcome and start loop
+    # Wire REPL output for streaming Q&A (DC-0071)
+    processor.set_output_fn(repl.output_fn)
+
+    # 7. Print welcome and start loop
     print(
         f"GIS Agent 已启动。\n"
         f"工作空间：{get_workspace().root}\n"

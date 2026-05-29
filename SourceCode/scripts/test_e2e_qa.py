@@ -1,8 +1,7 @@
-"""End-to-end test: RAG retrieval + LLM Q&A.
+"""End-to-end test: Template-knowledge Q&A.
 
 Usage:
     cd SourceCode
-    set PYTHONPATH=src
     python scripts/test_e2e_qa.py
 """
 
@@ -21,16 +20,15 @@ logger = logging.getLogger("e2e_qa")
 def main() -> int:
     """Run end-to-end Q&A test."""
     query = "shp是什么"
-    top_k = 5
 
     print("=" * 60)
-    print("End-to-End Test: RAG + LLM Q&A")
+    print("End-to-End Test: Template Knowledge + LLM Q&A")
     print("=" * 60)
     print(f"Query: {query}")
     print()
 
     # Step 1: Load config
-    print("[1/4] Loading config...")
+    print("[1/3] Loading config...")
     try:
         from config import load_config
 
@@ -41,39 +39,24 @@ def main() -> int:
         logger.error("Failed to load config: %s", exc)
         return 1
 
-    # Step 2: Initialize RAG retriever
-    print("[2/4] Initializing RAG retriever (may take a moment)...")
+    # Step 2: Scan templates and find matching ones
+    print("[2/3] Scanning templates for knowledge context...")
     try:
-        from rag.retriever import get_retriever
+        from templates import scan_templates
 
-        retriever = get_retriever()
-        print("      RAG retriever ready.")
+        template_dir = Path(__file__).parent.parent / "data" / "templates"
+        templates = scan_templates(template_dir)
+        print(f"      Found {len(templates)} templates.")
+
+        # Simple keyword matching for demo
+        matched = [t for t in templates if "shp" in t.id.lower()]
+        print(f"      Matched {len(matched)} templates for context.")
     except Exception as exc:
-        logger.error("Failed to initialize RAG: %s", exc)
+        logger.error("Template scanning failed: %s", exc)
         return 1
 
-    # Step 3: Retrieve relevant documents
-    print(f"[3/4] Retrieving top-{top_k} documents for query...")
-    try:
-        from rag.retriever import RetrievedDocument
-
-        retrieved_docs: list[RetrievedDocument] = retriever.search(query, top_k=top_k)
-        print(f"      Retrieved {len(retrieved_docs)} documents.")
-        print()
-
-        for i, doc in enumerate(retrieved_docs, 1):
-            chunk = doc.chunk
-            print(f"  [{i}] {chunk.source_file} / {chunk.section}")
-            print(f"      distance={doc.distance:.4f}")
-            content_preview = chunk.content[:200].replace("\n", " ")
-            print(f"      {content_preview}...")
-            print()
-    except Exception as exc:
-        logger.error("RAG retrieval failed: %s", exc)
-        return 1
-
-    # Step 4: Call LLM to generate answer
-    print("[4/4] Calling LLM to generate answer...")
+    # Step 3: Call LLM to generate answer
+    print("[3/3] Calling LLM to generate answer...")
     try:
         from llm.client import LLMClient
         from llm.prompts import PromptBuilder
@@ -84,7 +67,7 @@ def main() -> int:
 
         answer = answer_question(
             user_input=query,
-            retrieved_docs=retrieved_docs,
+            templates=matched,
             history=[],
             client=client,
             builder=builder,

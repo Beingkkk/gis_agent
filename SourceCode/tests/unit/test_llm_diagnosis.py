@@ -5,11 +5,12 @@ Design: DC-0036
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from llm.diagnosis import _fallback_diagnosis, _filter_fixed_params, _parse_diagnosis_response
+from llm.diagnosis import (
+    _fallback_diagnosis,
+    _filter_fixed_params,
+    _parse_diagnosis_response,
+)
 from llm.models import ErrorDiagnosis
-
 
 # ---------------------------------------------------------------------------
 # _parse_diagnosis_response
@@ -38,13 +39,13 @@ def test_parse_diagnosis_response_valid_json() -> None:
 def test_parse_diagnosis_response_with_markdown_code_block() -> None:
     """Markdown code block wrapper is stripped before parsing."""
     response = (
-        '```json\n'
+        "```json\n"
         '{"cause": "CRS错误", '
         '"suggestion": "修正坐标系", '
         '"fixed_params": {}, '
         '"confidence": 0.7, '
         '"can_auto_fix": false}\n'
-        '```'
+        "```"
     )
     result = _parse_diagnosis_response(response)
 
@@ -63,7 +64,7 @@ def test_parse_diagnosis_response_invalid_json_fallback() -> None:
 
 def test_parse_diagnosis_response_missing_field_fallback() -> None:
     """Missing required field falls back to conservative diagnosis."""
-    response = '{"cause": "ok", "suggestion": "ok"}'  # missing fixed_params, confidence, can_auto_fix
+    response = '{"cause": "ok", "suggestion": "ok"}'  # missing fields
     result = _parse_diagnosis_response(response)
 
     assert result.can_auto_fix is False
@@ -185,7 +186,6 @@ def test_analyze_execution_error_fallback_on_llm_failure(
     )
 
     from llm.diagnosis import analyze_execution_error
-    from llm.models import Message
 
     result = analyze_execution_error(
         returncode=1,

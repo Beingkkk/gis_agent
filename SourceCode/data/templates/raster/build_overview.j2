@@ -1,6 +1,11 @@
 {# @id build_overview #}
 {# @name 构建栅格金字塔 #}
 {# @description 为栅格数据构建多级概览金字塔，提升浏览性能 #}
+{# @concept "金字塔" — 栅格的多分辨率层级，高缩放级别使用低分辨率版本提升渲染速度 #}
+{# @concept "gdaladdo" — GDAL 金字塔生成工具，支持多种重采样算法 #}
+{# @note 金字塔存储在原始文件内部（GeoTIFF 格式）或相邻的 .ovr 文件中 #}
+{# @note 级别用空格分隔，如 "2 4 8 16" 表示原始尺寸的 1/2、1/4、1/8、1/16 #}
+{# @common_error "Warning 1: Unable to open driver" — 文件被占用或格式不支持内嵌金字塔 #}
 {# @param input file_path required 输入栅格文件路径 #}
 {# @param levels string optional 金字塔级别，如 "2 4 8 16" default=2 4 8 16 #}
 

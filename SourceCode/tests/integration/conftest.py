@@ -1,6 +1,6 @@
 """Integration test fixtures.
 
-Provides real template directory access and mock LLM/retriever
+Provides real template directory access and mock LLM
 for cross-module integration testing.
 
 Design: plan-integration v1.0.0 (DC-0070, DC-0071)
@@ -14,8 +14,6 @@ import pytest
 
 from core.workspace import Workspace
 from llm.models import IntentResult, Message, ParamResult
-from rag.preprocess import DocumentChunk
-from rag.retriever import RetrievedDocument
 
 
 @pytest.fixture(scope="session")
@@ -42,14 +40,6 @@ def mock_llm_client() -> MagicMock:
     client = MagicMock()
     client.chat.return_value = "{}"
     return client
-
-
-@pytest.fixture
-def mock_retriever() -> MagicMock:
-    """DocumentRetriever returning empty results by default."""
-    retriever = MagicMock()
-    retriever.search.return_value = []
-    return retriever
 
 
 @pytest.fixture
@@ -82,27 +72,6 @@ def make_param_result() -> Any:
             missing=missing,
             questions=questions,
         )
-
-    return _factory
-
-
-@pytest.fixture
-def make_retrieved_docs() -> Any:
-    """Factory for RetrievedDocument list."""
-
-    def _factory(contents: list[str]) -> list[RetrievedDocument]:
-        docs: list[RetrievedDocument] = []
-        for i, content in enumerate(contents):
-            chunk = DocumentChunk(
-                id=f"chunk_{i}",
-                source_file="test.html",
-                title="Test",
-                section="section",
-                content=content,
-                token_estimate=len(content) // 4,
-            )
-            docs.append(RetrievedDocument(chunk=chunk, distance=0.1))
-        return docs
 
     return _factory
 

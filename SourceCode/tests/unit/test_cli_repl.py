@@ -12,7 +12,8 @@ import pytest
 from cli.commands import SlashCommandHandler
 from cli.executor import ExecutionResult, ScriptExecutor
 from cli.repl import REPL
-from core.models import Session, SessionState
+from core.models import Session, SessionState, TemplateDef
+from llm.models import Message
 from core.processor import SessionProcessor
 from core.registry import TemplateRegistry
 from core.workspace import Workspace
@@ -345,6 +346,95 @@ class TestREPLScriptPreview:
         repl.run(Session())
 
         assert any("GDAL error" in o for o in outputs)
+
+    def test_execution_success_resets_session(
+        self,
+        mock_processor: MagicMock,
+        mock_executor: MagicMock,
+        slash_handler: SlashCommandHandler,
+        mock_registry: MagicMock,
+        mock_workspace: MagicMock,
+        mock_rendered_script: RenderedScript,
+    ) -> None:
+        """Execution success returns a fully reset session (DC-0067)."""
+        mock_render_fn = MagicMock(return_value=mock_rendered_script)
+        mock_processor.process.return_value = (
+            Session(state=SessionState.SCRIPT_PREVIEW),
+            "脚本...",
+        )
+        mock_executor.execute.return_value = ExecutionResult(
+            success=True, returncode=0, stdout="ok", stderr="", duration_ms=100
+        )
+        repl, _outputs = make_repl(
+            mock_processor,
+            mock_executor,
+            slash_handler,
+            mock_registry,
+            mock_workspace,
+            inputs=["run it", "Y", "/quit"],
+            render_fn=mock_render_fn,
+        )
+
+        session = Session(
+            state=SessionState.SCRIPT_PREVIEW,
+            template=TemplateDef(
+                id="t1", name="Test", description="D", template_file="t.j2"
+            ),
+            params={"input": "a.shp"},
+            history=[Message(role="user", content="hello")],
+        )
+        new_session = repl._execute_script(session)
+
+        assert new_session.state == SessionState.IDLE
+        assert new_session.template is None
+        assert new_session.params == {}
+        assert new_session.history == []
+
+    def test_execution_failure_clears_history_preserves_task(
+        self,
+        mock_processor: MagicMock,
+        mock_executor: MagicMock,
+        slash_handler: SlashCommandHandler,
+        mock_registry: MagicMock,
+        mock_workspace: MagicMock,
+        mock_rendered_script: RenderedScript,
+    ) -> None:
+        """Execution failure clears history but preserves template/params."""
+        mock_render_fn = MagicMock(return_value=mock_rendered_script)
+        mock_executor.execute.return_value = ExecutionResult(
+            success=False,
+            returncode=1,
+            stdout="",
+            stderr="error",
+            duration_ms=50,
+        )
+        repl, _outputs = make_repl(
+            mock_processor,
+            mock_executor,
+            slash_handler,
+            mock_registry,
+            mock_workspace,
+            inputs=["run it", "Y", "/quit"],
+            render_fn=mock_render_fn,
+        )
+
+        template = TemplateDef(
+            id="t1", name="Test", description="D", template_file="t.j2"
+        )
+        session = Session(
+            state=SessionState.SCRIPT_PREVIEW,
+            template=template,
+            params={"input": "a.shp"},
+            history=[Message(role="user", content="hello")],
+        )
+        new_session = repl._execute_script(session)
+
+        assert new_session.state == SessionState.ERROR_RECOVERY
+        assert new_session.template == template
+        assert new_session.params == {"input": "a.shp"}
+        assert new_session.history == []
+        assert new_session.error_context is not None
+        assert new_session.error_context.returncode == 1
 
 
 class TestREPLDryRun:

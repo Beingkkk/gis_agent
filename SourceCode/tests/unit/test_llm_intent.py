@@ -219,9 +219,9 @@ class TestClassifyIntent:
     ) -> None:
         """F2: Markdown JSON code block is stripped before parsing."""
         client.chat.return_value = (
-            '```json\n'
+            "```json\n"
             '{"template_id": "shp2geojson", "confidence": 0.9, "reasoning": "ok"}\n'
-            '```'
+            "```"
         )
 
         result = classify_intent(

@@ -3,15 +3,15 @@
 Scans a directory tree for ``*.j2`` files, reads the Jinja2 comment header
 of each file, and produces ``TemplateDef`` / ``ParamDef`` objects.
 
-Public API:
-    scan_templates(template_dir) -> List[TemplateDef]
-    parse_j2_header(j2_path) -> TemplateDef
-
 Comment format (declarative header inside ``{# … #}`` blocks):
 
     {# @id template_id #}
     {# @name Human-readable name #}
     {# @description What this template does #}
+    {# @concept "Term" — Explanation of the concept #}
+    {# @note A usage hint or precondition #}
+    {# @seealso related_template_id #}
+    {# @common_error "Error text" — Cause and fix suggestion #}
     {# @param param_name param_type required|optional description #}
     {# @param param_name param_type required|optional description default=value #}
 
@@ -20,10 +20,13 @@ Example:
     {# @id shp2geojson #}
     {# @name Shapefile 转 GeoJSON #}
     {# @description 将 Shapefile 格式转换为 GeoJSON #}
+    {# @concept "GeoJSON" — 一种基于 JSON 的地理数据交换格式 #}
+    {# @note 输出路径自动加时间戳防覆盖 #}
+    {# @seealso vector/merge_shp #}
     {# @param input file_path required 输入 Shapefile 路径 #}
     {# @param t_srs crs optional 目标坐标系 default=EPSG:4326 #}
 
-Design: plan-templates v1.0.0 (DC-0050), plan-core v1.0.0 (DC-0041)
+Design: plan-templates v1.1.0 (DC-0050, DC-0055), plan-core v1.0.0 (DC-0041)
 """
 
 import logging
@@ -41,6 +44,13 @@ logger = logging.getLogger(__name__)
 
 _HEADER_RE = re.compile(r"\{\#\s*@(\w+)\s+(.*?)\s*\#\}")
 """Match ``{# @key value #}`` and capture ``key`` and ``value``."""
+
+# Extended knowledge metadata tags (DC-0055 / ADR-0001)
+_CONCEPT_RE = re.compile(r'^"([^"]+)"\s*—\s*(.+)$')
+"""Match ``{@concept "Term" — Explanation #}``."""
+
+_COMMON_ERROR_RE = re.compile(r'^"([^"]+)"\s*—\s*(.+)$')
+"""Match ``{@common_error "Error" — Fix #}``."""
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -94,12 +104,28 @@ def parse_j2_header(
     content = _read_header(j2_path)
     data: dict[str, str] = {}
     raw_params: List[str] = []
+    concepts: List[tuple[str, str]] = []
+    notes: List[str] = []
+    seealso: List[str] = []
+    common_errors: List[tuple[str, str]] = []
 
     for match in _HEADER_RE.finditer(content):
         key = match.group(1)
         value = match.group(2).strip()
         if key == "param":
             raw_params.append(value)
+        elif key == "concept":
+            parsed = _parse_concept(value)
+            if parsed:
+                concepts.append(parsed)
+        elif key == "note":
+            notes.append(value)
+        elif key == "seealso":
+            seealso.append(value)
+        elif key == "common_error":
+            parsed = _parse_common_error(value)
+            if parsed:
+                common_errors.append(parsed)
         else:
             data[key] = value
 
@@ -125,6 +151,10 @@ def parse_j2_header(
         description=description,
         template_file=template_file,
         params=params,
+        concepts=concepts,
+        notes=notes,
+        seealso=seealso,
+        common_errors=common_errors,
     )
 
 
@@ -192,3 +222,33 @@ def _parse_param_line(line: str) -> ParamDef:
         description=description,
         default=default,
     )
+
+
+def _parse_concept(value: str) -> tuple[str, str] | None:
+    """Parse ``@concept`` value into (term, explanation).
+
+    Expected format: ``"Term" — Explanation``
+
+    Returns:
+        (term, explanation) tuple, or None if parsing fails.
+    """
+    match = _CONCEPT_RE.match(value)
+    if match:
+        return (match.group(1).strip(), match.group(2).strip())
+    logger.debug("Failed to parse @concept: %r", value)
+    return None
+
+
+def _parse_common_error(value: str) -> tuple[str, str] | None:
+    """Parse ``@common_error`` value into (error_text, fix).
+
+    Expected format: ``"Error text" — Cause and fix``
+
+    Returns:
+        (error_text, fix) tuple, or None if parsing fails.
+    """
+    match = _COMMON_ERROR_RE.match(value)
+    if match:
+        return (match.group(1).strip(), match.group(2).strip())
+    logger.debug("Failed to parse @common_error: %r", value)
+    return None

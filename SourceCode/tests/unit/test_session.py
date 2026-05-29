@@ -263,8 +263,44 @@ def test_with_error_preserves_other_fields() -> None:
 
 def test_chained_error_operations() -> None:
     """with_error and clear_error can be chained."""
-    ctx = ExecutionErrorContext(
-        returncode=1, stdout="", stderr="e", duration_ms=10
-    )
+    ctx = ExecutionErrorContext(returncode=1, stdout="", stderr="e", duration_ms=10)
     session = Session().with_error(ctx).clear_error()
     assert session.error_context is None
+
+
+def test_clear_history_returns_empty_history() -> None:
+    """clear_history returns a new Session with empty history."""
+    from llm.models import Message
+
+    m1 = Message(role="user", content="hi")
+    m2 = Message(role="assistant", content="hello")
+    session = Session().with_history(m1).with_history(m2)
+    new_session = session.clear_history()
+
+    assert session.history == [m1, m2]
+    assert new_session.history == []
+    assert new_session is not session
+
+
+def test_clear_history_preserves_other_fields() -> None:
+    """clear_history preserves state, template, params, error_context."""
+    template = TemplateDef(
+        id="t1",
+        name="Test",
+        description="D",
+        template_file="t.j2",
+    )
+    ctx = ExecutionErrorContext(returncode=1, stdout="", stderr="e", duration_ms=10)
+    session = Session(
+        state=SessionState.ERROR_RECOVERY,
+        template=template,
+        params={"input": "a.shp"},
+        error_context=ctx,
+    )
+    new_session = session.clear_history()
+
+    assert new_session.state == SessionState.ERROR_RECOVERY
+    assert new_session.template == template
+    assert new_session.params == {"input": "a.shp"}
+    assert new_session.error_context == ctx
+    assert new_session.history == []

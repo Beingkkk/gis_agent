@@ -1,6 +1,11 @@
 {# @id clip_raster #}
 {# @name 栅格裁剪 #}
 {# @description 使用矢量边界裁剪栅格数据 #}
+{# @concept "栅格裁剪" — 用矢量多边形边界切出栅格的一部分 #}
+{# @concept "gdalwarp" — GDAL 栅格变换工具，支持重投影、裁剪、格式转换 #}
+{# @note crop_to_cutline=true 时输出范围严格贴合边界，否则保留原栅格外接矩形 #}
+{# @seealso vector/vector_clip — 矢量数据的裁剪 #}
+{# @common_error "cutline dataset has no associated coordinate system" — 裁剪边界未定义坐标系 #}
 {# @param input file_path required 输入栅格文件路径 #}
 {# @param output file_path required 输出栅格文件路径 #}
 {# @param cutline file_path required 裁剪边界矢量文件路径 #}

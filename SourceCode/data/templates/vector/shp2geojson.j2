@@ -1,6 +1,11 @@
 {# @id shp2geojson #}
 {# @name Shapefile 转 GeoJSON #}
 {# @description 将 Shapefile 格式转换为 GeoJSON，可选坐标系转换 #}
+{# @concept "Shapefile" — ESRI 开发的矢量数据格式，由 .shp、.shx、.dbf 三个文件组成 #}
+{# @concept "GeoJSON" — 基于 JSON 的地理数据交换格式，适合 Web 应用 #}
+{# @note 输出路径自动加时间戳防覆盖；ogr2ogr 会自动处理坐标系信息 #}
+{# @seealso vector/reproject — 如需仅重投影而不转格式 #}
+{# @common_error "Unable to open datasource" — 输入文件路径不存在或文件名拼写错误 #}
 {# @param input file_path required 输入 Shapefile 路径 #}
 {# @param output file_path required 输出 GeoJSON 路径 #}
 {# @param s_srs crs optional 源坐标系 EPSG 代码 #}

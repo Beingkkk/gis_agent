@@ -111,7 +111,7 @@ class TestLLMClientChat:
     def test_chat_returns_text(self, client: LLMClient) -> None:
         """Normal API call returns model text."""
         mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="classify result")]
+        mock_response.content = [MagicMock(type="text", text="classify result")]
 
         with patch.object(
             client._anthropic.messages, "create", return_value=mock_response
@@ -126,7 +126,7 @@ class TestLLMClientChat:
     def test_chat_passes_correct_params(self, client: LLMClient) -> None:
         """Verify correct parameters passed to anthropic API."""
         mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="ok")]
+        mock_response.content = [MagicMock(type="text", text="ok")]
 
         with patch.object(
             client._anthropic.messages, "create", return_value=mock_response
@@ -151,7 +151,7 @@ class TestLLMClientChat:
     def test_exponential_backoff_retry_on_timeout(self, client: LLMClient) -> None:
         """DC-0034: Transient errors retry 3 times with exponential backoff."""
         mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="success after retry")]
+        mock_response.content = [MagicMock(type="text", text="success after retry")]
 
         side_effects = [
             _make_conn_err("timeout"),
@@ -217,7 +217,7 @@ class TestLLMClientChat:
     def test_api_status_429_retries(self, client: LLMClient) -> None:
         """DC-0034: APIStatusError with 429 retries via fallback path."""
         mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="ok")]
+        mock_response.content = [MagicMock(type="text", text="ok")]
         side_effects = [
             _make_api_status_429("rate limited"),
             mock_response,
@@ -235,7 +235,7 @@ class TestLLMClientChat:
     def test_server_error_500_retries(self, client: LLMClient) -> None:
         """DC-0034: 5xx server errors retry with backoff."""
         mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="ok")]
+        mock_response.content = [MagicMock(type="text", text="ok")]
         side_effects = [
             _make_server_err("server error"),
             mock_response,
@@ -401,7 +401,7 @@ class TestChatWithTruncation:
     def test_chat_truncates_long_messages(self, client: LLMClient) -> None:
         """DC-0033: Long messages are truncated before API call."""
         mock_response = MagicMock()
-        mock_response.content = [MagicMock(text="ok")]
+        mock_response.content = [MagicMock(type="text", text="ok")]
 
         long_messages = [Message(role="user", content="x" * 4000) for _ in range(12)]
 
@@ -413,6 +413,105 @@ class TestChatWithTruncation:
                 messages=long_messages,
             )
 
+            call_kwargs = mock_create.call_args.kwargs
+            sent_messages = call_kwargs["messages"]
+            assert len(sent_messages) < len(long_messages)
+
+
+class TestLLMClientChatStream:
+    """Test LLMClient.chat_stream(). Design: DC-0068."""
+
+    @pytest.fixture
+    def client(self) -> LLMClient:
+        """Create client with mocked config."""
+        with patch("llm.client.get_config") as mock_get_config:
+            mock_get_config.return_value = MagicMock(
+                llm=MagicMock(
+                    base_url="https://api.example.com",
+                    auth_key="test-key",
+                    model_name="test-model",
+                )
+            )
+            return LLMClient()
+
+    def _make_mock_event(self, text: str) -> MagicMock:
+        """Create a mock content_block_delta event with text delta."""
+        event = MagicMock()
+        event.type = "content_block_delta"
+        event.delta = MagicMock()
+        event.delta.text = text
+        return event
+
+    def test_chat_stream_yields_chunks(self, client: LLMClient) -> None:
+        """Streaming call yields text chunks."""
+        events = [
+            self._make_mock_event("Hello"),
+            self._make_mock_event(" world"),
+            self._make_mock_event("!"),
+        ]
+        mock_stream = MagicMock()
+        mock_stream.__enter__ = MagicMock(return_value=mock_stream)
+        mock_stream.__exit__ = MagicMock(return_value=False)
+        mock_stream.__iter__ = MagicMock(return_value=iter(events))
+
+        with patch.object(
+            client._anthropic.messages, "create", return_value=mock_stream
+        ) as mock_create:
+            result = list(
+                client.chat_stream(
+                    system_prompt="system",
+                    messages=[Message(role="user", content="hi")],
+                    temperature=0.1,
+                )
+            )
+            assert result == ["Hello", " world", "!"]
+            assert mock_create.call_args.kwargs["stream"] is True
+
+    def test_chat_stream_passes_correct_params(self, client: LLMClient) -> None:
+        """Verify stream=True and other params passed correctly."""
+        events = [self._make_mock_event("ok")]
+        mock_stream = MagicMock()
+        mock_stream.__enter__ = MagicMock(return_value=mock_stream)
+        mock_stream.__exit__ = MagicMock(return_value=False)
+        mock_stream.__iter__ = MagicMock(return_value=iter(events))
+
+        with patch.object(
+            client._anthropic.messages, "create", return_value=mock_stream
+        ) as mock_create:
+            list(
+                client.chat_stream(
+                    system_prompt="sys_prompt",
+                    messages=[Message(role="user", content="msg1")],
+                    temperature=0.5,
+                )
+            )
+            call_kwargs = mock_create.call_args.kwargs
+            assert call_kwargs["model"] == "test-model"
+            assert call_kwargs["system"] == "sys_prompt"
+            assert call_kwargs["temperature"] == 0.5
+            assert call_kwargs["stream"] is True
+
+    def test_chat_stream_truncates_long_messages(self, client: LLMClient) -> None:
+        """DC-0068: Streaming also applies token truncation."""
+        events = [self._make_mock_event("ok")]
+        mock_stream = MagicMock()
+        mock_stream.__enter__ = MagicMock(return_value=mock_stream)
+        mock_stream.__exit__ = MagicMock(return_value=False)
+        mock_stream.__iter__ = MagicMock(return_value=iter(events))
+
+        long_messages = [
+            Message(role="user", content="x" * 4000) for _ in range(12)
+        ]
+
+        with patch.object(
+            client._anthropic.messages, "create", return_value=mock_stream
+        ) as mock_create:
+            list(
+                client.chat_stream(
+                    system_prompt="system",
+                    messages=long_messages,
+                )
+            )
             call_kwargs = mock_create.call_args.kwargs
             sent_messages = call_kwargs["messages"]
             assert len(sent_messages) < len(long_messages)

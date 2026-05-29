@@ -6,13 +6,13 @@ and script rendering across the conversation lifecycle.
 Public API:
     SessionProcessor — processes user input and drives state transitions
 
-Design: plan-core v1.0.0 (DC-0040, DC-0043, DC-0044)
+Design: plan-core v1.0.0 (DC-0040, DC-0043, DC-0044), ADR-0001
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
 from core.models import ExecutionErrorContext, Session, SessionState
 from core.registry import TemplateRegistry
@@ -20,12 +20,9 @@ from core.validator import ParamValidator
 from llm.client import LLMClient
 from llm.diagnosis import analyze_execution_error
 from llm.intent import classify_intent
-from llm.keywords import extract_keywords
 from llm.models import ErrorDiagnosis, Message, TemplateInfo
 from llm.params import extract_params
 from llm.prompts import PromptBuilder
-from llm.qa import answer_question
-from rag.retriever import DocumentRetriever
 
 if TYPE_CHECKING:
     from core.models import TemplateDef
@@ -40,7 +37,7 @@ class SessionProcessor:
     封装状态机逻辑，将用户输入转化为状态转换和响应。
 
     Design:
-        DC-0040, DC-0043, DC-0044
+        DC-0040, DC-0043, DC-0044, ADR-0001
     """
 
     # Confidence threshold for intent classification (plan-core DC-0044)
@@ -53,7 +50,7 @@ class SessionProcessor:
         template_engine: TemplateEngine,
         llm_client: LLMClient,
         prompt_builder: PromptBuilder,
-        retriever: Optional[DocumentRetriever] = None,
+        output_fn: Optional[Callable[[str], None]] = None,
     ) -> None:
         """注入依赖。
 
@@ -63,14 +60,22 @@ class SessionProcessor:
             template_engine: 模板引擎，用于渲染 GDAL 脚本。
             llm_client: LLM 客户端，用于意图分类和参数抽取。
             prompt_builder: Prompt 构建器，用于组装 LLM 系统提示词。
-            retriever: RAG 检索器，用于文档问答。为 None 时问答功能不可用。
+            output_fn: 可选的输出回调，用于 Q&A 流式输出。
         """
         self._registry = registry
         self._validator = validator
         self._template_engine = template_engine
         self._llm_client = llm_client
         self._prompt_builder = prompt_builder
-        self._retriever = retriever
+        self._output_fn = output_fn
+
+    def set_output_fn(self, fn: Optional[Callable[[str], None]]) -> None:
+        """Set the output callback for streaming Q&A (post-construction).
+
+        Design:
+            DC-0070
+        """
+        self._output_fn = fn
 
     # ------------------------------------------------------------------
     # Helpers
@@ -94,6 +99,41 @@ class SessionProcessor:
         else:
             lines.append("该任务无需额外参数。")
         return "\n".join(lines)
+
+    def _find_matching_templates(
+        self, user_input: str, top_n: int = 3
+    ) -> list["TemplateDef"]:
+        """Find templates that likely match the user's question.
+
+        Uses keyword matching against template id, name, description,
+        and concepts. Returns up to *top_n* candidates.
+
+        Design:
+            ADR-0001
+        """
+        all_templates = self._registry.list_templates()
+        user_lower = user_input.lower()
+        scored: list[tuple[int, "TemplateDef"]] = []
+
+        for t in all_templates:
+            score = 0
+            # Match against id, name, description
+            for field in (t.id.lower(), t.name.lower(), t.description.lower()):
+                if any(word in field for word in user_lower.split()):
+                    score += 1
+            # Match against concepts
+            for term, expl in t.concepts:
+                if term.lower() in user_lower or expl.lower() in user_lower:
+                    score += 2
+            # Match against notes
+            for note in t.notes:
+                if any(word in note.lower() for word in user_lower.split()):
+                    score += 1
+            if score > 0:
+                scored.append((score, t))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [t for _, t in scored[:top_n]]
 
     # ------------------------------------------------------------------
     # Public API
@@ -138,6 +178,7 @@ class SessionProcessor:
 
         - 高置信度（>=0.7）→ PARAM_COLLECT，告知用户已识别的任务
         - 低置信度（<0.7）→ INTENT_CONFIRM，列出候选模板让用户选择
+        - 用户提问 → 基于模板元数据或 LLM 参数知识回答
         - 无匹配 → 保持在 IDLE，提示无法识别
         """
         if not user_input.strip():
@@ -148,13 +189,13 @@ class SessionProcessor:
             TemplateInfo(id=t.id, name=t.name, description=t.description)
             for t in available
         ]
-        # Add virtual QA template so LLM can route questions to RAG
+        # Add virtual QA template so LLM can route questions
         template_infos.insert(
             0,
             TemplateInfo(
                 id="__qa__",
                 name="文档问答",
-                description="基于本地GDAL文档回答用户关于工具、格式、参数的使用问题",
+                description="回答用户关于GIS工具、格式、参数的使用问题",
             ),
         )
 
@@ -187,23 +228,18 @@ class SessionProcessor:
         if result.template_id == "__qa__":
             # Require minimum confidence to avoid false-positive QA routing
             if result.confidence >= 0.3:
-                if self._retriever is None:
-                    return (session, "文档问答服务暂不可用，请稍后再试。")
                 try:
-                    # Keyword extraction → multi-query retrieval → synthesis
-                    keywords = extract_keywords(
-                        user_input=user_input,
-                        history=session.history,
-                        client=self._llm_client,
-                        builder=self._prompt_builder,
-                    )
-                    docs = self._retriever.search_multi(keywords, top_k_per_query=2)
+                    from llm.qa import answer_question
+
+                    # Find matching templates for knowledge context
+                    matched = self._find_matching_templates(user_input, top_n=3)
                     answer = answer_question(
                         user_input=user_input,
-                        retrieved_docs=docs,
+                        templates=matched,
                         history=session.history,
                         client=self._llm_client,
                         builder=self._prompt_builder,
+                        on_chunk=self._output_fn,
                     )
                     new_session = session.with_history(
                         Message(role="user", content=user_input)
@@ -214,7 +250,7 @@ class SessionProcessor:
                     return (new_session, answer)
                 except Exception as exc:
                     logger.error("Q&A failed: %s", exc)
-                    return (session, f"文档问答失败：{exc}")
+                    return (session, f"问答处理失败：{exc}")
             # confidence < 0.3 → fall through to low-confidence handling below
 
         if result.confidence < self._CONFIDENCE_THRESHOLD:
@@ -251,16 +287,53 @@ class SessionProcessor:
 
     # Keywords that indicate a user is asking a question, not selecting a task
     _QUESTION_KEYWORDS = (
-        "如何", "怎么", "怎样", "什么", "为什么", "介绍", "说明", "解释",
-        "哪些", "哪个", "谁", "什么时候", "哪里", "多少", "是否", "吗",
-        "what", "how", "why", "explain", "describe", "which",
-        "when", "where", "who", "介绍一下", "是什么", "什么意思", "怎么样",
+        "如何",
+        "怎么",
+        "怎样",
+        "什么",
+        "为什么",
+        "介绍",
+        "说明",
+        "解释",
+        "哪些",
+        "哪个",
+        "谁",
+        "什么时候",
+        "哪里",
+        "多少",
+        "是否",
+        "吗",
+        "what",
+        "how",
+        "why",
+        "explain",
+        "describe",
+        "which",
+        "when",
+        "where",
+        "who",
+        "介绍一下",
+        "是什么",
+        "什么意思",
+        "怎么样",
     )
 
     # Keywords that indicate explicit denial
     _DENY_KEYWORDS = (
-        "不", "否", "none", "no", "算了", "不要", "不用", "没", "没有",
-        "都不是", "不对", "不对了", "不用了", "不要了",
+        "不",
+        "否",
+        "none",
+        "no",
+        "算了",
+        "不要",
+        "不用",
+        "没",
+        "没有",
+        "都不是",
+        "不对",
+        "不对了",
+        "不用了",
+        "不要了",
     )
 
     def _handle_intent_confirm(
@@ -295,7 +368,10 @@ class SessionProcessor:
 
         # 2. Check if user typed a template name or ID directly
         for candidate in candidates:
-            if user_lower == candidate.id.lower() or user_lower == candidate.name.lower():
+            if (
+                user_lower == candidate.id.lower()
+                or user_lower == candidate.name.lower()
+            ):
                 new_session = (
                     session.with_state(SessionState.PARAM_COLLECT)
                     .with_template(candidate)
@@ -307,7 +383,7 @@ class SessionProcessor:
                     self._build_param_prompt(candidate),
                 )
 
-        # 3. Check if user is asking a question → route back to IDLE for re-classification
+        # 3. Check if user is asking a question → route back to IDLE
         if any(kw in user_lower for kw in self._QUESTION_KEYWORDS):
             return self._handle_idle(
                 session.with_state(SessionState.IDLE)
@@ -534,7 +610,11 @@ class SessionProcessor:
             lines.append("修正后参数预览：")
             # Show all params, with fixed ones highlighted
             for name, value in current_params.items():
-                marker = " → " + diagnosis.fixed_params[name] if name in diagnosis.fixed_params else ""
+                marker = (
+                    " → " + diagnosis.fixed_params[name]
+                    if name in diagnosis.fixed_params
+                    else ""
+                )
                 lines.append(f"  {name}: {value}{marker}")
             for name, value in diagnosis.fixed_params.items():
                 if name not in current_params:
@@ -563,7 +643,7 @@ class SessionProcessor:
             - 保持在 ERROR_RECOVERY
 
         用户已看到诊断，输入选择：
-            - "1"/"Y"/"确认"/"是" + can_auto_fix=True → 应用 fixed_params → SCRIPT_PREVIEW
+            - "1"/"Y"/"确认"/"是" + can_auto_fix=True → 应用 fixed_params
             - "2"/"手动"/"修改" → PARAM_COLLECT（保留现有参数，清除 error_context）
             - "3"/"放弃"/"N"/"否"/"算了" → IDLE（清除 template、params、error_context）
             - 其他输入 → 当作参数修改 → PARAM_COLLECT（清除 error_context）
@@ -618,14 +698,11 @@ class SessionProcessor:
         user_lower = user_input.strip().lower()
 
         # Option 1: Confirm auto-fix
-        if (
-            user_lower in ("1", "y", "确认", "是", "yes")
-            and diagnosis.can_auto_fix
-        ):
+        if user_lower in ("1", "y", "确认", "是", "yes") and diagnosis.can_auto_fix:
             new_session = (
                 session.clear_error()
                 .with_state(SessionState.SCRIPT_PREVIEW)
-                .with_history(Message(role="user", content=user_input))
+                .clear_history()
             )
             for name, value in diagnosis.fixed_params.items():
                 new_session = new_session.with_param(name, value)
@@ -665,22 +742,21 @@ class SessionProcessor:
             return (
                 session.clear_error()
                 .with_state(SessionState.PARAM_COLLECT)
-                .with_history(Message(role="user", content=user_input)),
+                .clear_history(),
                 "请修改参数，或重新描述您的需求。",
             )
 
         # Option 3: Abandon
         if user_lower in ("3", "放弃", "n", "否", "算了", "no"):
-            new_session = (
-                Session(state=SessionState.IDLE, history=list(session.history))
-                .with_history(Message(role="user", content=user_input))
+            return (
+                Session(state=SessionState.IDLE),
+                "已放弃当前任务。请描述新的需求。",
             )
-            return (new_session, "已放弃当前任务。请描述新的需求。")
 
         # Unknown input: treat as parameter modification
         return self._handle_param_collect(
             session.clear_error()
             .with_state(SessionState.PARAM_COLLECT)
-            .with_history(Message(role="user", content=user_input)),
+            .clear_history(),
             user_input,
         )

@@ -9,13 +9,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from config.models import (
-    Config,
-    EmbeddingConfig,
-    LLMConfig,
-    RAGConfig,
-    WorkspaceConfig,
-)
+from config.models import Config, LLMConfig, WorkspaceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +35,6 @@ def _apply_env_overrides(raw: dict[str, Any]) -> dict[str, Any]:
         GISAGENT_LLM_BASE_URL        -> llm.base_url
         GISAGENT_LLM_AUTH_KEY        -> llm.auth_key
         GISAGENT_LLM_MODEL_NAME      -> llm.model_name
-        GISAGENT_EMBEDDING_MODEL_PATH -> embedding.model_path
-        GISAGENT_EMBEDDING_DEVICE    -> embedding.device
-        GISAGENT_RAG_CHUNK_SIZE      -> rag.chunk_size
-        GISAGENT_RAG_CHUNK_OVERLAP   -> rag.chunk_overlap
-        GISAGENT_RAG_TOP_K           -> rag.top_k
         GISAGENT_WORKSPACE_DEFAULT_PATH        -> workspace.default_path
         GISAGENT_WORKSPACE_ALLOW_PARENT_ACCESS -> workspace.allow_parent_access
     """
@@ -53,11 +42,6 @@ def _apply_env_overrides(raw: dict[str, Any]) -> dict[str, Any]:
         "GISAGENT_LLM_BASE_URL": ("llm", "base_url", str),
         "GISAGENT_LLM_AUTH_KEY": ("llm", "auth_key", str),
         "GISAGENT_LLM_MODEL_NAME": ("llm", "model_name", str),
-        "GISAGENT_EMBEDDING_MODEL_PATH": ("embedding", "model_path", str),
-        "GISAGENT_EMBEDDING_DEVICE": ("embedding", "device", str),
-        "GISAGENT_RAG_CHUNK_SIZE": ("rag", "chunk_size", int),
-        "GISAGENT_RAG_CHUNK_OVERLAP": ("rag", "chunk_overlap", int),
-        "GISAGENT_RAG_TOP_K": ("rag", "top_k", int),
         "GISAGENT_WORKSPACE_DEFAULT_PATH": ("workspace", "default_path", str),
         "GISAGENT_WORKSPACE_ALLOW_PARENT_ACCESS": (
             "workspace",
@@ -97,11 +81,10 @@ def _validate_config(raw: dict[str, Any]) -> None:
     missing: list[str] = []
 
     # --- Section presence ---
-    for section in ("llm", "embedding"):
-        if section not in raw:
-            missing.append(section)
-        elif not isinstance(raw[section], dict):
-            raise ValueError(f"Config section '{section}' must be an object")
+    if "llm" not in raw:
+        missing.append("llm")
+    elif not isinstance(raw["llm"], dict):
+        raise ValueError("Config section 'llm' must be an object")
 
     if missing:
         raise ValueError(f"Missing required config sections: {missing}")
@@ -111,11 +94,6 @@ def _validate_config(raw: dict[str, Any]) -> None:
     for field in ("base_url", "auth_key", "model_name"):
         if field not in llm or not llm[field]:
             missing.append(f"llm.{field}")
-
-    # --- Embedding required fields ---
-    embedding = raw.get("embedding", {})
-    if "model_path" not in embedding or not embedding["model_path"]:
-        missing.append("embedding.model_path")
 
     if missing:
         raise ValueError(f"Missing required fields: {missing}")
@@ -129,40 +107,6 @@ def _validate_config(raw: dict[str, Any]) -> None:
             f"llm.base_url must be a non-empty URL starting with http:// or https://, "
             f"got: {base_url!r}"
         )
-
-    # --- device validation ---
-    device = embedding.get("device", "cpu")
-    if device not in ("cpu", "cuda"):
-        raise ValueError(f"embedding.device must be 'cpu' or 'cuda', got: {device!r}")
-
-    # Note: model_path existence is checked at runtime by the retriever
-    # rather than at config load time, because the path may be resolved
-    # dynamically (e.g. HuggingFace cache structure).
-
-    # --- RAG defaults & validation ---
-    rag = raw.get("rag", {})
-    chunk_size = rag.get("chunk_size", 512)
-    chunk_overlap = rag.get("chunk_overlap", 128)
-
-    for name, value in (("chunk_size", chunk_size), ("chunk_overlap", chunk_overlap)):
-        if not isinstance(value, int):
-            raise ValueError(f"rag.{name} must be an integer, got: {value!r}")
-
-    if chunk_size <= 0:
-        raise ValueError(f"rag.chunk_size must be > 0, got: {chunk_size}")
-
-    if chunk_overlap < 0:
-        raise ValueError(f"rag.chunk_overlap must be >= 0, got: {chunk_overlap}")
-
-    if chunk_overlap >= chunk_size:
-        raise ValueError(
-            f"rag.chunk_overlap ({chunk_overlap}) must be < "
-            f"rag.chunk_size ({chunk_size})"
-        )
-
-    top_k = rag.get("top_k", 5)
-    if not isinstance(top_k, int) or top_k <= 0:
-        raise ValueError(f"rag.top_k must be > 0, got: {top_k!r}")
 
     # --- Workspace defaults ---
     workspace = raw.get("workspace", {})
@@ -179,21 +123,11 @@ def _validate_config(raw: dict[str, Any]) -> None:
 
 def _fill_defaults(raw: dict[str, Any]) -> dict[str, Any]:
     """Fill in default values for optional fields."""
-    if "rag" not in raw:
-        raw["rag"] = {}
-    rag = raw["rag"]
-    rag.setdefault("chunk_size", 512)
-    rag.setdefault("chunk_overlap", 128)
-    rag.setdefault("top_k", 5)
-
     if "workspace" not in raw:
         raw["workspace"] = {}
     workspace = raw["workspace"]
     workspace.setdefault("default_path", ".")
     workspace.setdefault("allow_parent_access", False)
-
-    embedding = raw.setdefault("embedding", {})
-    embedding.setdefault("device", "cpu")
 
     return raw
 
@@ -205,15 +139,6 @@ def _build_config(raw: dict[str, Any]) -> Config:
             base_url=raw["llm"]["base_url"],
             auth_key=raw["llm"]["auth_key"],
             model_name=raw["llm"]["model_name"],
-        ),
-        embedding=EmbeddingConfig(
-            model_path=raw["embedding"]["model_path"],
-            device=raw["embedding"].get("device", "cpu"),
-        ),
-        rag=RAGConfig(
-            chunk_size=raw["rag"].get("chunk_size", 512),
-            chunk_overlap=raw["rag"].get("chunk_overlap", 128),
-            top_k=raw["rag"].get("top_k", 5),
         ),
         workspace=WorkspaceConfig(
             default_path=raw["workspace"].get("default_path", "."),

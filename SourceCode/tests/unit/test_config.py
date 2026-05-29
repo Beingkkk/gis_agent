@@ -1,6 +1,6 @@
 """Tests for config module.
 
-Design: DC-0001, DC-0002, DC-0003, DC-0004, DC-0005
+Design: DC-0001, DC-0002, DC-0003, DC-0004, DC-0005, ADR-0001
 """
 
 import json
@@ -10,16 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from src.config import (
-    Config,
-    EmbeddingConfig,
-    LLMConfig,
-    RAGConfig,
-    WorkspaceConfig,
-    get_config,
-    load_config,
-)
-from src.config.loader import _clear_config_singleton
+from config import Config, LLMConfig, WorkspaceConfig, get_config, load_config
+from config.loader import _clear_config_singleton
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -34,15 +26,6 @@ def valid_config_dict() -> dict:
             "base_url": "https://api.kimi.com/coding/",
             "auth_key": "sk-test",
             "model_name": "claude-sonnet-4-6",
-        },
-        "embedding": {
-            "model_path": str(Path(__file__).parent.parent / "fixtures"),
-            "device": "cpu",
-        },
-        "rag": {
-            "chunk_size": 512,
-            "chunk_overlap": 128,
-            "top_k": 5,
         },
         "workspace": {
             "default_path": ".",
@@ -83,21 +66,6 @@ class TestDataModels:
         assert cfg.auth_key == "sk-xxx"
         assert cfg.model_name == "test"
 
-    def test_embedding_config_defaults(self) -> None:
-        cfg = EmbeddingConfig(model_path="/model")
-        assert cfg.model_path == "/model"
-        assert cfg.device == "cpu"
-
-    def test_embedding_config_cuda(self) -> None:
-        cfg = EmbeddingConfig(model_path="/model", device="cuda")
-        assert cfg.device == "cuda"
-
-    def test_rag_config_defaults(self) -> None:
-        cfg = RAGConfig()
-        assert cfg.chunk_size == 512
-        assert cfg.chunk_overlap == 128
-        assert cfg.top_k == 5
-
     def test_workspace_config_defaults(self) -> None:
         cfg = WorkspaceConfig()
         assert cfg.default_path == "."
@@ -106,12 +74,9 @@ class TestDataModels:
     def test_config_creation(self) -> None:
         cfg = Config(
             llm=LLMConfig(base_url="https://a.com", auth_key="k", model_name="m"),
-            embedding=EmbeddingConfig(model_path="/m"),
-            rag=RAGConfig(),
             workspace=WorkspaceConfig(),
         )
         assert cfg.llm.base_url == "https://a.com"
-        assert cfg.embedding.device == "cpu"
 
     def test_immutability(self) -> None:
         cfg = LLMConfig(base_url="https://a.com", auth_key="k", model_name="m")
@@ -133,44 +98,19 @@ class TestLoadConfig:
         assert cfg.llm.base_url == "https://api.kimi.com/coding/"
         assert cfg.llm.auth_key == "sk-test"
         assert cfg.llm.model_name == "claude-sonnet-4-6"
-        assert cfg.embedding.device == "cpu"
-        assert cfg.rag.chunk_size == 512
-        assert cfg.rag.top_k == 5
         assert cfg.workspace.default_path == "."
         assert cfg.workspace.allow_parent_access is False
 
     def test_missing_required_fields(self, tmp_path: Path) -> None:
         path = tmp_path / "bad.json"
-        path.write_text(
-            json.dumps({"llm": {}, "embedding": {}, "rag": {}, "workspace": {}})
-        )
+        path.write_text(json.dumps({"llm": {}, "workspace": {}}))
         with pytest.raises(ValueError, match="Missing required fields"):
             load_config(path)
 
     def test_missing_llm_section(self, tmp_path: Path) -> None:
         path = tmp_path / "bad.json"
-        path.write_text(json.dumps({"embedding": {"model_path": "/m"}}))
+        path.write_text(json.dumps({"workspace": {}}))
         with pytest.raises(ValueError, match="llm"):
-            load_config(path)
-
-    def test_type_error_chunk_size_string(
-        self, tmp_path: Path, valid_config_dict: dict
-    ) -> None:
-        path = tmp_path / "bad.json"
-        data = valid_config_dict.copy()
-        data["rag"]["chunk_size"] = "not_a_number"
-        path.write_text(json.dumps(data))
-        with pytest.raises(ValueError, match="chunk_size"):
-            load_config(path)
-
-    def test_business_rule_overlap(
-        self, tmp_path: Path, valid_config_dict: dict
-    ) -> None:
-        path = tmp_path / "bad.json"
-        data = valid_config_dict.copy()
-        data["rag"]["chunk_overlap"] = 600  # > chunk_size 512
-        path.write_text(json.dumps(data))
-        with pytest.raises(ValueError, match="chunk_overlap.*chunk_size"):
             load_config(path)
 
     def test_empty_base_url(self, tmp_path: Path, valid_config_dict: dict) -> None:
@@ -179,24 +119,6 @@ class TestLoadConfig:
         data["llm"]["base_url"] = ""
         path.write_text(json.dumps(data))
         with pytest.raises(ValueError, match="base_url"):
-            load_config(path)
-
-    def test_invalid_device(self, tmp_path: Path, valid_config_dict: dict) -> None:
-        path = tmp_path / "bad.json"
-        data = valid_config_dict.copy()
-        data["embedding"]["device"] = "gpu"
-        path.write_text(json.dumps(data))
-        with pytest.raises(ValueError, match="device"):
-            load_config(path)
-
-    def test_model_path_not_exist(
-        self, tmp_path: Path, valid_config_dict: dict
-    ) -> None:
-        path = tmp_path / "bad.json"
-        data = valid_config_dict.copy()
-        data["embedding"]["model_path"] = "/nonexistent/path/to/model"
-        path.write_text(json.dumps(data))
-        with pytest.raises(ValueError, match="model_path"):
             load_config(path)
 
     def test_file_not_found(self, tmp_path: Path) -> None:
@@ -234,27 +156,6 @@ class TestEnvOverride:
         monkeypatch.setenv("GISAGENT_LLM_AUTH_KEY", "env-sk-override")
         cfg = load_config(config_file)
         assert cfg.llm.auth_key == "env-sk-override"
-
-    def test_override_chunk_size(
-        self, config_file: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("GISAGENT_RAG_CHUNK_SIZE", "1024")
-        cfg = load_config(config_file)
-        assert cfg.rag.chunk_size == 1024
-
-    def test_override_top_k(
-        self, config_file: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("GISAGENT_RAG_TOP_K", "10")
-        cfg = load_config(config_file)
-        assert cfg.rag.top_k == 10
-
-    def test_override_device(
-        self, config_file: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("GISAGENT_EMBEDDING_DEVICE", "cuda")
-        cfg = load_config(config_file)
-        assert cfg.embedding.device == "cuda"
 
     def test_override_bool_allow_parent_access(
         self, config_file: Path, monkeypatch: pytest.MonkeyPatch
@@ -298,17 +199,10 @@ class TestDefaults:
                         "auth_key": "sk-xxx",
                         "model_name": "test-model",
                     },
-                    "embedding": {
-                        "model_path": str(tmp_path),
-                    },
                 }
             )
         )
         cfg = load_config(path)
-        assert cfg.embedding.device == "cpu"
-        assert cfg.rag.chunk_size == 512
-        assert cfg.rag.chunk_overlap == 128
-        assert cfg.rag.top_k == 5
         assert cfg.workspace.default_path == "."
         assert cfg.workspace.allow_parent_access is False
 
@@ -347,8 +241,6 @@ class TestSingleton:
                 "auth_key": "sk-new",
                 "model_name": "new",
             },
-            "embedding": {"model_path": str(tmp_path)},
-            "rag": {},
             "workspace": {},
         }
         new_path.write_text(json.dumps(data))
@@ -369,7 +261,5 @@ class TestIntegration:
     def test_full_config_matches_expected_structure(self, config_file: Path) -> None:
         cfg = load_config(config_file)
         assert isinstance(cfg.llm, LLMConfig)
-        assert isinstance(cfg.embedding, EmbeddingConfig)
-        assert isinstance(cfg.rag, RAGConfig)
         assert isinstance(cfg.workspace, WorkspaceConfig)
         assert isinstance(cfg, Config)

@@ -5,25 +5,17 @@ Public API:
     get_config() -> Config
 
 Data models:
-    Config, LLMConfig, EmbeddingConfig, RAGConfig, WorkspaceConfig
+    Config, LLMConfig, WorkspaceConfig
 
 Design: plan-config v1.0.0
 """
 
 from config.loader import get_config, load_config
-from config.models import (
-    Config,
-    EmbeddingConfig,
-    LLMConfig,
-    RAGConfig,
-    WorkspaceConfig,
-)
+from config.models import Config, LLMConfig, WorkspaceConfig
 
 __all__ = [
     "Config",
-    "EmbeddingConfig",
     "LLMConfig",
-    "RAGConfig",
     "WorkspaceConfig",
     "get_config",
     "load_config",

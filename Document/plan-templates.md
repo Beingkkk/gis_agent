@@ -161,6 +161,53 @@ ogr2ogr -f "GeoJSON" {{ output | quote }} {{ input | quote }}
 - 解析结果存入 `TemplateDef` 的扩展字段：`concepts`、`notes`、`seealso`、`common_errors`
 - 未知标签忽略（向前兼容）
 
+### DC-0090: 模板注释头新增 @keyword 标签
+
+**决策**: `.j2` 模板注释头新增 `@keyword` 标签，扫描器解析后注入 `TemplateDef.keywords` 字段。关键词仅用于代码级匹配，**不**进入 LLM 上下文。
+
+**标签格式**:
+```jinja2
+{# @keyword shp #}
+{# @keyword shapefile #}
+{# @keyword geojson #}
+```
+
+**与 @concept 的区别**:
+
+| 属性 | @keyword | @concept |
+|------|---------|---------|
+| 格式 | 单行词 | `"术语" — 解释` |
+| 用途 | 匹配用户输入中的同义词/缩写 | 提供 LLM 知识上下文 |
+| 进入 LLM 上下文 | 否 | 是 |
+| 权重 | +3（最高） | +2 |
+
+**理由**:
+- 解决 "shp转geojson" 无法匹配 `gdal_vector_convert` 的问题
+- 关键词是人工精选的匹配触发词，质量高于自动分词
+- 与概念分离：概念面向 LLM 知识，关键词面向代码匹配
+
+### DC-0092: @param 语法扩展支持 options 子句
+
+**决策**: `@param` 行语法扩展，在 `default=value` 之后支持 `options=v1,v2,v3` 子句。
+
+**新格式**:
+```
+name type required|optional description [default=value] [options=v1,v2,v3]
+```
+
+**示例**:
+```jinja2
+{# @param of format optional 输出格式 default=GeoJSON options=GeoJSON,ESRI Shapefile,MapInfo File #}
+{# @param threads integer optional 线程数 default=4 #}
+```
+
+**解析规则**:
+1. `options=` 从行尾提取（rpartition），逗号分隔
+2. `default=` 从剩余部分提取（rpartition）
+3. 提取顺序：先 options，后 default（因为 options 总是在最右端）
+
+**理由**: 枚举选项内联在参数定义中，与模板元数据同源；向后兼容：无 options 的旧参数正常解析。
+
 ---
 
 ## 3. 接口定义

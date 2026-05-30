@@ -149,6 +149,44 @@ interface DataLink {
 - 独立页面避免干扰主应用的状态管理
 - 生成器有自己的 5 步向导（文档输入 → 配置 → 预览 → 审查 → 保存），不适合塞进主状态机
 
+### DC-0095: 前端 ParamForm 支持新参数类型的差异化渲染
+
+**决策**: `ParamForm` 根据参数类型渲染不同的表单控件：
+
+| 类型 | 控件 | 属性 |
+|------|------|------|
+| `boolean` | select | 是/否 |
+| `enum` | select | options 列表 |
+| `format` | select | options 列表（可差异化显示 GDAL 图标） |
+| `text` | textarea | rows=4 |
+| `integer` | input | type="number", step="1" |
+| `float` | input | type="number", step="any" |
+| `file_path` | input + button | 浏览按钮（占位） |
+| `folder_path` | input + button | 浏览按钮（占位） |
+| `string` / 其他 | input | type="text" |
+
+**理由**:
+- 用户看到 `of` 参数时直接看到下拉框而非空白文本框
+- textarea 适合多行输入（如 WKT 坐标系定义）
+- number input 的 step 属性影响浏览器的增减按钮行为
+
+### DC-0096: 模板卡片列表搜索包含 keywords
+
+**决策**: `TemplateCardList` 的客户端搜索过滤在现有 `name`、`id`、`description` 基础上，增加 `keywords` 字段的匹配。
+
+**理由**:
+- 用户搜索 "shp" 时应显示所有含该关键词的模板
+- 与后端匹配逻辑一致（DC-0090 / DC-0094）
+
+### DC-0097: API 响应模型透传 keywords 和 options
+
+**决策**: `TemplateDefResponse`、`TemplateDetailResponse`、`ParamDefResponse` 分别新增 `keywords` 和 `options` 字段，后端从 `TemplateDef` / `ParamDef` 原样透传。
+
+**理由**:
+- 前端需要 keywords 做搜索（DC-0096）
+- 前端需要 options 做下拉框渲染（DC-0095）
+- 默认值确保旧客户端忽略未知字段
+
 ---
 
 ## 3. 接口定义
@@ -164,7 +202,17 @@ async def create_session(workspace: Optional[str] = None) -> Session:
 
 @router.post("/session/{session_id}/intent", response_model=SessionResponse)
 async def process_intent(session_id: str, request: IntentRequest) -> Session:
-    """用户输入自然语言需求，返回匹配模板和候选列表。"""
+    """用户输入自然语言需求，返回匹配模板和候选列表。
+
+    两阶段匹配（DC-0098）：
+    1. 对所有模板执行关键词打分（score_template_match）
+    2. 高分快速路径（≥ 8）→ 直接 PARAM_COLLECT
+    3. 否则取 top-10 候选池，调用 LLM 精排（classify_intent）
+    4. 按 LLM confidence 自动决策：
+       ≥ 0.85 → PARAM_COLLECT（绝对优势，自动选中）
+       ≥ 0.50 → INTENT_CONFIRM（返回 top-1 推荐 + 备选）
+       < 0.50 → INTENT_CONFIRM（返回 top-3 关键词候选）
+    """
 
 @router.post("/session/{session_id}/lock", response_model=SessionResponse)
 async def lock_template(session_id: str, request: LockRequest) -> Session:
@@ -305,30 +353,44 @@ interface TemplateDetail extends TemplateDef {
               ┌──────┼──────┐
               │      │      │
               ▼      ▼      ▼
-       精确匹配  探索性问题  部分/无匹配
+       快速路径  探索性问题  需精排
+   （关键词高分）    │      │
               │      │      │
               ▼      ▼      ▼
-        PARAM_COLLECT  IDLE   INTENT_CONFIRM
-   （直达参数填写）  (Q&A   （top-N 候选卡片
-               │     文本回复)   供用户确认）
-               │      │      │
-               │      │      └─→ 用户点击确认
-               │      │           POST /session/{id}/lock
-               │      │                │
-               └──────┴────────────────┘
-                                    │
-                                    ▼
-                        进入 PARAM_COLLECT（右栏表单展开）
-                                    │
-                        用户填写参数 ──→ POST /session/{id}/params
-                                    │
-                                    ▼
-                        返回脚本预览（SCRIPT_PREVIEW）
-                                    │
-                        用户点击执行 ──→ WS /ws/execute 连接
-                                    │
-                                    ▼
-                        实时推送执行日志（EXECUTING → IDLE）
+        PARAM_COLLECT  IDLE   LLM 精排（classify_intent）
+   （直达参数填写）  (Q&A       │
+               │    文本回复)   ├──→ confidence ≥ 0.85
+               │              │       │
+               │              │       ▼
+               │              │   PARAM_COLLECT（自动选中）
+               │              │
+               │              ├──→ 0.50 ≤ confidence < 0.85
+               │              │       │
+               │              │       ▼
+               │              │   INTENT_CONFIRM（top-1 推荐 + 备选）
+               │              │
+               │              └──→ confidence < 0.50
+               │                      │
+               │                      ▼
+               │                  INTENT_CONFIRM（top-3 候选）
+               │                      │
+               └──────────────────────┤
+                                      │
+                                      └─→ 用户点击确认
+                                          POST /session/{id}/lock
+                                               │
+                                               ▼
+                                   进入 PARAM_COLLECT（右栏表单展开）
+                                               │
+                                   用户填写参数 ──→ POST /session/{id}/params
+                                               │
+                                               ▼
+                                   返回脚本预览（SCRIPT_PREVIEW）
+                                               │
+                                   用户点击执行 ──→ WS /ws/execute 连接
+                                               │
+                                               ▼
+                                   实时推送执行日志（EXECUTING → IDLE）
 ```
 
 ### 4.2 Pipeline 流程
@@ -492,5 +554,6 @@ UX 方案**不删除**现有 CLI 代码。`cli/` 目录保持完整，与 `api/`
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.2.0 | 2026-05-30 | 更新 §3.1 `process_intent` API 为两阶段匹配（DC-0098）；更新 §4.1 单任务流程图，增加快速路径（关键词高分直达）和 LLM 精排三级决策分支 |
 | v1.0.0 | 2026-05-29 | 初版，定义 React + FastAPI 浏览器 UI 方案 |
 | v1.1.0 | 2026-05-29 | 新增 `/pipeline` 路由；启动方式改为 `start_api.py`/`start_cli.py`；端口支持前后端配置同步 |

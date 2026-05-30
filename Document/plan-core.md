@@ -145,6 +145,10 @@ def scan_templates(template_dir: Path) -> List[TemplateDef]:
 - 给用户选择权，提升可控感
 - 0.7 阈值可根据实际效果调整（放入 Config）
 
+**更新（DC-0098）**：两阶段匹配机制上线后，低置信度分支的行为被细化：
+- 关键词粗筛得分 ≥ 8（约命中 2-3 个 keywords）时直接 PARAM_COLLECT，无需 LLM
+- 否则进入 LLM 精排；精排结果按 confidence 分三级处理（见 DC-0098）
+
 ### DC-0045: Agents.md 支持程序追加写入
 
 **决策**: `Workspace` 模块新增 `save_agents_md()` 方法，支持将结构化内容追加写入工作空间的 `Agents.md`。文件不存在时自动创建并写入文件头。
@@ -202,6 +206,101 @@ def scan_templates(template_dir: Path) -> List[TemplateDef]:
 - Processor 拥有"哪些响应应该流式"的决策权（仅 Q&A 流式，结构化调用不流式）
 - 可选注入，不注入时流式功能静默禁用（向后兼容）
 - 不直接依赖 CLI 层，只是一个 callable 类型的可选参数
+
+### DC-0091: 扩展参数类型系统支持 enum、format、text、float、folder_path
+
+**决策**: `ParamDef` 新增 `options: List[str]` 字段，`type` 域扩展为支持 `enum`、`format`、`text`、`float`、`folder_path` 五种新类型。
+
+**类型语义**:
+
+| 类型 | 用途 | 前端渲染 | 校验规则 |
+|------|------|---------|---------|
+| `enum` | 通用枚举，选项由模板作者定义 | select 下拉框 | 值必须在 options 列表中 |
+| `format` | GDAL 输出格式专用枚举 | select 下拉框 | 值必须在 options 列表中 |
+| `text` | 多行文本（与 string 语义相同） | textarea | 非空校验（同 string） |
+| `float` | 浮点数 | number input (step=any) | 可解析为 float |
+| `folder_path` | 目录路径 | text + 浏览按钮 | 非空，must_exist 时校验目录存在性 |
+
+**理由**:
+- `of`（输出格式）等参数用 `string` 类型导致前端只能渲染为文本框，用户不知道合法取值
+- `format` 与 `enum` 共用校验逻辑但语义不同，便于前端做差异化处理
+- `folder_path` 与 `file_path` UI 相同但语义不同，便于前端未来扩展为目录选择器
+
+**向后兼容**: 旧模板无 `options` 字段时默认为空列表；未知类型回退到 `string` 校验。
+
+### DC-0093: 新增五种参数类型的校验器
+
+**决策**: `ParamValidator` 新增 `_validate_folder_path`、`_validate_float`、`_validate_enum` 三个校验方法，`text` 复用 `_validate_string`。
+
+**校验器映射**:
+
+| 类型 | 校验器方法 |
+|------|-----------|
+| `folder_path` | `_validate_folder_path` |
+| `float` | `_validate_float` |
+| `enum` | `_validate_enum` |
+| `format` | `_validate_enum`（复用） |
+| `text` | `_validate_string`（复用） |
+
+**理由**: 校验器链模式（DC-0042）天然支持扩展；`enum` 与 `format` 共用校验逻辑，减少重复代码。
+
+### DC-0094: 提取统一的模板匹配评分函数
+
+**决策**: 将分散在 `processor.py` 和 `api/routes/session.py` 中的模板评分逻辑提取到独立的 `core/matching.py` 模块，提供 `score_template_match()` 和 `find_matching_templates()` 两个纯函数。
+
+### DC-0095: TemplateRegistry 支持运行时重扫描（热加载）
+
+**决策**: `TemplateRegistry` 新增 `rescan()` 方法，在运行时重新扫描模板目录、重建内存索引，无需重启进程即可使新模板生效。`api/dependencies.py` 同步新增 `refresh_registry()` 更新全局单例引用。
+
+**理由**:
+- J2 模板生成器（plan-j2-generate DC-0093）保存新模板后，需要立即可用于意图匹配和参数收集
+- 重启整个 API 进程代价过高，且会中断所有活跃会话
+- 扫描开销低（只读前 50 行，模板数通常 < 100），运行时重扫无性能问题
+- 单例引用更新通过依赖注入层统一管理，API 路由代码无需改动
+
+**实现要点**:
+1. `TemplateRegistry.rescan()` → 重新调用 `scan_templates(self._template_dir)`，用新结果替换 `_registry`
+2. `api/dependencies.refresh_registry()` → 重新扫描并调用 `set_registry(new_registry)`
+3. 线程安全：Python dict 操作原子性（GIL），`rescan()` 整体为原子替换，读取方不会看到半完成状态
+
+**依赖关系**:
+- plan-j2-generate DC-0093（保存后自动热加载）依赖本决策
+- plan-templates DC-0050（按子目录分类）已由 `rglob("*.j2")` 天然支持
+
+**评分权重**:
+
+| 匹配源 | 权重 | 说明 |
+|--------|------|------|
+| keywords | +3 | 人工精选的匹配词，权重最高 |
+| concepts | +2 | 知识元数据，质量较高 |
+| id/name/description | +1 | 基础元数据 |
+| notes | +1 | 补充说明 |
+
+**理由**:
+- 消除代码重复（processor.py 和 API 路由三处评分逻辑）
+- 评分规则集中管理，便于调优
+- 纯函数便于单元测试
+
+### DC-0098: 两阶段匹配（关键词粗筛 + LLM 精排）+ 自动决策
+
+**决策**: API 层和 CLI 层的意图匹配统一采用两阶段流程：
+
+1. **Phase 0（统一打分）**：对 ALL 模板执行 `score_template_match()`（代码层关键词匹配，O(n)，毫秒级）。
+2. **Phase 1（快速路径）**：最高分 ≥ 8（约命中 2-3 个 keywords）→ 直接 `PARAM_COLLECT`，跳过 LLM。
+3. **Phase 2（粗筛）**：取得分前 `_CANDIDATE_POOL_SIZE=10` 的模板作为候选池。
+4. **Phase 3（精排）**：调用 `classify_intent()`，仅将候选池（而非全部模板）传入 LLM，让 LLM 做语义级最佳匹配判断。
+5. **Phase 4（自动决策）**：
+   - `confidence ≥ 0.85`：绝对优势 → `PARAM_COLLECT`（自动选中，无需用户确认）
+   - `confidence ≥ 0.50`：较强匹配 → `INTENT_CONFIRM`（仅返回 top-1 推荐 + 2 个备选）
+   - `confidence < 0.50`：弱匹配 → `INTENT_CONFIRM`（返回 top-3 关键词候选）
+
+**理由**:
+- **解决 keyword 误匹配**：旧 Route 1 的 "第一个匹配就选中" 逻辑（`for template in registry.list_templates()`）导致 `shp` 可能误匹配到非转换类模板；统一打分后取最高分，消除了遍历顺序的副作用
+- **缩小 LLM 上下文**：将全部 100+ 模板塞给 LLM 导致 prompt 过长、context 浪费；仅传入 top-10 候选，LLM 聚焦判断
+- **语义级匹配**：用户输入 "shp转geojson" 时，关键词可能同时命中多个模板；LLM 能理解 "转" = "格式转换"，从而选出正确的 `gdal_vector_convert`/`ogr2ogr_convert`
+- **自动决策减少用户操作**：当 LLM 判断某个模板绝对优势时（如候选池中只有一个是格式转换类），直接锁定，省去用户点击确认的步骤
+
+**与 DC-0044 的关系**：DC-0044 定义了单一阈值（0.7）的澄清机制；DC-0098 在此基础上扩展为"快速路径 + 三级决策"，DC-0044 的阈值仍适用于 CLI 层 `SessionProcessor._handle_idle()` 的原有逻辑（全模板 LLM 分类），API 层采用 DC-0098 的两阶段方案。
 
 ---
 
@@ -327,6 +426,19 @@ class TemplateRegistry:
 
     def get_template_path(self, template_id: str) -> Path:
         """获取模板 .j2 文件的绝对路径。"""
+
+    def rescan(self) -> int:
+        """运行时重新扫描模板目录，重建内存索引。
+
+        重新调用 ``scan_templates(self._template_dir)``，用新扫描结果
+        替换内部 ``_registry``。返回新发现的模板数量。
+
+        Returns:
+            本次重扫描后注册表中的模板总数。
+
+        Design:
+            DC-0095
+        """
 ```
 
 ### 3.3 参数校验器
@@ -808,6 +920,8 @@ CLI 层执行脚本
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.0.7 | 2026-05-30 | 新增 DC-0098：两阶段匹配（关键词粗筛 + LLM 精排）+ 自动决策（confidence ≥ 0.85 直接进入 PARAM_COLLECT）；更新 DC-0044 以兼容两阶段分支；§3.5 更新 `_handle_idle()` 行为描述 |
+| v1.0.6 | 2026-05-30 | 新增 DC-0095：`TemplateRegistry` 支持运行时重扫描（`rescan()`），`api/dependencies.py` 新增 `refresh_registry()`；§3.2 更新 `TemplateRegistry` 接口定义；支持 J2 模板生成器保存后热加载（plan-j2-generate DC-0093） |
 | v1.0.5 | 2026-05-29 | 新增 DC-0070：`SessionProcessor` 新增 `output_fn` 可选参数和 `set_output_fn()` 后置设置方法；Q&A 路由将 callback 透传至 `answer_question(on_chunk=...)`；§3.4 更新 `SessionProcessor` 接口定义 |
 | v1.0.4 | 2026-05-28 | 新增 DC-0048/DC-0049：执行失败后进入 `ERROR_RECOVERY` 状态，保留 template + params 上下文；`_handle_error_recovery()` 统一处理 LLM 诊断和用户选择修复路径；新增 `ExecutionErrorContext` 数据模型 |
 | v1.0.3 | 2026-05-28 | 新增 DC-0045：`Workspace.save_agents_md()` 支持程序追加写入 Agents.md，供 `/init` 斜杠命令使用（plan-cli DC-0067） |

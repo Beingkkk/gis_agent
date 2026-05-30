@@ -201,6 +201,7 @@ class TemplateInfo:
     id: str
     name: str
     description: str
+    keywords: list[str] = []  # 用于 LLM 精排时的语义匹配上下文
 
 
 @dataclass(frozen=True)
@@ -348,17 +349,22 @@ def classify_intent(
 
     Args:
         user_input: 当前用户输入。
-        available_templates: 可用模板元数据列表（含 id、name、description），
-            供 LLM Prompt 中的意图分类参考。
+        available_templates: 可用模板元数据列表（含 id、name、description、keywords），
+            供 LLM Prompt 中的意图分类参考。在 API 两阶段匹配（DC-0098）中，
+            此列表为粗筛后的候选池（通常 ≤ 10 个），而非全部模板。
         history: 对话历史。
         client: LLM 客户端。
         builder: Prompt 构建器。
 
     Returns:
         分类结果，含模板 ID 和置信度。
+        confidence ≥ 0.85：绝对优势，可直接使用（DC-0098）
+        confidence ≥ 0.70：高度匹配
+        confidence ≥ 0.30：有关联但不完全匹配
+        confidence < 0.30：关联度很低
 
     Design:
-        F2, P1
+        F2, P1, DC-0098
     """
 
 
@@ -724,6 +730,7 @@ analyze_execution_error()
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.3.1 | 2026-05-30 | 更新 `TemplateInfo`：新增 `keywords` 字段，用于两阶段匹配（DC-0098）时向 LLM 提供语义上下文；更新 `classify_intent` 签名和 prompt，支持候选池语义精排；§4.1 更新意图分类流程以描述候选池机制 |
 | v1.3.0 | 2026-05-29 | 新增 DC-0068/DC-0069：LLMClient 新增 `chat_stream()` 流式接口；`answer_question()` 新增 `on_chunk` 回调参数；§3.2 更新 LLMClient 接口、§3.4 更新 `answer_question` 签名、§7 新增流式测试 |
 | v1.2.0 | 2026-05-28 | 新增 DC-0036：`analyze_execution_error()` 接口，将 ExecutionResult + template + params 传给 LLM，返回结构化 `ErrorDiagnosis`；新增 §3.1 `ErrorDiagnosis`、§3.4 `analyze_execution_error()`、§4.4 错误诊断流程、§7.1 测试策略、§8 需求追溯 |
 | v1.1.1 | 2026-05-28 | `classify_intent` Prompt 改进：不再要求 LLM 留空 template_id，而是始终返回最接近的模板并用 confidence 反映匹配程度；§4.1 数据流更新 |

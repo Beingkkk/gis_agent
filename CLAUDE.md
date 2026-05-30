@@ -83,7 +83,7 @@ FastAPI REST + WebSocket adapter layer for the browser UI. Reuses core/llm/templ
 
 - **`main.py`** — FastAPI app factory, CORS, route registration, dependency initialization
 - **`dependencies.py`** — Singleton DI: `SessionManager`, `TemplateRegistry`, `ParamValidator`, `TemplateEngine`, `LLMClient`, `PromptBuilder`, `Workspace`
-- **`routes/session.py`** — Session lifecycle: create, intent, lock, params, execute trigger, clear, **workspace update**
+- **`routes/session.py`** — Session lifecycle: create, intent (two-stage matching DC-0098: keyword coarse filter → LLM fine-rank → auto-decision by confidence), lock, params, execute trigger, clear, **workspace update**
 - **`routes/templates.py`** — Template listing and detail queries
 - **`routes/pipeline.py`** — Pipeline preview and execution
 - **`routes/generator.py`** — J2 template generator API
@@ -115,8 +115,9 @@ Business logic core. All exposed through `core/__init__.py`.
 - **`models.py`** — `SessionState` (6-state Enum: IDLE, INTENT_CONFIRM, PARAM_COLLECT, SCRIPT_PREVIEW, EXECUTING, ERROR_RECOVERY), `Session` (immutable dataclass with `with_*` methods), `ParamDef`, `TemplateDef`, `ExecutionErrorContext`
 - **`workspace.py`** — `Workspace(root)`, `resolve_path()` (normalization, no scope restriction v2.0), `generate_output_path()` (timestamp), `load_agents_md()`, `save_agents_md()` (append content, auto-create file with header), singleton via `initialize()` / `get_workspace()`, `change_workspace()` for runtime switching
 - **`registry.py`** — `TemplateRegistry(templates, template_dir)` — in-memory dict index from scanner results
-- **`validator.py`** — `ParamValidator(workspace)` — type-specific validation chain (file_path, crs, string, boolean, integer). `must_exist` field on `ParamDef` controls existence checks. No "path sandbox" validation — workspace is not a security boundary.
-- **`processor.py`** — `SessionProcessor(registry, validator, template_engine, llm_client, prompt_builder, output_fn=None)` — state machine dispatcher: IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW → EXECUTING → (失败) → ERROR_RECOVERY. `_handle_script_preview()` generates script text only; Y/N confirmation lives in CLI layer. Q&A route (`__qa__` template) uses `_find_matching_templates()` (keyword matching against template metadata) → `answer_question()` with optional `on_chunk` for streaming output (DC-0070). `_handle_error_recovery()` performs LLM diagnosis and presents repair options (auto-fix / manual edit / abandon). Execution acts as a natural breakpoint: success → full session reset; failure → history cleared, task context preserved (DC-0067).
+- **`matching.py`** — `score_template_match()`, `find_matching_templates()` — unified template matching scoring (DC-0094). Weights: keywords=+3, concepts=+2, id/name/description/notes=+1. Used by API `process_intent` (two-stage matching, DC-0098) and Q&A context selection.
+- **`validator.py`** — `ParamValidator(workspace)` — type-specific validation chain: `file_path`, `folder_path`, `crs`, `string`, `text`, `boolean`, `integer`, `float`, `enum`, `format`. `must_exist` field on `ParamDef` controls existence checks. No "path sandbox" validation — workspace is not a security boundary. `enum`/`format` values checked against `ParamDef.options`. `text` shares `string` validator. `folder_path` checks `is_dir()` when `must_exist=True`.
+- **`processor.py`** — `SessionProcessor(registry, validator, template_engine, llm_client, prompt_builder, output_fn=None)` — state machine dispatcher: IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW → EXECUTING → (失败) → ERROR_RECOVERY. CLI layer uses `classify_intent()` on ALL templates (single-stage, DC-0044). `_handle_script_preview()` generates script text only; Y/N confirmation lives in CLI layer. Q&A route (`__qa__` template) uses `_find_matching_templates()` (delegates to `core.matching`, DC-0094) → `answer_question()` with optional `on_chunk` for streaming output (DC-0070). `_handle_error_recovery()` performs LLM diagnosis and presents repair options (auto-fix / manual edit / abandon). Execution acts as a natural breakpoint: success → full session reset; failure → history cleared, task context preserved (DC-0067).
 
 ### templates (`SourceCode/src/templates/`)
 
@@ -141,6 +142,8 @@ React + TypeScript + Vite browser UI. Communicates with `api/` via HTTP/WebSocke
 
 - **`src/api/`** — axios client, session/template/pipeline/generator API wrappers
 - **`src/components/`** — Layout, NavSidebar, ChatArea, ChatMessage, TemplateCardList, DetailPanel, ParamForm, ScriptPreview
+  - `ParamForm` renders differentiated controls by param type: `enum`/`format` → `<select>` with options, `text` → `<textarea rows=4>`, `float` → `<input type="number" step="any">`, `integer` → `<input type="number" step="1">`, `boolean` → `<select>` (是/否), `file_path`/`folder_path`/`string` → `<input type="text">` + browse button (DC-0095)
+  - `TemplateCardList` search filters by `name`, `id`, `description`, **and `keywords`** (DC-0096)
 - **`src/hooks/`** — `useSession` (Zustand store), `useWebSocket`
 - **`src/pages/`** — MainPage, PipelinePage, GeneratorPage
 - **`src/types/`** — TypeScript interfaces shared with backend API responses
@@ -336,7 +339,7 @@ Hard constraints from `Document/spec.md`:
 |------|---------------|
 | `Document/spec.md` | Source of all requirements; every design decision must trace back to a requirement ID (e.g., `F1`, `F3`) |
 | `Document/constitution.md` | Development constitution; defines specification-driven workflow, coding standards, quality gates, security red lines |
-| `Document/plan-core.md` | Core module design (DC-0040~0049, DC-0070) — SessionProcessor, TemplateRegistry, ParamValidator, Session, Workspace, streaming output callback |
+| `Document/plan-core.md` | Core module design (DC-0040~0049, DC-0070, DC-0094, DC-0098) — SessionProcessor, TemplateRegistry, ParamValidator, Session, Workspace, matching engine, two-stage intent matching |
 | `Document/plan-cli.md` | CLI module design (DC-0060~0067, DC-0071) — REPL, ScriptExecutor, SlashCommandHandler, `/init` command, streaming output wiring |
 | `Document/plan-llm.md` | LLM module design (DC-0030~0036, DC-0068~0069) — LLMClient, PromptBuilder, classify_intent, extract_params, answer_question, analyze_execution_error, chat_stream |
 | `Document/plan-ux.md` | UX design (DC-UX-01~07) — React + FastAPI browser UI, Session state mapping, WebSocket streaming, Pipeline UI, J2 template generator UI |
@@ -345,12 +348,13 @@ Hard constraints from `Document/spec.md`:
 | ~~`Document/plan-rag.md`~~ | ~~Deprecated~~ — RAG runtime removed per ADR-0001; `rag.preprocess` remains as development tool |
 | `Document/plan-templates.md` | Template engine design (DC-0050~0054) — TemplateEngine, scanner, security checker |
 | `SourceCode/config/config.json.template` | Configuration template; copy to `config.json` and set credentials. Note: template still contains deprecated `embedding`/`rag` sections, but code no longer reads them (ADR-0001) |
-| `SourceCode/src/api/routes/session.py` | Session state machine REST API — intent processing with LLM Q&A fallback, workspace switching, candidate scoring |
+| `SourceCode/src/api/routes/session.py` | Session state machine REST API — **two-stage matching** (keyword coarse filter → LLM fine-rank → auto-decision by confidence, DC-0098), workspace switching, candidate scoring |
 | `SourceCode/src/api/dependencies.py` | FastAPI dependency injection singletons; `update_workspace()` recreates ParamValidator + TemplateEngine on workspace switch |
-| `SourceCode/src/core/processor.py` | Session state machine — the central orchestrator of the conversation lifecycle |
+| `SourceCode/src/core/processor.py` | Session state machine — central orchestrator (CLI layer). Uses `classify_intent` on ALL templates (single-stage, DC-0044) |
+| `SourceCode/src/core/matching.py` | Unified template matching: `score_template_match()` + `find_matching_templates()`. Weights: keywords=+3, concepts=+2, id/name/description/notes=+1. Used by API two-stage matching (DC-0094, DC-0098) and Q&A context selection |
 | `SourceCode/src/core/models.py` | SessionState, Session, ParamDef, TemplateDef dataclasses |
 | `SourceCode/src/core/registry.py` | TemplateRegistry — in-memory index of scanned templates |
-| `SourceCode/src/core/validator.py` | ParamValidator — type-specific parameter validation chain |
+| `SourceCode/src/core/validator.py` | ParamValidator — type-specific validation: `file_path`, `folder_path`, `crs`, `string`, `text`, `boolean`, `integer`, `float`, `enum`, `format`. `enum`/`format` checked against `ParamDef.options` |
 | `SourceCode/src/core/workspace.py` | Workspace management: path normalization, timestamps, Agents.md load/save, runtime `change_workspace()` |
 | `SourceCode/src/templates/engine.py` | Jinja2 template rendering with quote/safe_path filters and post-render security check |
 | `SourceCode/src/templates/scanner.py` | .j2 file scanner — parses Jinja2 comment headers into TemplateDef |
@@ -382,12 +386,16 @@ New GDAL workflows are added by creating a `.j2` file in `SourceCode/data/templa
 {# @id my_template #}
 {# @name 我的模板名称 #}
 {# @description 一句话描述功能 #}
+{# @keyword shp #}
+{# @keyword shapefile #}
+{# @keyword geojson #}
 {# @concept "术语" — 概念解释文本 #}
 {# @note 使用前提或注意事项 #}
 {# @seealso related_template_id — 关联模板 #}
 {# @common_error "错误文本" — 原因与修复建议 #}
 {# @param input file_path required 输入文件路径 #}
 {# @param output file_path required 输出文件路径 #}
+{# @param of format optional 输出格式名称 default=GeoJSON options=GeoJSON,ESRI Shapefile,GPKG,KML #}
 {# @param t_srs crs optional 目标坐标系 default=EPSG:4326 #}
 ```
 

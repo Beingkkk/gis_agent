@@ -13,7 +13,18 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 _VALID_PARAM_TYPES: frozenset[str] = frozenset(
-    {"file_path", "crs", "string", "boolean", "integer", "float"}
+    {
+        "file_path",
+        "folder_path",
+        "crs",
+        "string",
+        "text",
+        "boolean",
+        "integer",
+        "float",
+        "enum",
+        "format",
+    }
 )
 _VALID_CATEGORIES: frozenset[str] = frozenset({"vector", "raster", "general"})
 
@@ -34,6 +45,7 @@ class ParamDef:
     required: bool
     description: str
     default: str | None = None
+    options: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.type not in _VALID_PARAM_TYPES:
@@ -57,6 +69,7 @@ class TemplateDefinition:
     notes: list[str] = field(default_factory=list)
     common_errors: list[dict[str, str]] = field(default_factory=list)
     seealso: list[str] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not _ID_PATTERN.match(self.id):

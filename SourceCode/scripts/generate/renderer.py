@@ -24,6 +24,9 @@ def render_j2(template_def: TemplateDefinition) -> str:
     lines.append("{# @name %s #}" % template_def.name)
     lines.append("{# @description %s #}" % template_def.description)
 
+    for keyword in template_def.keywords:
+        lines.append("{# @keyword %s #}" % keyword)
+
     for concept in template_def.concepts:
         lines.append('{# @concept "%s" #}' % concept)
 
@@ -41,9 +44,14 @@ def render_j2(template_def: TemplateDefinition) -> str:
     for param in template_def.params:
         req = "required" if param.required else "optional"
         default = " default=%s" % param.default if param.default else ""
+        options = (
+            " options=%s" % ",".join(str(o) for o in param.options)
+            if param.options
+            else ""
+        )
         lines.append(
-            "{# @param %s %s %s %s%s #}"
-            % (param.name, param.type, req, param.description, default)
+            "{# @param %s %s %s %s%s%s #}"
+            % (param.name, param.type, req, param.description, default, options)
         )
 
     lines.append("")

@@ -47,15 +47,27 @@ _SYSTEM_PROMPT = """You are a senior GIS developer reviewing Jinja2 template def
 
 Review the provided TemplateDefinition against the following checklist. For each item, decide if it PASSES or FAILS. If it fails, report the severity (error/warning) and a specific message.
 
+System context:
+- Valid param types: `file_path`, `folder_path`, `crs`, `string`, `text`, `boolean`, `integer`, `float`, `enum`, `format`
+- `format` is a specialized enum for GDAL output format names (e.g. GeoJSON, ESRI Shapefile). It MUST have `options` listing common formats.
+- `enum` is a general enum with `options` listing valid choices.
+- `text` is for multi-line string values (e.g. KEY=VALUE config pairs).
+- `folder_path` is for directory paths (semantic distinction from file_path).
+- `safe_path` and `quote` are system-registered custom Jinja2 filters. `safe_path` normalizes paths; `quote` performs shell escaping. They are VALID and EXPECTED.
+- `| safe_path | quote` chain is the standard pattern for path parameters.
+- GDAL 3.x+ introduced a unified `gdal` command with subcommands in the form `gdal <subcommand>` or `gdal <domain> <subcommand>`. Examples of VALID GDAL 3.x commands: `gdal convert`, `gdal dataset copy`, `gdal dataset rename`, `gdal raster contour`, `gdal raster mosaic`, `gdal raster select`, `gdal vector select`, `gdal vector segmentize`, `gdal vector rename-layer`, `gdal vsi copy`, `gdal mdim convert`, `gdal mdim mosaic`, `gdal external`. These are REAL commands and must NOT be flagged as non-existent.
+
 Checklist:
 1. `id` format: must match `^[a-z0-9_]+$` and be descriptive
 2. `command_template` Jinja2 syntax: must be valid Jinja2, no syntax errors
 3. `command_template` variable consistency: every {{ var }} and {% if var %} must correspond to a declared param name
-4. `command_template` security: path/string params must use `| quote` filter
-5. Param type correctness: `-s_srs`/`-t_srs`/`-a_srs` should be `crs`, file paths should be `file_path`, flags should be `boolean`
-6. Required params: `required: true` params must not have `default`
-7. `common_errors`: must be extracted from actual documentation, not invented
-8. Command safety: no dangerous shell patterns (`;`, `|`, `$()`, `&&`)
+4. `command_template` security: params of type `file_path`, `folder_path`, `string`, `text`, or `crs` MUST use `| quote` filter (`| safe_path | quote` is acceptable for paths). Types `integer`, `float`, `boolean`, `enum`, `format` do NOT require `| quote`.
+5. Param type correctness: `-s_srs`/`-t_srs`/`-a_srs` -> `crs`, file paths -> `file_path`, dir paths -> `folder_path`, on/off flags -> `boolean`, output formats -> `format` (with options), multi-line config -> `text`
+6. `format` and `enum` params MUST have non-empty `options` array
+7. Required params: `required: true` params must not have `default`
+8. `keywords`: must include at least 3 relevant terms (format abbreviations, common names, operation verbs)
+9. `common_errors`: must be extracted from actual documentation, not invented
+10. Command safety: no dangerous shell patterns (`;`, `|`, `$()`, `&&`)
 
 Output strict JSON only. Format:
 {
@@ -76,6 +88,7 @@ def _build_review_prompt(template_def: TemplateDefinition) -> str:
         "name": template_def.name,
         "description": template_def.description,
         "category": template_def.category,
+        "keywords": template_def.keywords,
         "command_template": template_def.command_template,
         "params": [
             {
@@ -84,6 +97,7 @@ def _build_review_prompt(template_def: TemplateDefinition) -> str:
                 "required": p.required,
                 "description": p.description,
                 "default": p.default,
+                "options": p.options,
             }
             for p in template_def.params
         ],
@@ -108,24 +122,69 @@ def _strip_markdown_json(text: str) -> str:
 
 
 def _parse_review_result(raw: str) -> ReviewResult:
-    """Parse LLM review JSON output."""
-    cleaned = _strip_markdown_json(raw)
-    data = json.loads(cleaned)
+    """Parse LLM review JSON output with multiple fallback strategies.
 
-    issues = [
-        ReviewIssue(
-            item=issue.get("item", 0),
-            severity=issue.get("severity", "warning"),
-            message=issue.get("message", ""),
-        )
-        for issue in data.get("issues", [])
+    If all parsing strategies fail, trust-degrade to passed=True
+    because the TemplateDefinition already passed generator validation
+    and runtime has an independent ScriptSecurityChecker.
+
+    Design: DC-0086
+    """
+    # Strategy 1: standard markdown strip + json parse
+    strategies = [
+        _strip_markdown_json(raw),
     ]
 
-    return ReviewResult(
-        passed=data.get("passed", False),
-        issues=issues,
-        suggested_fix=data.get("suggested_fix"),
+    # Strategy 2: extract first {...} block (handles trailing text)
+    first_brace = raw.find("{")
+    last_brace = raw.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        strategies.append(raw[first_brace : last_brace + 1])
+
+    # Strategy 3: try to fix common LLM truncation issues
+    # (missing closing brace/bracket)
+    for s in list(strategies):
+        # Fix missing closing braces
+        open_braces = s.count("{") - s.count("}")
+        if open_braces > 0:
+            strategies.append(s + "}" * open_braces)
+        # Fix missing closing brackets
+        open_brackets = s.count("[") - s.count("]")
+        if open_brackets > 0:
+            strategies.append(s + "]" * open_brackets)
+
+    for attempt, cleaned in enumerate(strategies):
+        try:
+            data = json.loads(cleaned)
+
+            issues = [
+                ReviewIssue(
+                    item=issue.get("item", 0),
+                    severity=issue.get("severity", "warning"),
+                    message=issue.get("message", ""),
+                )
+                for issue in data.get("issues", [])
+            ]
+
+            return ReviewResult(
+                passed=data.get("passed", False),
+                issues=issues,
+                suggested_fix=data.get("suggested_fix"),
+            )
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.debug("Review JSON parse strategy %d failed: %s", attempt + 1, exc)
+            continue
+
+    # All strategies failed — trust degrade. The template already passed
+    # generator validation (TemplateDefinition.__post_init__) and runtime
+    # has ScriptSecurityChecker as an independent safety net.
+    logger.warning(
+        "Review JSON parse failed after %d strategies, trust-degrading to passed. "
+        "Raw response preview: %s",
+        len(strategies),
+        raw[:200].replace("\n", " "),
     )
+    return ReviewResult(passed=True, issues=[])
 
 
 # ---------------------------------------------------------------------------

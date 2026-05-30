@@ -28,9 +28,35 @@ from generate.state import GenerationState
 logger = logging.getLogger(__name__)
 
 
+_SKIP_DIRS: frozenset[str] = frozenset(
+    {"gdal_options", "gdal_cli_include"}
+)
+_SKIP_FILES: frozenset[str] = frozenset(
+    {
+        "argument_syntax.html",
+        "gdal_bash_completion.html",
+        "gdal_cli_from_c.html",
+        "gdal_cli_from_cpp.html",
+        "gdal_cli_from_python.html",
+        "gdal_cli_gdalg.html",
+    }
+)
+
+
 def _list_html_files(source_dir: Path) -> list[Path]:
-    """List all .html files recursively in source directory."""
-    return sorted(source_dir.rglob("*.html"))
+    """List all .html files recursively, excluding non-tool docs."""
+    results: list[Path] = []
+    for html_file in sorted(source_dir.rglob("*.html")):
+        rel = html_file.relative_to(source_dir).as_posix()
+        parts = rel.split("/")
+        # Skip known non-tool directories
+        if any(part in _SKIP_DIRS for part in parts):
+            continue
+        # Skip known non-tool files
+        if html_file.name in _SKIP_FILES:
+            continue
+        results.append(html_file)
+    return results
 
 
 def _derive_category(source_path: Path) -> str:

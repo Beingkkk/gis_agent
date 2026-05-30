@@ -26,23 +26,28 @@ Rules:
 2. `name`: Chinese name, 2-30 characters, describes the main use case
 3. `description`: One-sentence Chinese description of the tool's primary function
 4. `category`: one of "vector", "raster", "general"
-5. `command_template`: Jinja2 syntax using {{ param_name }} variables (flat names only, NEVER use dot notation like `{{ param.x }}`). Path/string params MUST use | quote filter. Use {% if param %}...{% endif %} for optional flags/params. CRITICAL: ONLY use params DECLARED in the `params` list. Do NOT reference any variable that is not declared.
-6. `params`: Extract the most commonly used parameters (5-10 max, focus on the core workflow). For each:
+5. `keywords`: 3-5 search keywords in Chinese or English. Include: format abbreviations (e.g. "shp"), common format names (e.g. "geojson"), operation verbs (e.g. "转换"). These are used for template matching ONLY, not shown to users.
+6. `command_template`: Jinja2 syntax using {{ param_name }} variables (flat names only, NEVER use dot notation like `{{ param.x }}`). Path/string params MUST use | quote filter. Use {% if param %}...{% endif %} for optional flags/params. CRITICAL: ONLY use params DECLARED in the `params` list. Do NOT reference any variable that is not declared.
+7. `params`: Extract the most commonly used parameters (5-10 max, focus on the core workflow). For each:
    - `name`: parameter name (snake_case). For options with short+long forms like `-f`/`-of`, pick ONE name (prefer the long form without dash, e.g. "of" not "f")
-   - `type`: one of "file_path", "crs", "string", "boolean", "integer", "float"
+   - `type`: one of "file_path", "folder_path", "crs", "string", "text", "boolean", "integer", "float", "enum", "format"
    - `required`: true/false
    - `description`: Chinese description
    - `default`: optional, only for non-required params
-7. Type inference rules:
+   - `options`: REQUIRED for "enum" and "format" types. A list of string values. For "format", list the most common GDAL format names (e.g. ["GeoJSON", "ESRI Shapefile", "GPKG", "KML"]). For "enum", list the valid choices from the documentation.
+8. Type inference rules:
    - File/dataset paths -> file_path
+   - Directory paths -> folder_path
    - Coordinate system definitions (EPSG, WKT, PROJ strings) -> crs
    - On/off flags without values -> boolean
    - Numeric values -> integer/float
+   - Output format names (GeoJSON, Shapefile, etc.) -> format (with options)
+   - Multi-line configuration values (KEY=VALUE pairs) -> text
    - Everything else -> string
-8. `concepts`: 1-2 core concept explanations in Chinese
-9. `notes`: 1-2 usage notes in Chinese
-10. `common_errors`: Extract 1-2 common errors from the documentation, each with `error_text` and `explanation` in Chinese
-11. `seealso`: Related GIS Agent template IDs. ONLY include if you are certain the template exists. When in doubt, leave empty.
+9. `concepts`: 1-2 core concept explanations in Chinese
+10. `notes`: 1-2 usage notes in Chinese
+11. `common_errors`: Extract 1-2 common errors from the documentation, each with `error_text` and `explanation` in Chinese
+12. `seealso`: Related GIS Agent template IDs. ONLY include if you are certain the template exists. When in doubt, leave empty.
 
 Output MUST be valid JSON only. No markdown code blocks. No extra text."""
 
@@ -63,11 +68,12 @@ Output:
   "name": "矢量格式转换",
   "description": "使用 ogr2ogr 将矢量数据在不同格式之间转换，支持坐标系转换",
   "category": "vector",
+  "keywords": ["shp", "shapefile", "geojson", "gpkg", "kml", "格式转换", "矢量转换"],
   "command_template": "ogr2ogr{% if of %} -f {{ of | quote }}{% endif %}{% if t_srs %} -t_srs {{ t_srs | quote }}{% endif %}{% if s_srs %} -s_srs {{ s_srs | quote }}{% endif %}{% if where %} -where {{ where | quote }}{% endif %}{% if sql %} -sql {{ sql | quote }}{% endif %}{% if select %} -select {{ select | quote }}{% endif %}{% if nln %} -nln {{ nln | quote }}{% endif %}{% if append %} -append{% endif %} {{ output | safe_path | quote }} {{ input | safe_path | quote }}",
   "params": [
     {"name": "input", "type": "file_path", "required": true, "description": "输入矢量文件路径或数据源（源数据集）"},
     {"name": "output", "type": "file_path", "required": true, "description": "输出矢量文件路径或数据源（目标数据集）"},
-    {"name": "of", "type": "string", "required": false, "description": "输出格式名称，如 GeoJSON、ESRI Shapefile、GML 等"},
+    {"name": "of", "type": "format", "required": false, "description": "输出格式名称", "default": "GeoJSON", "options": ["GeoJSON", "ESRI Shapefile", "GPKG", "KML", "MapInfo File"]},
     {"name": "t_srs", "type": "crs", "required": false, "description": "目标空间参考系统定义，用于坐标转换（如 EPSG:4326）"},
     {"name": "s_srs", "type": "crs", "required": false, "description": "源数据的空间参考系统定义（如 EPSG:4326）"},
     {"name": "where", "type": "string", "required": false, "description": "属性查询条件（SQL WHERE 子句）"},
@@ -133,6 +139,7 @@ def _parse_param(data: dict[str, Any]) -> ParamDef:
         required=data.get("required", False),
         description=data.get("description", ""),
         default=data.get("default"),
+        options=data.get("options", []),
     )
 
 
@@ -154,7 +161,8 @@ def _parse_template_def(raw_json: str) -> TemplateDefinition:
     cleaned = _strip_markdown_json(raw_json)
     data = json.loads(cleaned)
 
-    params = [_parse_param(p) for p in data.get("params", [])]
+    params_raw = data.get("params") or []
+    params = [_parse_param(p) for p in params_raw if p is not None]
     param_names = {p.name for p in params}
 
     # Auto-complete undeclared template variables as optional string params
@@ -187,6 +195,7 @@ def _parse_template_def(raw_json: str) -> TemplateDefinition:
         notes=data.get("notes", []),
         common_errors=data.get("common_errors", []),
         seealso=data.get("seealso", []),
+        keywords=data.get("keywords", []),
     )
 
 
@@ -227,23 +236,63 @@ class LLMTemplateGenerator:
             Message(role="user", content=doc_text),
         ]
 
+        # Attempt 1: generate
+        raw_response, gen_error = self._try_generate(messages, temperature=0.1)
+        if raw_response is None:
+            return None, gen_error
+
+        # Attempt 1: parse
+        template_def = self._try_parse(raw_response)
+        if template_def is not None:
+            return template_def, ""
+
+        # Attempt 2: retry with slightly higher temperature + hint
+        logger.info("Generation parse failed, retrying with adjusted prompt...")
+        retry_messages = messages + [
+            Message(role="assistant", content=raw_response),
+            Message(
+                role="user",
+                content="Your previous response could not be parsed as valid JSON. "
+                "Please output ONLY valid JSON, no markdown code blocks, no extra text.",
+            ),
+        ]
+        raw_response2, gen_error2 = self._try_generate(
+            retry_messages, temperature=0.2
+        )
+        if raw_response2 is None:
+            return None, f"Retry generation failed: {gen_error2}"
+
+        template_def2 = self._try_parse(raw_response2)
+        if template_def2 is not None:
+            return template_def2, ""
+
+        return None, "JSON parse failed after retry"
+
+    def _try_generate(
+        self, messages: list[Message], temperature: float
+    ) -> tuple[str | None, str]:
+        """Single LLM generation attempt."""
         try:
             raw_response = self._client.chat(
                 system_prompt=_SYSTEM_PROMPT,
                 messages=messages,
-                temperature=0.1,
+                temperature=temperature,
             )
         except Exception as exc:
             logger.warning("LLM generation failed: %s", exc)
             return None, f"LLM call failed: {exc}"
+        return raw_response, ""
 
+    def _try_parse(self, raw_response: str) -> TemplateDefinition | None:
+        """Parse raw LLM response into TemplateDefinition.
+
+        Returns None on any parse/validation error.
+        """
         try:
-            template_def = _parse_template_def(raw_response)
+            return _parse_template_def(raw_response)
         except json.JSONDecodeError as exc:
-            logger.warning("JSON parse failed: %s", exc)
-            return None, f"JSON parse failed: {exc}"
+            logger.debug("JSON parse failed: %s", exc)
+            return None
         except (ValueError, KeyError) as exc:
-            logger.warning("Template validation failed: %s", exc)
-            return None, f"Template validation failed: {exc}"
-
-        return template_def, ""
+            logger.debug("Template validation failed: %s", exc)
+            return None

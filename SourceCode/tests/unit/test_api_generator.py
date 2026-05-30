@@ -149,14 +149,18 @@ class TestSaveTemplate:
         mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Save template to data/templates/ directory."""
+        """Save template to data/templates/{category}/ directory (DC-0092)."""
         with patch(
             "api.routes.generator._get_templates_dir",
             return_value=tmp_path,
         ):
             request_body = {
                 "template_id": "my_template",
-                "body": "{# @id my_template #}\nogr2ogr -f GeoJSON out.json in.shp",
+                "body": (
+                    "{# @id my_template #}\n"
+                    "{# @category vector #}\n"
+                    "ogr2ogr -f GeoJSON out.json in.shp"
+                ),
                 "overwrite": False,
             }
 
@@ -164,11 +168,13 @@ class TestSaveTemplate:
             assert resp.status_code == 200
             data = resp.json()
             assert "saved_path" in data
+            assert data["category"] == "vector"
 
-            # Verify file was written
+            # Verify file was written to category subdirectory
             saved_file = Path(data["saved_path"])
             assert saved_file.exists()
             assert "my_template" in saved_file.read_text()
+            assert "vector" in str(saved_file)
 
     def test_save_template_overwrite_protection(
         self,
@@ -177,7 +183,10 @@ class TestSaveTemplate:
         tmp_path: Path,
     ) -> None:
         """Saving to existing file without overwrite returns 409."""
-        existing_file = tmp_path / "existing.j2"
+        # Templates are now saved to category subdirectories (DC-0092)
+        general_dir = tmp_path / "general"
+        general_dir.mkdir(parents=True, exist_ok=True)
+        existing_file = general_dir / "existing.j2"
         existing_file.write_text("existing content")
 
         with patch(
@@ -186,7 +195,7 @@ class TestSaveTemplate:
         ):
             request_body = {
                 "template_id": "existing",
-                "body": "new content",
+                "body": "{# @category general #}\nnew content",
                 "overwrite": False,
             }
 

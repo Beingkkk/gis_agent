@@ -56,6 +56,14 @@ def mock_registry() -> MagicMock:
                 description="目标坐标系",
                 default="EPSG:4326",
             ),
+            ParamDef(
+                name="of",
+                type="format",
+                required=False,
+                description="输出格式",
+                default="GeoJSON",
+                options=["GeoJSON", "ESRI Shapefile", "GPKG"],
+            ),
         ],
         concepts=[
             ("GeoJSON", "一种基于JSON的地理数据交换格式"),
@@ -66,6 +74,7 @@ def mock_registry() -> MagicMock:
         common_errors=[
             ("Failed to open source file", "检查输入文件路径是否正确"),
         ],
+        keywords=["shp", "shapefile", "geojson"],
     )
 
     raster_convert = TemplateDef(
@@ -124,6 +133,17 @@ class TestListTemplates:
         assert shp["category"] == "vector"
         assert shp["tool_source"] == "GDAL"
         assert shp["tags"] == []
+        assert "keywords" in shp
+
+    def test_list_templates_keywords(
+        self, client: TestClient, mock_registry: MagicMock
+    ) -> None:
+        """DC-0097: keywords forwarded in list response."""
+        set_registry(mock_registry)
+        resp = client.get("/api/templates")
+        data = resp.json()
+        shp = data[1]
+        assert shp["keywords"] == ["shp", "shapefile", "geojson"]
 
     def test_list_templates_empty(self, client: TestClient) -> None:
         empty_registry = MagicMock()
@@ -178,6 +198,20 @@ class TestGetTemplateDetail:
         assert t_srs["name"] == "t_srs"
         assert t_srs["required"] is False
         assert t_srs["default"] == "EPSG:4326"
+
+        of_param = params[3]
+        assert of_param["name"] == "of"
+        assert of_param["type"] == "format"
+        assert of_param["options"] == ["GeoJSON", "ESRI Shapefile", "GPKG"]
+
+    def test_template_detail_keywords(
+        self, client: TestClient, mock_registry: MagicMock
+    ) -> None:
+        """DC-0097: keywords forwarded in detail response."""
+        set_registry(mock_registry)
+        resp = client.get("/api/templates/shp2geojson")
+        data = resp.json()
+        assert data["keywords"] == ["shp", "shapefile", "geojson"]
 
     def test_template_detail_concepts(
         self, client: TestClient, mock_registry: MagicMock

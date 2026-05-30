@@ -158,3 +158,56 @@ def test_get_template_path_not_found(registry: TemplateRegistry) -> None:
     """get_template_path for unknown id raises KeyError."""
     with pytest.raises(KeyError):
         registry.get_template_path("nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# rescan (DC-0095)
+# ---------------------------------------------------------------------------
+
+
+def test_rescan_discovers_new_templates(
+    registry: TemplateRegistry, tmp_path: Path
+) -> None:
+    """rescan() discovers newly added template files without restart."""
+    # Initially 3 templates
+    assert len(registry.list_templates()) == 3
+
+    # Add a new .j2 file to disk
+    new_file = tmp_path / "templates" / "vector" / "new_template.j2"
+    new_file.write_text('{# @id new_template #}\n{# @name New Template #}\n')
+
+    # Before rescan, new template is not visible
+    assert registry.get_template("new_template") is None
+
+    # After rescan, new template is available
+    count = registry.rescan()
+    assert count == 4
+    assert registry.get_template("new_template") is not None
+    assert registry.get_template("new_template").id == "new_template"
+
+
+def test_rescan_removes_deleted_templates(
+    registry: TemplateRegistry, tmp_path: Path
+) -> None:
+    """rescan() removes templates whose files were deleted."""
+    # Delete a template file
+    (tmp_path / "templates" / "general" / "info_query.j2").unlink()
+
+    # Before rescan, template still in memory
+    assert registry.get_template("info_query") is not None
+
+    # After rescan, deleted template is gone
+    count = registry.rescan()
+    assert count == 2
+    assert registry.get_template("info_query") is None
+
+
+def test_rescan_returns_total_count(registry: TemplateRegistry) -> None:
+    """rescan() returns the total number of templates after rescan."""
+    count = registry.rescan()
+    assert count == 3
+
+
+def test_template_dir_property(registry: TemplateRegistry, tmp_path: Path) -> None:
+    """template_dir property returns the root template directory."""
+    assert registry.template_dir == tmp_path / "templates"

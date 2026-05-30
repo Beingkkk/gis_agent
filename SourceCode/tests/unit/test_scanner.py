@@ -118,6 +118,70 @@ def test_parse_param_invalid_line(template_dir: Path) -> None:
         parse_j2_header(j2)
 
 
+def test_parse_header_with_keywords(template_dir: Path) -> None:
+    """Header with @keyword tags (DC-0090)."""
+    j2 = template_dir / "test.j2"
+    _write_j2(
+        j2,
+        "{# @id convert #}\n"
+        "{# @name 格式转换 #}\n"
+        "{# @description 矢量格式转换 #}\n"
+        "{# @keyword shp #}\n"
+        "{# @keyword shapefile #}\n"
+        "{# @keyword geojson #}\n"
+        "ogr2ogr ...\n",
+    )
+    result = parse_j2_header(j2)
+    assert result.keywords == ["shp", "shapefile", "geojson"]
+
+
+def test_parse_param_with_options(template_dir: Path) -> None:
+    """@param with options clause (DC-0092)."""
+    j2 = template_dir / "test.j2"
+    _write_j2(
+        j2,
+        "{# @id test #}\n"
+        "{# @param of format optional 输出格式 options=GeoJSON,SHP,MapInfo #}\n"
+        "echo\n",
+    )
+    result = parse_j2_header(j2)
+    assert len(result.params) == 1
+    p = result.params[0]
+    assert p.name == "of"
+    assert p.type == "format"
+    assert p.options == ["GeoJSON", "SHP", "MapInfo"]
+
+
+def test_parse_param_with_default_and_options(template_dir: Path) -> None:
+    """@param with both default and options (DC-0092)."""
+    j2 = template_dir / "test.j2"
+    _write_j2(
+        j2,
+        "{# @id test #}\n"
+        "{# @param of format optional 输出格式 default=GeoJSON options=GeoJSON,SHP #}\n"
+        "echo\n",
+    )
+    result = parse_j2_header(j2)
+    p = result.params[0]
+    assert p.default == "GeoJSON"
+    assert p.options == ["GeoJSON", "SHP"]
+    assert p.description == "输出格式"
+
+
+def test_parse_param_options_backward_compat(template_dir: Path) -> None:
+    """Old @param without options still works."""
+    j2 = template_dir / "test.j2"
+    _write_j2(
+        j2,
+        "{# @id test #}\n"
+        "{# @param input file_path required 输入路径 #}\n"
+        "echo\n",
+    )
+    result = parse_j2_header(j2)
+    p = result.params[0]
+    assert p.options == []
+
+
 # ---------------------------------------------------------------------------
 # scan_templates
 # ---------------------------------------------------------------------------
@@ -195,6 +259,9 @@ def test_scan_real_templates() -> None:
         pytest.skip("data/templates/ not found")
 
     results = scan_templates(data_dir)
+    if not results:
+        pytest.skip("data/templates/ is empty (templates may be in templates-old)")
+
     ids = [t.id for t in results]
     # Templates are batch-generated from GDAL docs; verify a known one exists
     assert "gdal_info" in ids

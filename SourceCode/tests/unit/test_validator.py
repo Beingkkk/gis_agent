@@ -298,3 +298,109 @@ def test_crs_full_format_preserved(validator: ParamValidator) -> None:
     valid_params, errors = validator.validate_all(template, {"srs": "EPSG:3857"})
     assert len(errors) == 0
     assert valid_params["srs"] == "EPSG:3857"
+
+
+# ---------------------------------------------------------------------------
+# float type (DC-0093)
+# ---------------------------------------------------------------------------
+
+
+def test_float_ok(validator: ParamValidator) -> None:
+    """Valid float string passes."""
+    param = ParamDef("ratio", "float", False, "Ratio")
+    ok, error = validator.validate(param, "3.14")
+    assert ok is True
+    assert error is None
+
+
+def test_float_invalid(validator: ParamValidator) -> None:
+    """Non-float string fails."""
+    param = ParamDef("ratio", "float", False, "Ratio")
+    ok, error = validator.validate(param, "abc")
+    assert ok is False
+    assert "浮点数" in (error or "")
+
+
+# ---------------------------------------------------------------------------
+# enum / format type (DC-0093)
+# ---------------------------------------------------------------------------
+
+
+def test_enum_ok(validator: ParamValidator) -> None:
+    """Value in options list passes."""
+    param = ParamDef("of", "enum", False, "Format", options=["GeoJSON", "SHP"])
+    ok, error = validator.validate(param, "GeoJSON")
+    assert ok is True
+    assert error is None
+
+
+def test_enum_invalid(validator: ParamValidator) -> None:
+    """Value not in options list fails."""
+    param = ParamDef("of", "enum", False, "Format", options=["GeoJSON", "SHP"])
+    ok, error = validator.validate(param, "KML")
+    assert ok is False
+    assert "GeoJSON" in (error or "")
+
+
+def test_enum_no_options_accepts_any(validator: ParamValidator) -> None:
+    """Empty options list accepts any value (backward compat)."""
+    param = ParamDef("of", "enum", False, "Format", options=[])
+    ok, error = validator.validate(param, "anything")
+    assert ok is True
+    assert error is None
+
+
+def test_format_uses_enum_validator(validator: ParamValidator) -> None:
+    """format type uses enum validation logic."""
+    param = ParamDef("of", "format", False, "Format", options=["GeoJSON", "KML"])
+    ok, error = validator.validate(param, "GeoJSON")
+    assert ok is True
+    assert error is None
+
+
+# ---------------------------------------------------------------------------
+# text type (DC-0093)
+# ---------------------------------------------------------------------------
+
+
+def test_text_ok(validator: ParamValidator) -> None:
+    """text type uses same validation as string."""
+    param = ParamDef("wkt", "text", False, "WKT")
+    ok, error = validator.validate(param, "POINT(0 0)")
+    assert ok is True
+    assert error is None
+
+
+# ---------------------------------------------------------------------------
+# folder_path type (DC-0093)
+# ---------------------------------------------------------------------------
+
+
+def test_folder_path_ok(validator: ParamValidator) -> None:
+    """Valid relative folder path passes."""
+    param = ParamDef("outdir", "folder_path", False, "Output dir")
+    ok, error = validator.validate(param, "output/")
+    assert ok is True
+    assert error is None
+
+
+def test_folder_path_must_exist_present(
+    validator: ParamValidator, tmp_path: Path
+) -> None:
+    """must_exist=True with existing directory passes."""
+    existing_dir = tmp_path / "existing_dir"
+    existing_dir.mkdir()
+    param = ParamDef("outdir", "folder_path", True, "Output dir", must_exist=True)
+    ok, error = validator.validate(param, "existing_dir")
+    assert ok is True
+    assert error is None
+
+
+def test_folder_path_must_exist_missing(
+    validator: ParamValidator, tmp_path: Path
+) -> None:
+    """must_exist=True with missing directory fails."""
+    param = ParamDef("outdir", "folder_path", True, "Output dir", must_exist=True)
+    ok, error = validator.validate(param, "missing_dir")
+    assert ok is False
+    assert "不存在" in (error or "")

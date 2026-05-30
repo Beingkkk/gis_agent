@@ -8,25 +8,31 @@ Comment format (declarative header inside ``{# … #}`` blocks):
     {# @id template_id #}
     {# @name Human-readable name #}
     {# @description What this template does #}
+    {# @keyword search-term #}
     {# @concept "Term" — Explanation of the concept #}
     {# @note A usage hint or precondition #}
     {# @seealso related_template_id #}
     {# @common_error "Error text" — Cause and fix suggestion #}
     {# @param param_name param_type required|optional description #}
     {# @param param_name param_type required|optional description default=value #}
+    {# @param param_name param_type required|optional description default=value options=v1,v2,v3 #}
 
 Example:
 
     {# @id shp2geojson #}
     {# @name Shapefile 转 GeoJSON #}
     {# @description 将 Shapefile 格式转换为 GeoJSON #}
+    {# @keyword shp #}
+    {# @keyword shapefile #}
+    {# @keyword geojson #}
     {# @concept "GeoJSON" — 一种基于 JSON 的地理数据交换格式 #}
     {# @note 输出路径自动加时间戳防覆盖 #}
     {# @seealso vector/merge_shp #}
     {# @param input file_path required 输入 Shapefile 路径 #}
+    {# @param of format optional 输出格式 default=GeoJSON options=GeoJSON,ESRI Shapefile #}
     {# @param t_srs crs optional 目标坐标系 default=EPSG:4326 #}
 
-Design: plan-templates v1.1.0 (DC-0050, DC-0055), plan-core v1.0.0 (DC-0041)
+Design: plan-templates v1.2.0 (DC-0050, DC-0055, DC-0090, DC-0092), plan-core v1.0.0 (DC-0041, DC-0091)
 """
 
 import logging
@@ -104,6 +110,7 @@ def parse_j2_header(
     content = _read_header(j2_path)
     data: dict[str, str] = {}
     raw_params: List[str] = []
+    keywords: List[str] = []
     concepts: List[tuple[str, str]] = []
     notes: List[str] = []
     seealso: List[str] = []
@@ -114,6 +121,8 @@ def parse_j2_header(
         value = match.group(2).strip()
         if key == "param":
             raw_params.append(value)
+        elif key == "keyword":
+            keywords.append(value)
         elif key == "concept":
             parsed = _parse_concept(value)
             if parsed:
@@ -155,6 +164,7 @@ def parse_j2_header(
         notes=notes,
         seealso=seealso,
         common_errors=common_errors,
+        keywords=keywords,
     )
 
 
@@ -183,10 +193,11 @@ def _parse_param_line(line: str) -> ParamDef:
 
     Format::
 
-        name type required|optional description [default=value]
+        name type required|optional description [default=value] [options=v1,v2,v3]
 
-    The ``default=`` clause is optional.  It is extracted from the tail of
-    the description by searching for the last occurrence of `` default=``.
+    The ``default=`` and ``options=`` clauses are optional.
+    ``options=`` is always rightmost (extracted first via rpartition),
+    then ``default=`` is extracted from the remainder.
 
     Args:
         line: Raw ``@param`` value (everything after the keyword).
@@ -197,6 +208,9 @@ def _parse_param_line(line: str) -> ParamDef:
     Raises:
         ValueError: If the line does not contain at least name, type,
             and required/optional marker.
+
+    Design:
+        DC-0041, DC-0092
     """
     tokens = line.split(None, 3)
     if len(tokens) < 3:
@@ -209,7 +223,15 @@ def _parse_param_line(line: str) -> ParamDef:
 
     description = tokens[3] if len(tokens) > 3 else ""
     default: Optional[str] = None
+    options: List[str] = []
 
+    # Extract options= first (rightmost clause)
+    if " options=" in description:
+        desc_part, _, options_part = description.rpartition(" options=")
+        description = desc_part
+        options = [opt.strip() for opt in options_part.split(",") if opt.strip()]
+
+    # Then extract default=
     if " default=" in description:
         desc_part, _, default_part = description.rpartition(" default=")
         description = desc_part
@@ -221,6 +243,7 @@ def _parse_param_line(line: str) -> ParamDef:
         required=required,
         description=description,
         default=default,
+        options=options,
     )
 
 

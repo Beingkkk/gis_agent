@@ -128,6 +128,31 @@ def get_registry() -> TemplateRegistry:
     return _registry_instance
 
 
+def refresh_registry() -> int:
+    """重新扫描模板目录并刷新全局注册表单例。
+
+    获取当前 registry 的 template_dir，重新扫描磁盘，
+    创建新的 TemplateRegistry 并更新全局单例。
+
+    Returns:
+        刷新后的模板总数。
+
+    Design:
+        plan-core DC-0095
+    """
+    global _registry_instance
+    if _registry_instance is None:
+        raise RuntimeError("Registry not initialized. Call set_registry() first.")
+
+    from core.registry import TemplateRegistry
+    from templates.scanner import scan_templates
+
+    template_dir = _registry_instance.template_dir
+    templates = scan_templates(template_dir)
+    _registry_instance = TemplateRegistry(templates, template_dir)
+    return len(templates)
+
+
 def set_validator(validator: ParamValidator) -> None:
     """Inject a ParamValidator instance (for testing)."""
     global _validator_instance

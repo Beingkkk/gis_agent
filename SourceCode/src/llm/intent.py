@@ -17,10 +17,13 @@ logger = logging.getLogger(__name__)
 
 
 def _format_templates(templates: List[TemplateInfo]) -> str:
-    """Format template list for LLM prompt."""
+    """Format template list for LLM prompt with keywords."""
     lines: List[str] = []
     for t in templates:
         line = f"- {t.id}: {t.name} — {t.description}"
+        if t.keywords:
+            kw_str = ", ".join(t.keywords)
+            line += f" [keywords: {kw_str}]"
         lines.append(line)
     return "\n".join(lines)
 
@@ -57,19 +60,29 @@ def classify_intent(
     system_prompt = builder.build_system_prompt(task_context=task_context)
 
     user_prompt = (
-        f"用户输入：{user_input}\n\n"
-        f"请分析用户意图，从可用模板中选择最匹配的一个。\n"
-        f"评分规则：\n"
-        f"- confidence ≥ 0.7：用户意图明确且与模板高度匹配\n"
-        f"- 0.3 ≤ confidence < 0.7：意图有关联但不完全匹配（如格式不同但操作类似）\n"
-        f"- confidence < 0.3：意图与所有模板关联度很低\n"
-        f"即使不完全匹配，也请返回最接近的模板，用 confidence 反映匹配程度，"
-        f"不要留空 template_id。\n\n"
-        f"输出格式（严格 JSON，不要 Markdown 代码块）：\n"
-        f'{{"template_id": "模板ID", '
-        f'"confidence": 0.0到1.0, '
-        f'"reasoning": "分类理由，说明为什么选这个模板以及匹配程度"}}'
-    )
+        "用户输入：%(input)s\n\n"
+        "请分析用户意图，从可用模板中选择最匹配的一个。\n\n"
+        "匹配判断依据（按优先级排序）：\n"
+        '1. 操作意图一致性：用户想做什么（如"格式转换"、"提取信息"、"裁剪"等）'
+        "   与模板的功能描述是否一致\n"
+        '2. 关键词匹配：用户提到的格式名、工具名（如"shp"、"geojson"等）'
+        "   是否与模板的 keywords 对应\n"
+        "3. 整体语义相关度\n\n"
+        "评分规则（请严格按此标准打分）：\n"
+        "- confidence ≥ 0.85：意图明确，且最佳候选明显优于其他所有候选"
+        "  （绝对优势，可直接使用，无需用户确认）\n"
+        "- 0.7 ≤ confidence < 0.85：意图明确且与模板高度匹配，"
+        "  但存在其他较接近的候选\n"
+        "- 0.3 ≤ confidence < 0.7：意图有关联但不完全匹配\n"
+        "- confidence < 0.3：意图与所有模板关联度很低\n"
+        "即使不完全匹配，也请返回最接近的模板，用 confidence 反映匹配程度，"
+        "不要留空 template_id。\n\n"
+        "输出格式（严格 JSON，不要 Markdown 代码块）：\n"
+        '{"template_id": "模板ID", '
+        '"confidence": 0.0到1.0, '
+        '"reasoning": "分类理由，说明为什么选这个模板、匹配程度、'
+        '以及是否存在其他接近的候选"}'
+    ) % {"input": user_input}
 
     messages = list(history)
     messages.append(Message(role="user", content=user_prompt))

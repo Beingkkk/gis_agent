@@ -106,9 +106,48 @@ export default function ParamForm({
                 <option value="true">是</option>
                 <option value="false">否</option>
               </select>
+            ) : param.type === 'enum' || param.type === 'format' ? (
+              <select
+                value={values[param.name] || ''}
+                onChange={(e) => handleChange(param.name, e.target.value)}
+                className="w-full h-9 border border-slate-200 rounded-lg px-3 text-[13px] bg-[#f8fafc] focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-[3px] focus:ring-blue-500/8 transition-all"
+              >
+                <option value="">-- 选择 --</option>
+                {param.options?.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            ) : param.type === 'text' ? (
+              <textarea
+                value={values[param.name] || ''}
+                onChange={(e) => handleChange(param.name, e.target.value)}
+                placeholder={param.description}
+                rows={4}
+                className={`w-full border rounded-lg px-3 py-2 text-[13px] focus:outline-none focus:ring-[3px] focus:ring-blue-500/8 transition-all resize-y ${
+                  isFilled
+                    ? 'border-emerald-200 bg-emerald-50/50 text-emerald-800'
+                    : 'border-slate-200 bg-[#f8fafc] focus:border-blue-500 focus:bg-white'
+                }`}
+              />
             ) : param.type === 'integer' ? (
               <input
                 type="number"
+                step="1"
+                value={values[param.name] || ''}
+                onChange={(e) => handleChange(param.name, e.target.value)}
+                placeholder={param.description}
+                className={`w-full h-9 border rounded-lg px-3 text-[13px] focus:outline-none focus:ring-[3px] focus:ring-blue-500/8 transition-all ${
+                  isFilled
+                    ? 'border-emerald-200 bg-emerald-50/50 text-emerald-800'
+                    : 'border-slate-200 bg-[#f8fafc] focus:border-blue-500 focus:bg-white'
+                }`}
+              />
+            ) : param.type === 'float' ? (
+              <input
+                type="number"
+                step="any"
                 value={values[param.name] || ''}
                 onChange={(e) => handleChange(param.name, e.target.value)}
                 placeholder={param.description}
@@ -131,7 +170,7 @@ export default function ParamForm({
                       : 'border-slate-200 bg-[#f8fafc] focus:border-blue-500 focus:bg-white'
                   }`}
                 />
-                {param.type === 'file_path' && (
+                {(param.type === 'file_path' || param.type === 'folder_path') && (
                   <button
                     type="button"
                     className="absolute right-1.5 top-1/2 -translate-y-1/2 bg-white border border-slate-200 rounded-md px-2 py-[3px] text-[10.5px] text-slate-400 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-all"

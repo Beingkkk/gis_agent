@@ -4,11 +4,12 @@ Provides endpoints for LLM-driven J2 template generation,
 validation, and saving.
 
 Design:
-    T-UX-07 (DC-UX-07)
+    T-UX-07 (DC-UX-07), plan-j2-generate DC-0092, DC-0093
 """
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -16,7 +17,7 @@ from fastapi import APIRouter, HTTPException
 from jinja2 import Environment, TemplateSyntaxError
 from pydantic import BaseModel
 
-from api.dependencies import get_llm_client
+from api.dependencies import get_llm_client, refresh_registry
 from templates.engine import ScriptSecurityChecker
 
 router = APIRouter(prefix="/generator", tags=["generator"])
@@ -87,11 +88,18 @@ class SaveResponse(BaseModel):
     """Template save result."""
 
     saved_path: str
+    category: str
+    template_id: str
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+# Regex to extract @category from Jinja2 comment header
+_CATEGORY_RE = re.compile(r"\{\#\s*@category\s+(\S+)\s*\#\}")
+"""Match ``{# @category vector #}`` and capture the category name."""
 
 
 def _get_templates_dir() -> Path:
@@ -104,11 +112,33 @@ def _get_templates_dir() -> Path:
     return Path(__file__).parent.parent.parent.parent / "data" / "templates"
 
 
-def _build_generate_prompt(document_text: str, config: GenerateConfig) -> str:
-    """Build LLM prompt for template generation.
+def _extract_category(body: str) -> str:
+    """Extract @category from template body comment header.
+
+    Searches the first 20 lines for ``{# @category name #}``.
+    Falls back to ``"general"`` if not found.
 
     Args:
-        document_text: GDAL documentation text.
+        body: Full J2 template body.
+
+    Returns:
+        Category string, normalized to lowercase.
+    """
+    for line in body.splitlines()[:20]:
+        match = _CATEGORY_RE.search(line)
+        if match:
+            return match.group(1).strip().lower()
+    return "general"
+
+
+def _build_generate_prompt(config: GenerateConfig) -> str:
+    """Build LLM system prompt for template generation.
+
+    The system prompt contains only instructions and format specification.
+    The actual documentation text is passed as a user message so the
+    LLMClient truncation logic can manage its length.
+
+    Args:
         config: Generation configuration.
 
     Returns:
@@ -119,8 +149,8 @@ def _build_generate_prompt(document_text: str, config: GenerateConfig) -> str:
 
     return (
         f"You are a Jinja2 template generator for GIS tools.\n"
-        f"Generate a Jinja2 template definition based on the following "
-        f"GDAL {tool_source} documentation.\n"
+        f"Generate a Jinja2 template definition based on the "
+        f"GDAL {tool_source} documentation provided by the user.\n"
         f"Category: {category}\n\n"
         f"Return ONLY a JSON object with these fields:\n"
         f'  "template_id": string (kebab-case ID)\n'
@@ -129,15 +159,19 @@ def _build_generate_prompt(document_text: str, config: GenerateConfig) -> str:
         f'  "body": string (full Jinja2 template with comment header)\n'
         f'  "params": array of {{"name", "type", "required"}}\n'
         f'  "concepts": array of strings\n'
-        f'  "notes": array of strings\n\n'
-        f"Documentation:\n{document_text}\n"
+        f'  "notes": array of strings\n'
     )
 
 
 def _parse_generated_response(text: str) -> dict[str, Any]:
     """Parse LLM response into a dict.
 
-    Strips markdown code fences if present.
+    Handles several common LLM output patterns:
+    - Pure JSON
+    - Markdown `` ```json ... ``` `` fences
+    - Markdown `` ``` ... ``` `` fences (no language tag)
+    - Explanatory text followed by a fenced JSON block
+    - JSON embedded in explanatory text (extracts first ``{...}``)
 
     Args:
         text: Raw LLM response text.
@@ -149,14 +183,27 @@ def _parse_generated_response(text: str) -> dict[str, Any]:
         ValueError: If JSON parsing fails.
     """
     stripped = text.strip()
-    # Strip markdown ```json ... ``` fences
-    if stripped.startswith("```"):
-        lines = stripped.splitlines()
-        # Remove first line (```json) and last line (```)
-        if len(lines) > 2:
-            stripped = "\n".join(lines[1:-1]).strip()
 
-    return json.loads(stripped)
+    # Pattern 1: markdown code fence (with or without language tag)
+    fence_match = re.search(r"```(?:json)?\s*\n(.*?)\n```", stripped, re.DOTALL)
+    if fence_match:
+        candidate = fence_match.group(1).strip()
+        try:
+            return json.loads(candidate)  # type: ignore[no-any-return]
+        except json.JSONDecodeError:
+            pass  # Fall through to broader extraction
+
+    # Pattern 2: find the first top-level JSON object {...}
+    brace_match = re.search(r"(\{.*\})", stripped, re.DOTALL)
+    if brace_match:
+        candidate = brace_match.group(1).strip()
+        try:
+            return json.loads(candidate)  # type: ignore[no-any-return]
+        except json.JSONDecodeError:
+            pass
+
+    # Pattern 3: try the whole text as JSON (last resort)
+    return json.loads(stripped)  # type: ignore[no-any-return]
 
 
 def _validate_jinja2_syntax(body: str) -> tuple[bool, list[str]]:
@@ -199,18 +246,33 @@ async def generate_template(request: GenerateRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="document_text is required")
 
     llm_client = get_llm_client()
-    system_prompt = _build_generate_prompt(document_text, request.config)
+    system_prompt = _build_generate_prompt(request.config)
 
     try:
         from llm.models import Message
 
+        logger.info(
+            "Generating template (doc_len=%d, category=%s)",
+            len(document_text),
+            request.config.category or "general",
+        )
         response_text = llm_client.chat(
             system_prompt=system_prompt,
             messages=[Message(role="user", content=document_text)],
         )
+        logger.debug("LLM raw response length=%d", len(response_text))
         data = _parse_generated_response(response_text)
+        logger.info(
+            "Parsed response: template_id=%s name=%s body_len=%d",
+            data.get("template_id", "N/A"),
+            data.get("name", "N/A"),
+            len(data.get("body", "")),
+        )
     except json.JSONDecodeError as exc:
-        logger.exception("Failed to parse LLM response as JSON")
+        logger.error(
+            "Failed to parse LLM response as JSON. Raw prefix: %s",
+            response_text[:500] if "response_text" in dir() else "N/A",
+        )
         raise HTTPException(
             status_code=500, detail=f"Invalid JSON from LLM: {exc}"
         ) from exc
@@ -270,31 +332,54 @@ async def validate_template(request: ValidateRequest) -> ValidationResultRespons
 async def save_template(request: SaveRequest) -> SaveResponse:
     """Save a generated template to the templates directory.
 
+    Extracts category from the template body comment header and saves
+    to ``data/templates/{category}/{template_id}.j2``. After saving,
+    triggers registry rescan so the new template is immediately available.
+
     Args:
         request: Template ID, body, and overwrite flag.
 
     Returns:
-        SaveResponse with the saved file path.
+        SaveResponse with the saved file path, category, and template ID.
 
     Raises:
         HTTPException: 409 if file exists and overwrite is False.
+
+    Design:
+        plan-j2-generate DC-0092, DC-0093
     """
     template_dir = _get_templates_dir()
-    template_dir.mkdir(parents=True, exist_ok=True)
+    category = _extract_category(request.body)
+
+    # Save to category subdirectory (DC-0092)
+    category_dir = template_dir / category
+    category_dir.mkdir(parents=True, exist_ok=True)
 
     filename = f"{request.template_id}.j2"
-    file_path = template_dir / filename
+    file_path = category_dir / filename
 
     if file_path.exists() and not request.overwrite:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Template already exists: {filename}."
+                f"Template already exists: {category}/{filename}."
                 " Use overwrite=true to replace."
             ),
         )
 
     file_path.write_text(request.body, encoding="utf-8")
-    logger.info("Template saved to %s", file_path)
+    logger.info("Template saved to %s (category=%s)", file_path, category)
 
-    return SaveResponse(saved_path=str(file_path))
+    # Trigger registry rescan so the new template is immediately available (DC-0093)
+    try:
+        new_count = refresh_registry()
+        logger.info("Registry rescanned: %d templates total", new_count)
+    except Exception:
+        logger.exception("Registry rescan failed after save")
+        # Don't fail the save if rescan fails; the template is on disk
+
+    return SaveResponse(
+        saved_path=str(file_path),
+        category=category,
+        template_id=request.template_id,
+    )

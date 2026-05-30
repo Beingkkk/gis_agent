@@ -35,7 +35,7 @@ class TemplateInfo(NamedTuple):
     """Lightweight template metadata for intent classification.
 
     Passed to classify_intent so the LLM prompt includes human-readable
-    names and descriptions, not just bare IDs.
+    names, descriptions, and keywords for semantic matching.
 
     Design: F2, P1
     """
@@ -43,6 +43,7 @@ class TemplateInfo(NamedTuple):
     id: str
     name: str
     description: str
+    keywords: list[str] = []
 
 
 @dataclass(frozen=True)

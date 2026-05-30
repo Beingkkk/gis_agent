@@ -74,7 +74,8 @@ export default function TemplateCardList({
         (t) =>
           t.name.toLowerCase().includes(q) ||
           t.id.toLowerCase().includes(q) ||
-          (t.description || '').toLowerCase().includes(q)
+          (t.description || '').toLowerCase().includes(q) ||
+          (t.keywords || []).some((kw) => kw.toLowerCase().includes(q))
       )
     }
     return list

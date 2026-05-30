@@ -235,9 +235,12 @@ class LLMClient:
             truncated_input = current_input[:max_input_chars]
             # Rebuild messages with truncated input as last message
             result = list(messages)
-            if result and not current_input:
-                # Current input was the last message
-                result[-1] = Message(role="user", content=truncated_input)
+            if result:
+                # Current input was derived from the last message;
+                # replace it with the truncated version.
+                result[-1] = Message(
+                    role=result[-1].role, content=truncated_input
+                )
             return result
 
         # Start with all messages

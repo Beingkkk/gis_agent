@@ -22,11 +22,17 @@ export async function validateTemplate(body: string): Promise<{ valid: boolean; 
   return resp.data
 }
 
+export interface SaveResult {
+  saved_path: string
+  category: string
+  template_id: string
+}
+
 export async function saveTemplate(
   templateId: string,
   body: string,
   overwrite = false
-): Promise<{ saved_path: string }> {
+): Promise<SaveResult> {
   const resp = await apiClient.post('/generator/save', {
     template_id: templateId,
     body,

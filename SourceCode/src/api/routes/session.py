@@ -8,14 +8,14 @@ Design:
     T-UX-02 (DC-UX-02, DC-UX-03)
 """
 
+import asyncio
+import logging
 from pathlib import Path
 from typing import Any, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-
-import asyncio
 
 from api.dependencies import (
     SessionManager,
@@ -27,9 +27,14 @@ from api.dependencies import (
     get_validator,
     update_workspace,
 )
+from core.matching import score_template_match
 from core.models import Session, SessionState
 from core.workspace import WorkspaceNotFoundError
+from llm.intent import classify_intent
+from llm.models import Message, TemplateInfo
 from llm.qa import answer_question
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/session", tags=["session"])
 
@@ -193,6 +198,13 @@ async def create_session(
     return _build_session_response(session_id, session)
 
 
+# Thresholds for two-stage matching
+_KEYWORD_HIGH_THRESHOLD = 8  # ~2-3 keyword hits → strong enough to skip LLM
+_AUTO_SELECT_CONFIDENCE = 0.85  # LLM says clear winner → auto-select
+_STRONG_MATCH_CONFIDENCE = 0.5  # LLM says likely match → show 1 candidate
+_CANDIDATE_POOL_SIZE = 10  # Number of templates fed to LLM
+
+
 @router.post("/{session_id}/intent", response_model=SessionResponse)
 async def process_intent(
     session_id: str,
@@ -201,10 +213,16 @@ async def process_intent(
 ) -> SessionResponse:
     """Process user intent from natural language input.
 
-    Three routes:
-    1. Exact keyword match → PARAM_COLLECT (direct task)
-    2. Exploratory question → IDLE with text reply (Q&A)
-    3. Partial/no match → INTENT_CONFIRM with top-N candidates
+    Two-stage matching:
+    1. Coarse filter: score_template_match on ALL templates (fast, code-level)
+    2. Fine ranking: classify_intent on top-N candidates (LLM semantic match)
+
+    Routes:
+    - Q&A question → IDLE with text reply
+    - Strong keyword match (score ≥ 8) → PARAM_COLLECT (fast path)
+    - LLM confidence ≥ 0.85 → PARAM_COLLECT (auto-select, no user pick)
+    - LLM confidence ≥ 0.5  → INTENT_CONFIRM with top-1 candidate
+    - Otherwise              → INTENT_CONFIRM with top-3 candidates
 
     Args:
         session_id: Session UUID.
@@ -222,22 +240,15 @@ async def process_intent(
     if not user_input_lower:
         return _build_session_response(session_id, session)
 
-    # -- Route 1: Exact keyword match → direct PARAM_COLLECT --
-    for template in registry.list_templates():
-        if template.id.lower() in user_input_lower or template.name.lower() in user_input_lower:
-            new_session = (
-                session.with_state(SessionState.PARAM_COLLECT)
-                .with_template(template)
-                .with_history(
-                    __import__("llm.models", fromlist=["Message"]).Message(
-                        role="user", content=request.input
-                    )
-                )
-            )
-            session_manager.update_session(session_id, new_session)
-            return _build_session_response(session_id, new_session)
+    # --- Phase 0: Score ALL templates once (shared for all routes) ---
+    all_templates = registry.list_templates()
+    scored = [
+        (t, score_template_match(t, user_input)) for t in all_templates
+    ]
+    scored.sort(key=lambda x: x[1], reverse=True)
+    best_score = scored[0][1] if scored else 0
 
-    # -- Route 2: Exploratory question → IDLE Q&A reply --
+    # --- Route 1: Q&A question → IDLE with text reply ---
     _EXPLORATORY_MARKERS = {
         "什么", "哪些", "怎么", "如何", "为什么", "能否", "可以",
         "支持", "介绍", "说明", "解释", "了解", "知道",
@@ -249,29 +260,7 @@ async def process_intent(
     )
 
     if is_question:
-        # -- Route 2a: Q&A via LLM (with template metadata context) --
-        # Find relevant templates as knowledge context
-        all_templates = registry.list_templates()
-
-        def _qa_score(t: Any) -> int:
-            s = 0
-            for word in user_input_lower.split():
-                if len(word) < 2:
-                    continue
-                if word in t.id.lower() or word in t.name.lower():
-                    s += 2
-                if word in (t.description or "").lower():
-                    s += 1
-                for term, _ in t.concepts:
-                    if word in term.lower():
-                        s += 3
-            return s
-
-        scored = [(t, _qa_score(t)) for t in all_templates]
-        scored.sort(key=lambda x: x[1], reverse=True)
         context_templates = [t for t, s in scored if s > 0][:5]
-
-        # Fallback: include a few diverse templates if no match
         if not context_templates and all_templates:
             context_templates = all_templates[:3]
 
@@ -287,9 +276,7 @@ async def process_intent(
                 builder=prompt_builder,
             )
         except Exception as exc:
-            logger = __import__("logging").getLogger(__name__)
             logger.warning("LLM Q&A failed: %s", exc)
-            # Fallback: static helpful reply
             reply = (
                 "抱歉，当前无法调用 LLM 回答你的问题。"
                 "你可以从左栏浏览模板卡片，或直接描述具体数据处理需求。"
@@ -298,53 +285,113 @@ async def process_intent(
         new_session = (
             session.with_state(SessionState.IDLE)
             .with_history(
-                __import__("llm.models", fromlist=["Message"]).Message(
-                    role="user", content=request.input
-                )
+                Message(role="user", content=request.input)
             )
             .with_history(
-                __import__("llm.models", fromlist=["Message"]).Message(
-                    role="agent", content=reply
-                )
+                Message(role="agent", content=reply)
             )
         )
         session_manager.update_session(session_id, new_session)
         return _build_session_response(session_id, new_session)
 
-    # -- Route 3: Partial match → INTENT_CONFIRM with top-N candidates --
-    def _score(template: Any) -> int:
-        """Relevance score: higher = more relevant."""
-        score = 0
-        tid = template.id.lower()
-        tname = template.name.lower()
-        tdesc = (template.description or "").lower()
-        for word in user_input_lower.split():
-            if len(word) < 2:
-                continue
-            if word in tid:
-                score += 3
-            if word in tname:
-                score += 2
-            if word in tdesc:
-                score += 1
-        return score
+    # --- Route 2: Fast path — strong keyword match (score ≥ 8) ---
+    # ~2-3 keyword hits → confident enough to skip LLM
+    if best_score >= _KEYWORD_HIGH_THRESHOLD:
+        best_template = scored[0][0]
+        new_session = (
+            session.with_state(SessionState.PARAM_COLLECT)
+            .with_template(best_template)
+            .with_history(
+                Message(role="user", content=request.input)
+            )
+        )
+        session_manager.update_session(session_id, new_session)
+        return _build_session_response(session_id, new_session)
 
-    all_templates = registry.list_templates()
-    scored = [(t, _score(t)) for t in all_templates]
-    scored.sort(key=lambda x: x[1], reverse=True)
+    # --- Route 3: Two-stage matching (coarse + LLM fine-rank) ---
+    # Build candidate pool from top keyword-scored templates
+    candidate_pool = [t for t, s in scored if s > 0][:_CANDIDATE_POOL_SIZE]
+    if not candidate_pool:
+        candidate_pool = all_templates[:_CANDIDATE_POOL_SIZE]
 
-    # Take top candidates with a score threshold, fallback to first 5
-    top_candidates = [t for t, s in scored if s > 0][:5]
+    # Prepare TemplateInfo for LLM intent classification
+    template_infos = [
+        TemplateInfo(
+            id=t.id,
+            name=t.name,
+            description=t.description,
+            keywords=list(t.keywords),
+        )
+        for t in candidate_pool
+    ]
+
+    # LLM fine-grained ranking within candidate pool
+    llm_result = None
+    try:
+        llm_client = get_llm_client()
+        prompt_builder = get_prompt_builder()
+        llm_result = await asyncio.to_thread(
+            classify_intent,
+            user_input=user_input,
+            available_templates=template_infos,
+            history=list(session.history),
+            client=llm_client,
+            builder=prompt_builder,
+        )
+    except Exception as exc:
+        logger.warning("LLM intent classification failed: %s", exc)
+
+    # --- Decision: auto-select vs. recommend vs. show candidates ---
+
+    # 3a: Absolute advantage — LLM confidence ≥ 0.85 → auto-select
+    if llm_result and llm_result.confidence >= _AUTO_SELECT_CONFIDENCE:
+        selected = registry.get_template(llm_result.template_id)
+        if selected:
+            logger.info(
+                "Auto-selected template '%s' (confidence=%.2f) for: %s",
+                selected.id,
+                llm_result.confidence,
+                user_input,
+            )
+            new_session = (
+                session.with_state(SessionState.PARAM_COLLECT)
+                .with_template(selected)
+                .with_history(
+                    Message(role="user", content=request.input)
+                )
+            )
+            session_manager.update_session(session_id, new_session)
+            return _build_session_response(session_id, new_session)
+
+    # 3b: Strong match — LLM confidence ≥ 0.5 → show top-1 as primary
+    if llm_result and llm_result.confidence >= _STRONG_MATCH_CONFIDENCE:
+        selected = registry.get_template(llm_result.template_id)
+        if selected:
+            # Include selected as first, plus next best keyword candidates
+            top_candidates = [selected]
+            for t, s in scored:
+                if t.id != selected.id and len(top_candidates) < 3:
+                    top_candidates.append(t)
+            new_session = (
+                session.with_state(SessionState.INTENT_CONFIRM)
+                .with_candidates(top_candidates)
+                .with_history(
+                    Message(role="user", content=request.input)
+                )
+            )
+            session_manager.update_session(session_id, new_session)
+            return _build_session_response(session_id, new_session)
+
+    # 3c: Weak/unknown match → show top-3 keyword candidates
+    top_candidates = [t for t, s in scored if s > 0][:3]
     if not top_candidates:
-        top_candidates = all_templates[:5]
+        top_candidates = all_templates[:3]
 
     new_session = (
         session.with_state(SessionState.INTENT_CONFIRM)
         .with_candidates(top_candidates)
         .with_history(
-            __import__("llm.models", fromlist=["Message"]).Message(
-                role="user", content=request.input
-            )
+            Message(role="user", content=request.input)
         )
     )
     session_manager.update_session(session_id, new_session)

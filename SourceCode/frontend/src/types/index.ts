@@ -48,6 +48,7 @@ export interface TemplateDef {
   category: string
   tool_source: string
   tags: string[]
+  keywords?: string[]
 }
 
 export interface ParamDef {
@@ -56,6 +57,7 @@ export interface ParamDef {
   required: boolean
   description: string
   default?: string
+  options?: string[]
 }
 
 export interface ConceptItem {

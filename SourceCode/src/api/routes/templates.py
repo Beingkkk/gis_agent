@@ -31,6 +31,7 @@ class ParamDefResponse(BaseModel):
     required: bool
     description: str
     default: Optional[str] = None
+    options: list[str] = []
 
 
 class ConceptItemResponse(BaseModel):
@@ -56,6 +57,7 @@ class TemplateDefResponse(BaseModel):
     category: str
     tool_source: str
     tags: list[str]
+    keywords: list[str] = []
 
 
 class TemplateDetailResponse(BaseModel):
@@ -67,6 +69,7 @@ class TemplateDetailResponse(BaseModel):
     category: str
     tool_source: str
     tags: list[str]
+    keywords: list[str] = []
     params: list[ParamDefResponse]
     concepts: list[ConceptItemResponse]
     notes: list[str]
@@ -114,6 +117,7 @@ def _build_template_def_response(template: TemplateDef) -> dict[str, Any]:
         "category": _infer_category(template.template_file),
         "tool_source": "GDAL",
         "tags": [],
+        "keywords": list(template.keywords),
     }
 
 
@@ -135,6 +139,7 @@ def _build_template_detail_response(template: TemplateDef) -> TemplateDetailResp
             required=p.required,
             description=p.description,
             default=p.default,
+            options=list(p.options),
         )
         for p in template.params
     ]
@@ -156,6 +161,7 @@ def _build_template_detail_response(template: TemplateDef) -> TemplateDetailResp
         category=category,
         tool_source="GDAL",
         tags=[],
+        keywords=list(template.keywords),
         params=params,
         concepts=concepts,
         notes=list(template.notes),

@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
+from core.matching import find_matching_templates
 from core.models import ExecutionErrorContext, Session, SessionState
 from core.registry import TemplateRegistry
 from core.validator import ParamValidator
@@ -105,35 +106,17 @@ class SessionProcessor:
     ) -> list["TemplateDef"]:
         """Find templates that likely match the user's question.
 
-        Uses keyword matching against template id, name, description,
-        and concepts. Returns up to *top_n* candidates.
+        Delegates to ``core.matching.find_matching_templates`` for
+        unified scoring (keywords, concepts, id/name/description, notes).
 
         Design:
-            ADR-0001
+            DC-0094
         """
-        all_templates = self._registry.list_templates()
-        user_lower = user_input.lower()
-        scored: list[tuple[int, "TemplateDef"]] = []
-
-        for t in all_templates:
-            score = 0
-            # Match against id, name, description
-            for field in (t.id.lower(), t.name.lower(), t.description.lower()):
-                if any(word in field for word in user_lower.split()):
-                    score += 1
-            # Match against concepts
-            for term, expl in t.concepts:
-                if term.lower() in user_lower or expl.lower() in user_lower:
-                    score += 2
-            # Match against notes
-            for note in t.notes:
-                if any(word in note.lower() for word in user_lower.split()):
-                    score += 1
-            if score > 0:
-                scored.append((score, t))
-
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return [t for _, t in scored[:top_n]]
+        return find_matching_templates(
+            self._registry.list_templates(),
+            user_input,
+            top_n=top_n,
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -186,7 +169,12 @@ class SessionProcessor:
 
         available = self._registry.list_templates()
         template_infos = [
-            TemplateInfo(id=t.id, name=t.name, description=t.description)
+            TemplateInfo(
+                id=t.id,
+                name=t.name,
+                description=t.description,
+                keywords=list(t.keywords),
+            )
             for t in available
         ]
         # Add virtual QA template so LLM can route questions
@@ -196,6 +184,7 @@ class SessionProcessor:
                 id="__qa__",
                 name="文档问答",
                 description="回答用户关于GIS工具、格式、参数的使用问题",
+                keywords=["问答", "帮助", "说明", "解释"],
             ),
         )
 

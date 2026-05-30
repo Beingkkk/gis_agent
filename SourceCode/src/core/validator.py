@@ -127,13 +127,22 @@ class ParamValidator:
     def _get_validator(
         self, param_type: str
     ) -> Callable[[ParamDef, str], ValidationResult]:
-        """Return the validator function for the given parameter type."""
+        """Return the validator function for the given parameter type.
+
+        Design:
+            DC-0042, DC-0093
+        """
         validators = {
             "file_path": self._validate_file_path,
+            "folder_path": self._validate_folder_path,
             "crs": self._validate_crs,
             "string": self._validate_string,
+            "text": self._validate_string,
             "boolean": self._validate_boolean,
             "integer": self._validate_integer,
+            "float": self._validate_float,
+            "enum": self._validate_enum,
+            "format": self._validate_enum,
         }
         return validators.get(param_type, self._validate_string)
 
@@ -185,6 +194,70 @@ class ParamValidator:
                 False,
                 f"参数 '{param_def.name}': 整数格式无效",
             )
+
+    def _validate_float(self, param_def: ParamDef, value: str) -> ValidationResult:
+        """Validate float: must be parseable as float.
+
+        Design:
+            DC-0093
+        """
+        try:
+            float(value)
+            return (True, None)
+        except ValueError:
+            return (
+                False,
+                f"参数 '{param_def.name}': 浮点数格式无效",
+            )
+
+    def _validate_enum(self, param_def: ParamDef, value: str) -> ValidationResult:
+        """Validate enum/format: value must be in options list.
+
+        Empty options list accepts any value (backward compatibility).
+
+        Design:
+            DC-0093
+        """
+        if not param_def.options:
+            return (True, None)
+
+        if value in param_def.options:
+            return (True, None)
+
+        return (
+            False,
+            f"参数 '{param_def.name}': 值必须是 "
+            f"{', '.join(param_def.options)} 之一",
+        )
+
+    def _validate_folder_path(
+        self, param_def: ParamDef, value: str
+    ) -> ValidationResult:
+        """Validate folder path: non-empty, must_exist check via workspace.
+
+        When must_exist is True, also verifies the path is a directory.
+
+        Design:
+            DC-0093
+        """
+        if not value:
+            return (False, f"参数 '{param_def.name}' 不能为空")
+
+        if param_def.must_exist:
+            try:
+                resolved = self._workspace.resolve_path(value, must_exist=True)
+                if not resolved.is_dir():
+                    return (
+                        False,
+                        f"参数 '{param_def.name}': 路径不是目录",
+                    )
+            except PathNotFoundError as exc:
+                return (
+                    False,
+                    f"参数 '{param_def.name}': 目录不存在 ({exc})",
+                )
+
+        return (True, None)
 
     # ------------------------------------------------------------------
     # Helpers

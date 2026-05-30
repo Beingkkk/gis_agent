@@ -14,30 +14,40 @@ export default function GeneratorPage() {
   const [validation, setValidation] = useState<{ valid: boolean; errors: string[] } | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [savedPath, setSavedPath] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editedBody, setEditedBody] = useState('')
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  // Get the effective template body (edited or original)
+  const effectiveBody = editedBody || generated?.body || ''
 
   const handleGenerate = async () => {
     if (!documentText.trim()) return
     setIsLoading(true)
+    setErrorMsg(null)
     try {
       const result = await generateTemplate(documentText, {
         category,
         tool_source: toolSource,
       })
       setGenerated(result)
+      setEditedBody(result.body)
+      setIsEditing(false)
       setStep(3)
-    } catch (e) {
+    } catch (e: any) {
       console.error('生成失败:', e)
-      alert('生成失败，请检查输入')
+      const msg = e.response?.data?.detail || e.message || '未知错误'
+      setErrorMsg(`生成失败: ${msg}`)
     } finally {
       setIsLoading(false)
     }
   }
 
   const handleValidate = async () => {
-    if (!generated) return
+    if (!effectiveBody) return
     setIsLoading(true)
     try {
-      const result = await validateTemplate(generated.body)
+      const result = await validateTemplate(effectiveBody)
       setValidation(result)
       setStep(4)
     } catch (e) {
@@ -47,20 +57,55 @@ export default function GeneratorPage() {
     }
   }
 
+  const handleRevalidate = async () => {
+    if (!effectiveBody) return
+    setIsLoading(true)
+    try {
+      const result = await validateTemplate(effectiveBody)
+      setValidation(result)
+      // Stay on step 3, show validation inline
+      alert(result.valid ? '校验通过' : `校验未通过:\n${result.errors.join('\n')}`)
+    } catch (e) {
+      console.error('重新验证失败:', e)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleSave = async () => {
-    if (!generated) return
+    if (!generated || !effectiveBody) return
     setIsLoading(true)
     try {
       const result = await saveTemplate(
         generated.template_id,
-        generated.body,
+        effectiveBody,
         false
       )
       setSavedPath(result.saved_path)
       setStep(5)
-    } catch (e) {
+    } catch (e: any) {
       console.error('保存失败:', e)
-      alert('保存失败，可能模板已存在')
+      if (e.response?.status === 409) {
+        const ok = window.confirm('模板已存在，是否覆盖？')
+        if (ok) {
+          try {
+            const result = await saveTemplate(
+              generated.template_id,
+              effectiveBody,
+              true
+            )
+            setSavedPath(result.saved_path)
+            setStep(5)
+            return
+          } catch (e2) {
+            console.error('覆盖保存失败:', e2)
+            alert('覆盖保存失败')
+            return
+          }
+        }
+      } else {
+        alert('保存失败')
+      }
     } finally {
       setIsLoading(false)
     }
@@ -123,6 +168,12 @@ export default function GeneratorPage() {
       {/* Content */}
       <main className="flex-1 overflow-y-auto p-6">
         <div className="max-w-3xl mx-auto">
+          {/* Global error banner */}
+          {errorMsg && (
+            <div className="mb-4 rounded-lg bg-red-50 border border-red-200 p-4">
+              <p className="text-sm font-medium text-red-700">{errorMsg}</p>
+            </div>
+          )}
           {/* Step 1: Document input */}
           {step === 1 && (
             <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
@@ -140,7 +191,7 @@ export default function GeneratorPage() {
               />
               <div className="flex justify-end">
                 <button
-                  onClick={() => setStep(2)}
+                  onClick={() => { setErrorMsg(null); setStep(2) }}
                   disabled={!documentText.trim()}
                   className="rounded-md bg-primary-600 px-6 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
                 >
@@ -186,7 +237,7 @@ export default function GeneratorPage() {
               </div>
               <div className="flex justify-between">
                 <button
-                  onClick={() => setStep(1)}
+                  onClick={() => { setErrorMsg(null); setStep(1) }}
                   className="rounded-md border border-gray-300 px-6 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
                 >
                   上一步
@@ -241,17 +292,46 @@ export default function GeneratorPage() {
               </div>
 
               <div>
-                <h3 className="text-sm font-medium text-gray-700 mb-2">
-                  模板体
-                </h3>
-                <pre className="bg-gray-900 text-gray-100 p-3 text-xs font-mono rounded-md overflow-x-auto whitespace-pre-wrap max-h-[300px] overflow-y-auto">
-                  {generated.body}
-                </pre>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-gray-700">
+                    模板体
+                  </h3>
+                  <button
+                    onClick={() => setIsEditing(!isEditing)}
+                    className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                  >
+                    {isEditing ? '取消编辑' : '编辑模板'}
+                  </button>
+                </div>
+
+                {isEditing ? (
+                  <div className="space-y-2">
+                    <textarea
+                      value={editedBody}
+                      onChange={(e) => setEditedBody(e.target.value)}
+                      className="w-full h-[300px] rounded-md border border-gray-300 p-3 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+                      spellCheck={false}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={handleRevalidate}
+                        disabled={isLoading}
+                        className="rounded-md border border-primary-600 px-4 py-1.5 text-xs font-medium text-primary-600 hover:bg-primary-50 disabled:opacity-50"
+                      >
+                        {isLoading ? '校验中...' : '重新校验'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <pre className="bg-gray-900 text-gray-100 p-3 text-xs font-mono rounded-md overflow-x-auto whitespace-pre-wrap max-h-[300px] overflow-y-auto">
+                    {effectiveBody}
+                  </pre>
+                )}
               </div>
 
               <div className="flex justify-between">
                 <button
-                  onClick={() => setStep(2)}
+                  onClick={() => { setErrorMsg(null); setStep(2) }}
                   className="rounded-md border border-gray-300 px-6 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
                 >
                   上一步
@@ -300,7 +380,7 @@ export default function GeneratorPage() {
 
               <div className="flex justify-between">
                 <button
-                  onClick={() => setStep(3)}
+                  onClick={() => { setErrorMsg(null); setStep(3) }}
                   className="rounded-md border border-gray-300 px-6 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
                 >
                   上一步
@@ -340,6 +420,11 @@ export default function GeneratorPage() {
               <p className="text-sm text-gray-500">
                 保存路径: {savedPath}
               </p>
+              <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 mx-auto max-w-md">
+                <p className="text-xs text-blue-700">
+                  新模板已加入模板库，返回主应用即可使用
+                </p>
+              </div>
               <div className="flex justify-center gap-3">
                 <Link
                   to="/"
@@ -354,6 +439,8 @@ export default function GeneratorPage() {
                     setGenerated(null)
                     setValidation(null)
                     setSavedPath(null)
+                    setIsEditing(false)
+                    setEditedBody('')
                   }}
                   className="rounded-md border border-gray-300 px-6 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
                 >

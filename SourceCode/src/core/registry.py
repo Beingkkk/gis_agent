@@ -34,6 +34,11 @@ class TemplateRegistry:
         self._template_dir = template_dir
         self._registry: dict[str, TemplateDef] = {t.id: t for t in templates}
 
+    @property
+    def template_dir(self) -> Path:
+        """模板文件根目录。"""
+        return self._template_dir
+
     def get_template(self, template_id: str) -> Optional[TemplateDef]:
         """按 ID 获取模板定义。
 
@@ -91,3 +96,22 @@ class TemplateRegistry:
         if template is None:
             raise KeyError(f"Template not found: {template_id}")
         return (self._template_dir / template.template_file).resolve()
+
+    def rescan(self) -> int:
+        """运行时重新扫描模板目录，重建内存索引。
+
+        重新调用 ``scan_templates(self._template_dir)``，用新扫描结果
+        替换内部 ``_registry``。返回重扫描后的模板总数。
+
+        Returns:
+            本次重扫描后注册表中的模板总数。
+
+        Design:
+            plan-core DC-0095
+        """
+        # Delayed import to avoid circular dependency at module level
+        from templates.scanner import scan_templates
+
+        templates = scan_templates(self._template_dir)
+        self._registry = {t.id: t for t in templates}
+        return len(self._registry)

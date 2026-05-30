@@ -30,7 +30,7 @@ class ParamDef:
     """Parameter definition (from template registry).
 
     Design:
-        DC-0041
+        DC-0041, DC-0091
     """
 
     name: str
@@ -39,6 +39,7 @@ class ParamDef:
     description: str
     default: Optional[str] = None
     must_exist: bool = False
+    options: List[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,7 @@ class TemplateDef:
     """Template definition (from template registry).
 
     Design:
-        DC-0041, DC-0055
+        DC-0041, DC-0055, DC-0090
     """
 
     id: str
@@ -59,6 +60,7 @@ class TemplateDef:
     notes: List[str] = field(default_factory=list)
     seealso: List[str] = field(default_factory=list)
     common_errors: List[tuple[str, str]] = field(default_factory=list)
+    keywords: List[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

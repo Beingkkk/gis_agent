@@ -38,15 +38,13 @@ Document/constitution.md  →  Document/spec.md  →  Document/plan-*.md  →  S
 Strict layered architecture. Upper layers may call lower layers; **reverse dependencies are prohibited**.
 
 ```
-Frontend (frontend/)    → React + TypeScript + Vite browser UI               [done]
-API layer (api/)        → FastAPI REST + WebSocket adapters for browser UI    [done]
-CLI layer (cli/)        → REPL, slash commands, script execution              [done]
-Core layer (core/)      → workspace, template registry, param validator,
-                          session processor                                   [done]
-App layer (llm/)        → LLM interaction, intent classification,
-                          template-knowledge Q&A                              [done]
-Infra layer             → anthropic SDK, jinja2, GDAL CLI                     [done]
-Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker [done]
+Frontend (frontend/)    → React + TypeScript + Vite browser UI
+API layer (api/)        → FastAPI REST + WebSocket adapters
+CLI layer (cli/)        → REPL, slash commands, script execution
+Core layer (core/)      → workspace, template registry, param validator, session processor
+App layer (llm/)        → LLM interaction, intent classification, template-knowledge Q&A
+Infra layer             → anthropic SDK, jinja2, GDAL CLI
+Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker
 ```
 
 **Dependency rules**:
@@ -56,7 +54,7 @@ Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker 
 - `core/` may depend on `llm/`, `templates/`
 - `llm/` may depend on `core/` (for `TemplateDef` knowledge metadata in Q&A)
 - `templates/` may depend on `core/` (models + workspace)
-- `scripts/generate/` is a development-time tool, not a runtime layer. It imports from `rag.preprocess`, `llm.client`, `templates.engine`, `templates.scanner`.
+- `scripts/generate/` is a development-time tool, not a runtime layer
 - External library types must not leak upward through layer boundaries
 
 **Key design patterns**:
@@ -65,104 +63,49 @@ Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker 
 - LLM calls (`anthropic`) are encapsulated in `llm/` only (CODE-3)
 - Session is immutable — every state transition returns a new `Session` instance via `with_*` methods
 
-## Implemented Modules
+## Module Design (Cross-Cutting Concerns)
 
-### config (`SourceCode/src/config/`)
+Use `codegraph_search` to find specific functions. The following are design patterns that require reading multiple files to understand.
 
-Configuration loading with validation and environment variable overrides.
+### Session State Machine
 
-- `load_config(path)` → `Config` dataclass
-- `get_config()` → global singleton
-- Supports `GISAGENT_*` env overrides
-- **Note**: Module uses `from config import ...` imports (not `from src.config`), because `SourceCode/src/` is added to `PYTHONPATH` at runtime.
-- **Security**: `config.json` is gitignored; use `config.json.template` as reference.
+`SessionState` has 6 states: `IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW → EXECUTING → ERROR_RECOVERY`.
 
-### api (`SourceCode/src/api/`)
+- **CLI**: `SessionProcessor` (in `core/processor.py`) drives the full state machine single-threaded. `_handle_error_recovery()` performs LLM diagnosis and parses user text choices ("1"/"2"/"3").
+- **Web UI**: The API routes (`api/routes/session.py`) handle state transitions via REST. `EXECUTING` is special — the `websocket/execute.py` handler runs the script asynchronously, then updates the session state: success → `IDLE` (clear history + error, per DC-0067); failure → `ERROR_RECOVERY` with `ExecutionErrorContext` (DC-0048). The frontend then calls `POST /session/{id}/diagnose` to trigger lazy LLM diagnosis (plan-core DC-0049).
 
-FastAPI REST + WebSocket adapter layer for the browser UI. Reuses core/llm/templates; does not duplicate business logic.
+### Two-Stage Intent Matching (DC-0098)
 
-- **`main.py`** — FastAPI app factory, CORS, route registration, dependency initialization
-- **`dependencies.py`** — Singleton DI: `SessionManager`, `TemplateRegistry`, `ParamValidator`, `TemplateEngine`, `LLMClient`, `PromptBuilder`, `Workspace`
-- **`routes/session.py`** — Session lifecycle: create, intent (two-stage matching DC-0098: keyword coarse filter → LLM fine-rank → auto-decision by confidence), lock, params, execute trigger, clear, **workspace update**
-- **`routes/templates.py`** — Template listing and detail queries
-- **`routes/pipeline.py`** — Pipeline preview and execution
-- **`routes/generator.py`** — J2 template generator API
-- **`websocket/chat.py`** — Streaming Q&A WebSocket
-- **`websocket/execute.py`** — Real-time script execution log WebSocket
+`api/routes/session.py::process_intent` implements a two-stage pipeline:
+1. **Coarse filter**: `core/matching.score_template_match()` on ALL templates (fast, code-level). Weights: keywords=+3, concepts=+2, id/name/description/notes=+1.
+2. **Fine rank**: `llm.intent.classify_intent()` on top-10 candidates (LLM semantic match).
+3. **Auto-decision** by confidence: ≥0.85 → `PARAM_COLLECT`; ≥0.50 → `INTENT_CONFIRM` (top-1 + alternates); <0.50 → `INTENT_CONFIRM` (top-3 keyword candidates).
 
-### rag (`SourceCode/src/rag/`)
+The same `score_template_match()` scoring is reused by Q&A context selection (`llm/qa.py`).
 
-**Removed per ADR-0001.** The runtime retriever (`rag.retriever`) has been deleted. Only `rag.preprocess` remains as a development tool for batch-generating J2 templates from GDAL HTML documentation.
+### ERROR_RECOVERY in the Browser UI
 
-- `rag.preprocess` — HTML parsing, semantic chunking, JSON output (development-only)
+Unlike the CLI where `SessionProcessor._handle_error_recovery()` drives the entire recovery loop, the Web UI splits it across three pieces:
+1. **Backend websocket**: `websocket/execute.py` sets `ERROR_RECOVERY` + basic `ExecutionErrorContext` (stdout/stderr/returncode/duration_ms, diagnosis=None).
+2. **Backend diagnose endpoint**: `POST /session/{id}/diagnose` lazily triggers `llm.diagnosis.analyze_execution_error()`, populates `error_context.diagnosis` (cause, suggestion, fixed_params, confidence, can_auto_fix), and caches the result.
+3. **Frontend DetailPanel**: `ERROR_RECOVERY` state renders a diagnosis panel (loading spinner → diagnosis result → repair options: re-execute / edit params / abandon).
 
-### llm (`SourceCode/src/llm/`)
+### Template System
 
-LLM interaction layer — the only module allowed to call the anthropic SDK (CODE-3).
+Templates are discovered by scanning `.j2` files at startup (`templates/scanner.py` parses Jinja2 comment headers: `{# @id ... #}`, `{# @param ... #}`, `{# @concept ... #}`, `{# @note ... #}`, `{# @seealso ... #}`, `{# @common_error ... #}`, `{# @keyword ... #}`). No JSON registry — add a file and restart.
 
-- `LLMClient` — Anthropic SDK wrapper with exponential backoff retry (max 3), token budget truncation (FIFO, 8000 token limit)
-- `PromptBuilder` — Dynamic system prompt assembly: safety constraints + Agents.md + template knowledge context + task context
-- `classify_intent()` — Maps user input to predefined template ID with confidence
-- `extract_params()` — Extracts template parameters, identifies missing required fields
-- `answer_question()` — Template-knowledge-based Q&A: basic concepts from LLM parametric knowledge; usage guidance from template metadata (`@concept`, `@note`, `@common_error`). Supports streaming via optional `on_chunk` callback (DC-0069)
-- `chat_stream()` — Streaming LLM response via Anthropic SDK `stream=True` (DC-0068)
-- `analyze_execution_error()` — LLM-driven execution error diagnosis: takes ExecutionResult + template context, returns structured `ErrorDiagnosis` (cause, suggestion, fixed_params, confidence, can_auto_fix). Includes markdown JSON stripping, fallback on parse failure, illegal key filtering, and low-confidence can_auto_fix enforcement (DC-0036)
+The J2 template generator (`scripts/generate/`) is a **development-time only** batch tool (DC-0080) that converts GDAL HTML docs to `.j2` files via two-phase LLM workflow (generate → review, DC-0081).
 
-### core (`SourceCode/src/core/`)
+### Frontend State Architecture
 
-Business logic core. All exposed through `core/__init__.py`.
+- `useSession` (Zustand) holds minimal UI state: `sessionId`, `state`, `taskContext`, `messages`, `scriptPreview`, `errorContext`, `workspace`.
+- Every API call returns a `SessionSnapshot`; the frontend replaces its state wholesale (DC-UX-03).
+- HTTP for state transitions (intent/lock/params/clear/workspace). WebSocket for LLM streaming Q&A (`/ws/chat/{id}`) and real-time execution logs (`/ws/execute/{id}`).
+- After WebSocket execution completes, frontend calls `GET /session/{id}` to refresh the updated state.
 
-- **`models.py`** — `SessionState` (6-state Enum: IDLE, INTENT_CONFIRM, PARAM_COLLECT, SCRIPT_PREVIEW, EXECUTING, ERROR_RECOVERY), `Session` (immutable dataclass with `with_*` methods), `ParamDef`, `TemplateDef`, `ExecutionErrorContext`
-- **`workspace.py`** — `Workspace(root)`, `resolve_path()` (normalization, no scope restriction v2.0), `generate_output_path()` (timestamp), `load_agents_md()`, `save_agents_md()` (append content, auto-create file with header), singleton via `initialize()` / `get_workspace()`, `change_workspace()` for runtime switching
-- **`registry.py`** — `TemplateRegistry(templates, template_dir)` — in-memory dict index from scanner results
-- **`matching.py`** — `score_template_match()`, `find_matching_templates()` — unified template matching scoring (DC-0094). Weights: keywords=+3, concepts=+2, id/name/description/notes=+1. Used by API `process_intent` (two-stage matching, DC-0098) and Q&A context selection.
-- **`validator.py`** — `ParamValidator(workspace)` — type-specific validation chain: `file_path`, `folder_path`, `crs`, `string`, `text`, `boolean`, `integer`, `float`, `enum`, `format`. `must_exist` field on `ParamDef` controls existence checks. No "path sandbox" validation — workspace is not a security boundary. `enum`/`format` values checked against `ParamDef.options`. `text` shares `string` validator. `folder_path` checks `is_dir()` when `must_exist=True`.
-- **`processor.py`** — `SessionProcessor(registry, validator, template_engine, llm_client, prompt_builder, output_fn=None)` — state machine dispatcher: IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW → EXECUTING → (失败) → ERROR_RECOVERY. CLI layer uses `classify_intent()` on ALL templates (single-stage, DC-0044). `_handle_script_preview()` generates script text only; Y/N confirmation lives in CLI layer. Q&A route (`__qa__` template) uses `_find_matching_templates()` (delegates to `core.matching`, DC-0094) → `answer_question()` with optional `on_chunk` for streaming output (DC-0070). `_handle_error_recovery()` performs LLM diagnosis and presents repair options (auto-fix / manual edit / abandon). Execution acts as a natural breakpoint: success → full session reset; failure → history cleared, task context preserved (DC-0067).
+### GeneratorPage (J2 Template Wizard)
 
-### templates (`SourceCode/src/templates/`)
-
-Template engine and scanner. Exposed through `templates/__init__.py`.
-
-- **`engine.py`** — `TemplateEngine(template_dir, workspace)` — Jinja2 rendering with `quote` and `safe_path` filters. `ScriptSecurityChecker` post-render validation for dangerous patterns.
-- **`scanner.py`** — `scan_templates(template_dir)` → `List[TemplateDef]` — parses Jinja2 comment headers (`{# @id ... #}`, `{# @param ... #}`, `{# @concept ... #}`, `{# @note ... #}`, `{# @seealso ... #}`, `{# @common_error ... #}`) from `.j2` files. Stores `template_file` as a path relative to `template_dir` (e.g. `vector/shp2geojson.j2`).
-
-### cli (`SourceCode/src/cli/`)
-
-User interaction layer. Exposed through `cli/__init__.py`.
-
-- **`main.py`** — Entry point: parses args → loads config → initializes workspace → scans templates → builds processor → starts REPL
-- **`repl.py`** — `REPL` class: input loop, slash command dispatch, state machine integration, SCRIPT_PREVIEW Y/N confirmation, script execution with formatted output. Exposes `output_fn` property for streaming Q&A injection into processor (DC-0071)
-- **`commands.py`** — `SlashCommandHandler`: `/quit`, `/clear`, `/workspace`, `/templates`, `/status`, `/init` (persist session to Agents.md), `/help`
-- **`executor.py`** — `ScriptExecutor` with `ExecutionResult`: subprocess execution with timeout (300s), cwd=workspace.root, stdout/stderr capture
-- **`args.py`** — `argparse` wrapper for `--workspace`, `--config`, `--dry-run`
-
-### frontend (`SourceCode/frontend/`)
-
-React + TypeScript + Vite browser UI. Communicates with `api/` via HTTP/WebSocket.
-
-- **`src/api/`** — axios client, session/template/pipeline/generator API wrappers
-- **`src/components/`** — Layout, NavSidebar, ChatArea, ChatMessage, TemplateCardList, DetailPanel, ParamForm, ScriptPreview
-  - `ParamForm` renders differentiated controls by param type: `enum`/`format` → `<select>` with options, `text` → `<textarea rows=4>`, `float` → `<input type="number" step="any">`, `integer` → `<input type="number" step="1">`, `boolean` → `<select>` (是/否), `file_path`/`folder_path`/`string` → `<input type="text">` + browse button (DC-0095)
-  - `TemplateCardList` search filters by `name`, `id`, `description`, **and `keywords`** (DC-0096)
-- **`src/hooks/`** — `useSession` (Zustand store), `useWebSocket`
-- **`src/pages/`** — MainPage, PipelinePage, GeneratorPage
-- **`src/types/`** — TypeScript interfaces shared with backend API responses
-- **Tailwind CSS** with custom blue-600 primary theme matching UX prototype
-
-### generate (`SourceCode/scripts/generate/`)
-
-**Development-time tool only (DC-0080).** Batch J2 template generator from GDAL HTML documentation. Not a runtime module.
-
-- **`generate_templates.py`** — Main CLI entry. Orchestrates the full pipeline: HTML parse → LLM generate → LLM review → J2 render → scan validation
-- **`extractor.py`** — HTML parsing, structured text extraction from GDAL program docs
-- **`generator.py`** — LLM generation phase: produces `TemplateDefinition` (JSON) from extracted text
-- **`reviewer.py`** — LLM review phase: quality checks the generated `TemplateDefinition`
-- **`renderer.py`** — Jinja2 rendering of the final `.j2` file from the validated definition
-- **`models.py`** — `TemplateDefinition`, `ReviewReport`, `GenerationResult` dataclasses
-- **`state.py`** — Breakpoint-resume tracking via `.generate_state.json`
-- **`queue.py`** — Failed/needs-review entries logged to `.review_queue.jsonl` for human triage
-
-**Key design**: Two-phase LLM workflow (DC-0081) — generation and review are separate prompts. Files failing either phase enter the review queue rather than being discarded. The tool skips already-processed files on restart (state tracking).
+Five-step wizard at `/generator`: Document input → Config → Preview → Review → Save. Step 3 features a Monaco-style code editor (dark theme, line numbers, Tab indentation), inline Jinja2 syntax highlighting, and live re-validation. Step 5 shows a hot-reload confirmation (backend calls `refresh_registry()` on save, new template is immediately available without restart).
 
 ## CodeGraph
 
@@ -232,14 +175,11 @@ pytest tests/unit/test_something.py -v
 # Run a single test function
 pytest tests/unit/test_something.py::test_function_name -v
 
-# Run generate module tests
-pytest tests/unit/test_generate_models.py -v
-
 # Quick LLM end-to-end test (requires valid API key)
 python scripts/test_e2e_qa.py
 ```
 
-**pytest 工作目录约束**：测试路径 `tests/unit/` 是相对于 `SourceCode/` 解析的。在 `SourceCode/` 外运行 `pytest` 会因找不到测试文件而失败。始终在 `SourceCode/` 内执行测试命令。
+**pytest working directory constraint**: Test paths `tests/unit/` are resolved relative to `SourceCode/`. Running `pytest` outside `SourceCode/` fails because it cannot find the test files. Always execute test commands from within `SourceCode/`.
 
 ### Frontend
 
@@ -300,7 +240,7 @@ python scripts/generate_templates.py \
   --output data/templates/ \
   --config config/config.json
 
-# Dry-run preview of template generation
+# Dry-run preview
 python scripts/generate_templates.py --source ... --output ... --dry-run
 
 # Force re-run (ignore breakpoint state)
@@ -333,53 +273,30 @@ Hard constraints from `Document/spec.md`:
 - **P4 (Template knowledge only)**: Usage guidance knowledge comes exclusively from J2 template metadata (`@concept`, `@note`, `@common_error`); basic concepts may be answered from LLM parametric knowledge. No external API calls for knowledge.
 - **P5 (Minimal deps)**: Production dependencies are locked to `anthropic`, `jinja2`
 
-## Important Files
+## Key Files
+
+These files are referenced frequently enough to be worth remembering, or they embody cross-cutting design decisions not obvious from the filename alone.
 
 | File | Why It Matters |
 |------|---------------|
-| `Document/spec.md` | Source of all requirements; every design decision must trace back to a requirement ID (e.g., `F1`, `F3`) |
-| `Document/constitution.md` | Development constitution; defines specification-driven workflow, coding standards, quality gates, security red lines |
-| `Document/plan-core.md` | Core module design (DC-0040~0049, DC-0070, DC-0094, DC-0098) — SessionProcessor, TemplateRegistry, ParamValidator, Session, Workspace, matching engine, two-stage intent matching |
-| `Document/plan-cli.md` | CLI module design (DC-0060~0067, DC-0071) — REPL, ScriptExecutor, SlashCommandHandler, `/init` command, streaming output wiring |
-| `Document/plan-llm.md` | LLM module design (DC-0030~0036, DC-0068~0069) — LLMClient, PromptBuilder, classify_intent, extract_params, answer_question, analyze_execution_error, chat_stream |
-| `Document/plan-ux.md` | UX design (DC-UX-01~07) — React + FastAPI browser UI, Session state mapping, WebSocket streaming, Pipeline UI, J2 template generator UI |
-| `Document/plan-j2-generate.md` | J2 template batch generator design (DC-0080~0081) — two-phase LLM workflow (generate → review), HTML extraction, state tracking, review queue. Development-time tool only |
-| `Document/ADR-0001-remove-rag.md` | Architecture decision: removed RAG runtime, migrated knowledge source to J2 template metadata |
-| ~~`Document/plan-rag.md`~~ | ~~Deprecated~~ — RAG runtime removed per ADR-0001; `rag.preprocess` remains as development tool |
-| `Document/plan-templates.md` | Template engine design (DC-0050~0054) — TemplateEngine, scanner, security checker |
-| `SourceCode/config/config.json.template` | Configuration template; copy to `config.json` and set credentials. Note: template still contains deprecated `embedding`/`rag` sections, but code no longer reads them (ADR-0001) |
-| `SourceCode/src/api/routes/session.py` | Session state machine REST API — **two-stage matching** (keyword coarse filter → LLM fine-rank → auto-decision by confidence, DC-0098), workspace switching, candidate scoring |
-| `SourceCode/src/api/dependencies.py` | FastAPI dependency injection singletons; `update_workspace()` recreates ParamValidator + TemplateEngine on workspace switch |
-| `SourceCode/src/core/processor.py` | Session state machine — central orchestrator (CLI layer). Uses `classify_intent` on ALL templates (single-stage, DC-0044) |
-| `SourceCode/src/core/matching.py` | Unified template matching: `score_template_match()` + `find_matching_templates()`. Weights: keywords=+3, concepts=+2, id/name/description/notes=+1. Used by API two-stage matching (DC-0094, DC-0098) and Q&A context selection |
-| `SourceCode/src/core/models.py` | SessionState, Session, ParamDef, TemplateDef dataclasses |
-| `SourceCode/src/core/registry.py` | TemplateRegistry — in-memory index of scanned templates |
-| `SourceCode/src/core/validator.py` | ParamValidator — type-specific validation: `file_path`, `folder_path`, `crs`, `string`, `text`, `boolean`, `integer`, `float`, `enum`, `format`. `enum`/`format` checked against `ParamDef.options` |
-| `SourceCode/src/core/workspace.py` | Workspace management: path normalization, timestamps, Agents.md load/save, runtime `change_workspace()` |
-| `SourceCode/src/templates/engine.py` | Jinja2 template rendering with quote/safe_path filters and post-render security check |
-| `SourceCode/src/templates/scanner.py` | .j2 file scanner — parses Jinja2 comment headers into TemplateDef |
-| `SourceCode/src/llm/client.py` | Anthropic SDK wrapper with retry and token truncation |
-| `SourceCode/src/llm/intent.py` | Intent classification (`classify_intent`) |
-| `SourceCode/src/llm/params.py` | Parameter extraction (`extract_params`) |
-| `SourceCode/src/llm/qa.py` | Template-knowledge-based Q&A (`answer_question`, ADR-0001) |
-| `SourceCode/src/llm/diagnosis.py` | Execution error diagnosis (`analyze_execution_error`, DC-0036) |
-| `SourceCode/frontend/src/pages/MainPage.tsx` | Main browser UI page — session lifecycle, template selection, param submission, script execution |
-| `SourceCode/frontend/src/components/TemplateCardList.tsx` | Left sidebar template cards with search, category filter, template ID display |
-| `SourceCode/frontend/src/components/ChatArea.tsx` | Chat messages + workspace path editor in header |
-| `SourceCode/frontend/tailwind.config.js` | Tailwind theme: blue-600 primary, custom shadows/radii matching UX prototype |
-| `SourceCode/scripts/generate_templates.py` | Main CLI for batch J2 template generation from GDAL HTML docs |
-| `SourceCode/scripts/generate/generator.py` | LLM generation phase: HTML text → `TemplateDefinition` JSON |
-| `SourceCode/scripts/generate/reviewer.py` | LLM review phase: quality gate for generated template definitions |
-| `SourceCode/scripts/generate/renderer.py` | Renders final `.j2` file from validated `TemplateDefinition` |
-| `SourceCode/scripts/generate/state.py` | Breakpoint-resume state tracking (`.generate_state.json`) |
-| `SourceCode/scripts/generate/queue.py` | Failed entry tracking (`.review_queue.jsonl`) |
-| `SourceCode/data/gdal-docs-chunks.json` | Development reference: GDAL documentation chunks for batch J2 template generation (not used at runtime) |
-| `SourceCode/tasks/tasks-core.md` | Core implementation task breakdown (T-CORE-01~05) |
-| `SourceCode/tasks/tasks-cli.md` | CLI implementation task breakdown (T-CLI-01~10) |
+| `Document/constitution.md` | Source of truth for workflow rules (RED-1: no code without plan), quality gates, change control |
+| `Document/spec.md` | All requirements trace back here (F1-F11, P1-P5, UX-1~3) |
+| `Document/plan-core.md` | ERROR_RECOVERY design (DC-0048/DC-0049), matching engine (DC-0094), two-stage matching (DC-0098) |
+| `Document/plan-ux.md` | WebSocket streaming (DC-UX-04/05), state→UI mapping, Pipeline/Generator UX |
+| `src/api/routes/session.py` | Two-stage intent matching API (DC-0098) + `POST /diagnose` for lazy error diagnosis |
+| `src/api/websocket/execute.py` | Execution breakpoint: success→IDLE / failure→ERROR_RECOVERY (DC-0048/DC-0067) |
+| `src/core/processor.py` | CLI state machine dispatcher; `_handle_error_recovery()` is the CLI-side diagnosis driver |
+| `src/core/matching.py` | Unified template matching scoring (keywords=+3, concepts=+2, id/name/desc/notes=+1) |
+| `src/llm/diagnosis.py` | `analyze_execution_error()` — LLM error diagnosis returning structured `ErrorDiagnosis` |
+| `frontend/src/pages/MainPage.tsx` | Main UI orchestrator: session lifecycle, WebSocket execution, state refresh |
+| `frontend/src/components/DetailPanel.tsx` | Right-panel state renderer: ParamForm / ScriptPreview / ERROR_RECOVERY diagnosis |
+| `frontend/src/components/TemplateCardList.tsx` | Left sidebar with client-side search (name/id/description/keywords, DC-0096) |
+| `frontend/src/pages/GeneratorPage.tsx` | Five-step J2 wizard: Monaco-style editor, inline Jinja2 highlight, live re-validation |
+| `src/templates/scanner.py` | `.j2` file scanner — parses comment headers into `TemplateDef` at startup |
 
 ## Adding New Templates
 
-New GDAL workflows are added by creating a `.j2` file in `SourceCode/data/templates/` with a Jinja2 comment header. The scanner (`templates.scanner`) parses the header at startup — no JSON registry edit needed.
+New GDAL workflows are added by creating a `.j2` file in `SourceCode/data/templates/` with a Jinja2 comment header. The scanner parses the header at startup — no JSON registry edit needed.
 
 **Comment header format**:
 ```jinja2

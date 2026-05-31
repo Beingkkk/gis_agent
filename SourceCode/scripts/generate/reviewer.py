@@ -254,8 +254,23 @@ class LLMTemplateReviewer:
                 ],
             )
 
-        if strict and result.issues:
-            # Any issue in strict mode = not passed
+        # Non-strict mode: only errors cause rejection, warnings are informational
+        if not strict:
+            errors = [i for i in result.issues if i.severity == "error"]
+            if not errors:
+                return ReviewResult(
+                    passed=True,
+                    issues=result.issues,
+                    suggested_fix=result.suggested_fix,
+                )
+            return ReviewResult(
+                passed=False,
+                issues=errors,
+                suggested_fix=result.suggested_fix,
+            )
+
+        # Strict mode: any issue causes rejection
+        if result.issues:
             return ReviewResult(
                 passed=False,
                 issues=result.issues,

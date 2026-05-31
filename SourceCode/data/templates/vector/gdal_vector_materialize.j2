@@ -1,24 +1,24 @@
 {# @id gdal_vector_materialize #}
 {# @name 矢量数据物化 #}
-{# @description 将管道中的矢量数据集持久化到磁盘以提高后续处理效率 #}
-{# @keyword materialize #}
-{# @keyword 持久化 #}
-{# @keyword pipeline #}
-{# @keyword 缓存 #}
+{# @description 将管道中的矢量数据集物化到磁盘以提高后续处理效率 #}
 {# @keyword gpkg #}
-{# @keyword geojson #}
-{# @keyword 优化 #}
-{# @concept "materialize 操作是 GDAL 管道中的专用步骤，用于将前面管道步骤的结果物化到磁盘，相比实时计算可显著提升后续处理性能" #}
-{# @concept "默认情况下，物化数据以 GeoPackage（.gpkg）格式存储，若输入数据包含 GeoPackage 不支持的功能则会自动改用 Spatialite 格式" #}
-{# @note 未指定输出路径时，物化文件默认存储在 CPL_TMPDIR 配置目录，管道执行完毕后自动清理 #}
-{# @note 显式指定输出文件路径后，该文件会保留而不会被自动删除 #}
+{# @keyword geopackage #}
+{# @keyword pipeline #}
+{# @keyword materialize #}
+{# @keyword 物化 #}
+{# @keyword 磁盘 #}
+{# @keyword 性能优化 #}
+{# @concept "物化操作是将管道中的中间数据集写入磁盘存储，避免后续步骤重复计算，从而提升大规模数据处理性能" #}
+{# @concept "默认情况下，工具使用 GeoPackage 格式存储物化数据；若输入数据包含 GeoPackage 不支持的特性，则自动使用 Spatialite 格式" #}
+{# @note 未指定输出路径时，物化文件默认创建在 CPL_TMPDIR 配置的目录或当前目录，管道执行完毕后自动删除 #}
+{# @note 显式指定输出文件名后，该物化文件不会自动删除，便于后续访问和使用 #}
 {# @seealso ogr2ogr_convert #}
-{# @common_error "File creation failed" — 磁盘空间不足或指定目录无写入权限 #}
-{# @common_error "Format not supported" — 指定的输出格式无法兼容输入数据的某些特性（如特定几何类型或坐标系） #}
-{# @param output file_path optional 物化输出数据集的文件路径 #}
-{# @param of format optional 输出格式名称 default=GPKG options=GPKG,GeoJSON,ESRI Shapefile,SQLite,GML,DXF #}
-{# @param co text optional 数据集创建选项（KEY=VALUE格式，可重复使用） #}
-{# @param lco text optional 图层创建选项（KEY=VALUE格式，可重复使用） #}
+{# @common_error "Unsupported operation on dataset" — 指定的输出格式无法支持输入数据的某些特性（如特殊几何类型、坐标系等），可尝试更换输出格式 #}
+{# @common_error "dataset exists and overwrite is not specified" — 输出数据集已存在但未启用 --overwrite 选项，需显式添加覆盖参数或更换输出路径 #}
+{# @param output file_path optional 物化输出数据集的文件名路径 #}
+{# @param of format optional 输出格式名称 default=GPKG options=GPKG,ESRI Shapefile,GeoJSON,GML,KML,SQLite #}
+{# @param co text optional 数据源创建选项（格式为 KEY=VALUE，可重复） #}
+{# @param lco text optional 图层创建选项（格式为 KEY=VALUE，可重复） #}
 {# @param overwrite boolean optional 是否允许覆盖已存在的输出数据集 #}
 
 @echo off

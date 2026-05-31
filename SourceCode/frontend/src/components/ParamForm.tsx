@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import type { ParamDef } from '../types'
 
 interface ParamFormProps {
@@ -21,6 +21,9 @@ export default function ParamForm({
     }
     return v
   })
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const dirInputRef = useRef<HTMLInputElement>(null)
+  const [activeBrowseParam, setActiveBrowseParam] = useState<string | null>(null)
 
   const handleChange = (name: string, value: string) => {
     setValues((prev) => ({ ...prev, [name]: value }))
@@ -29,6 +32,47 @@ export default function ParamForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     onSubmit(values)
+  }
+
+  const handleBrowseClick = (paramName: string, isDir: boolean) => {
+    setActiveBrowseParam(paramName)
+    const input = isDir ? dirInputRef.current : fileInputRef.current
+    input?.click()
+  }
+
+  const handleFileSelect = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    isDir: boolean,
+  ) => {
+    const files = e.target.files
+    if (files && files.length > 0 && activeBrowseParam) {
+      const file = files[0]
+      let path = ''
+      const filePath = (file as any).path as string | undefined
+      if (filePath) {
+        if (isDir) {
+          const relPath = file.webkitRelativePath || ''
+          if (relPath) {
+            const dirName = relPath.split('/')[0]
+            const fullDir = filePath
+              .substring(0, filePath.lastIndexOf(relPath))
+              .replace(/[/\\]$/, '')
+            path = fullDir ? `${fullDir}/${dirName}` : dirName
+          } else {
+            path = filePath
+          }
+        } else {
+          path = filePath
+        }
+      } else if (file.webkitRelativePath) {
+        path = file.webkitRelativePath.split('/')[0]
+      } else {
+        path = file.name
+      }
+      handleChange(activeBrowseParam, path)
+    }
+    setActiveBrowseParam(null)
+    e.target.value = ''
   }
 
   // Calculate fill status
@@ -45,6 +89,20 @@ export default function ParamForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Hidden file inputs for browse buttons */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        onChange={(e) => handleFileSelect(e, false)}
+      />
+      <input
+        ref={dirInputRef}
+        type="file"
+        className="hidden"
+        onChange={(e) => handleFileSelect(e, true)}
+        {...({ webkitdirectory: '', directory: '' } as any)}
+      />
       {/* Fill status bar */}
       {!allOptional && (
         <div className="flex items-center justify-between mb-4">
@@ -173,6 +231,12 @@ export default function ParamForm({
                 {(param.type === 'file_path' || param.type === 'folder_path') && (
                   <button
                     type="button"
+                    onClick={() =>
+                      handleBrowseClick(
+                        param.name,
+                        param.type === 'folder_path',
+                      )
+                    }
                     className="absolute right-1.5 top-1/2 -translate-y-1/2 bg-white border border-slate-200 rounded-md px-2 py-[3px] text-[10.5px] text-slate-400 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-all"
                   >
                     浏览

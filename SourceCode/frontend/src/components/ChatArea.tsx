@@ -44,6 +44,7 @@ export default function ChatArea({
   const [isEditingWorkspace, setIsEditingWorkspace] = useState(false)
   const [workspaceInput, setWorkspaceInput] = useState('')
   const workspaceInputRef = useRef<HTMLInputElement>(null)
+  const dirInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -86,6 +87,39 @@ export default function ChatArea({
     }
   }
 
+  const handleBrowseClick = () => {
+    dirInputRef.current?.click()
+  }
+
+  const handleDirectorySelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files && files.length > 0) {
+      const file = files[0]
+      let path = ''
+      const filePath = (file as any).path as string | undefined
+      if (filePath) {
+        const relPath = file.webkitRelativePath || ''
+        if (relPath) {
+          const dirName = relPath.split('/')[0]
+          const fullDir = filePath
+            .substring(0, filePath.lastIndexOf(relPath))
+            .replace(/[/\\]$/, '')
+          path = fullDir ? `${fullDir}/${dirName}` : dirName
+        } else {
+          path = filePath
+        }
+      } else if (file.webkitRelativePath) {
+        path = file.webkitRelativePath.split('/')[0]
+      } else {
+        path = file.name
+      }
+      if (path) {
+        setWorkspaceInput(path)
+      }
+    }
+    e.target.value = ''
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Chat Header */}
@@ -100,7 +134,7 @@ export default function ChatArea({
         <div className="flex items-center gap-2">
           {/* Workspace path — editable */}
           {isEditingWorkspace ? (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <input
                 ref={workspaceInputRef}
                 type="text"
@@ -109,21 +143,39 @@ export default function ChatArea({
                 onKeyDown={handleWorkspaceKeyDown}
                 onBlur={handleWorkspaceSubmit}
                 placeholder="输入工作空间路径..."
-                className="h-7 w-56 border border-slate-200 rounded-md px-2 text-xs bg-slate-50 focus:border-blue-500 focus:outline-none focus:ring-[2px] focus:ring-blue-500/8"
+                className="h-8 w-80 border border-slate-200 rounded-md px-2.5 text-xs bg-slate-50 focus:border-blue-500 focus:outline-none focus:ring-[2px] focus:ring-blue-500/8 font-mono"
+              />
+              <button
+                type="button"
+                onClick={handleBrowseClick}
+                className="h-8 px-2.5 rounded-md bg-white text-slate-500 text-[11px] hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-colors border border-slate-200 font-medium"
+              >
+                浏览
+              </button>
+              <input
+                ref={dirInputRef}
+                type="file"
+                className="hidden"
+                onChange={handleDirectorySelect}
+                {...({ webkitdirectory: '', directory: '' } as any)}
               />
             </div>
           ) : (
             <button
               onClick={handleWorkspaceClick}
-              className="flex items-center gap-1 text-xs text-slate-400 hover:text-blue-600 transition-colors group"
+              className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-blue-600 transition-colors group px-2.5 py-1.5 rounded-md hover:bg-blue-50/60 border border-transparent hover:border-blue-100"
               title="点击切换工作空间"
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-300 group-hover:text-blue-500">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400 group-hover:text-blue-500">
                 <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
               </svg>
-              <span className="max-w-[180px] truncate font-mono">
+              <span className="font-mono max-w-[300px] truncate" title={workspace || '未设置工作空间'}>
                 {workspace || '未设置工作空间'}
               </span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-300 group-hover:text-blue-400 ml-0.5">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
             </button>
           )}
 

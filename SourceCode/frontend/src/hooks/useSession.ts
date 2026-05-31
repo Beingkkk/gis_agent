@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   CandidateTemplate,
   TemplateDef,
+  ErrorContext,
 } from '../types'
 
 interface SessionStore {
@@ -20,6 +21,7 @@ interface SessionStore {
   messages: ChatMessage[]
   lockedTemplateId: string | null
   scriptPreview: string | null
+  errorContext: ErrorContext | null
   isLoading: boolean
   templates: TemplateDef[]
   workspace: string | null
@@ -39,6 +41,7 @@ const initialState = {
   messages: [] as ChatMessage[],
   lockedTemplateId: null,
   scriptPreview: null,
+  errorContext: null as ErrorContext | null,
   isLoading: false,
   templates: [] as TemplateDef[],
   workspace: null as string | null,
@@ -53,6 +56,7 @@ export const useSession = create<SessionStore>((set) => ({
       state: snapshot.state,
       taskContext: snapshot.task_context,
       scriptPreview: snapshot.script_preview,
+      errorContext: snapshot.error_context,
       messages: snapshot.history,
       lockedTemplateId: snapshot.task_context.template_id,
       workspace: snapshot.workspace,

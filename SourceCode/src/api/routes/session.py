@@ -28,10 +28,11 @@ from api.dependencies import (
     update_workspace,
 )
 from core.matching import score_template_match
-from core.models import Session, SessionState
+from core.models import ExecutionErrorContext, Session, SessionState
 from core.workspace import WorkspaceNotFoundError
+from llm.diagnosis import analyze_execution_error
 from llm.intent import classify_intent
-from llm.models import Message, TemplateInfo
+from llm.models import ErrorDiagnosis, Message, TemplateInfo
 from llm.qa import answer_question
 
 logger = logging.getLogger(__name__)
@@ -153,12 +154,30 @@ def _build_session_response(session_id: str, session: Session) -> SessionRespons
 
     workspace_path = str(get_workspace().root)
 
+    # Build error_context if in ERROR_RECOVERY state
+    error_context: Optional[dict[str, Any]] = None
+    if session.error_context is not None:
+        error_context = {
+            "returncode": session.error_context.returncode,
+            "stdout": session.error_context.stdout,
+            "stderr": session.error_context.stderr,
+            "duration_ms": session.error_context.duration_ms,
+        }
+        if session.error_context.diagnosis is not None:
+            error_context["diagnosis"] = {
+                "cause": session.error_context.diagnosis.cause,
+                "suggestion": session.error_context.diagnosis.suggestion,
+                "fixed_params": dict(session.error_context.diagnosis.fixed_params),
+                "confidence": session.error_context.diagnosis.confidence,
+                "can_auto_fix": session.error_context.diagnosis.can_auto_fix,
+            }
+
     return SessionResponse(
         session_id=session_id,
         state=session.state.name,
         task_context=task_context,
         script_preview=script_preview,
-        error_context=None,
+        error_context=error_context,
         history=history,
         workspace=workspace_path,
     )
@@ -540,6 +559,30 @@ async def execute_script(
     )
 
 
+@router.get("/{session_id}", response_model=SessionResponse)
+async def get_session(
+    session_id: str,
+    session_manager: SessionManager = Depends(get_session_manager),
+) -> SessionResponse:
+    """Get current session snapshot.
+
+    Used by the frontend to refresh state after async operations
+    such as WebSocket script execution.
+
+    Args:
+        session_id: Session UUID.
+        session_manager: SessionManager dependency.
+
+    Returns:
+        Current SessionResponse snapshot.
+
+    Raises:
+        HTTPException: 404 if session not found.
+    """
+    session = _get_session_or_404(session_id, session_manager)
+    return _build_session_response(session_id, session)
+
+
 @router.post("/{session_id}/clear", response_model=SessionResponse)
 async def clear_session(
     session_id: str,
@@ -559,6 +602,140 @@ async def clear_session(
     cleared = session_manager.get_session(session_id)
     assert cleared is not None
     return _build_session_response(session_id, cleared)
+
+
+def _build_diagnosis_context(session: Session) -> str:
+    """Build diagnosis context string for LLM error analysis.
+
+    Mirrors processor.py::_build_diagnosis_context (DC-0049).
+
+    Args:
+        session: Current Session with template and params.
+
+    Returns:
+        Context string for analyze_execution_error().
+    """
+    template = session.template
+    if template is None:
+        return "模板信息不可用。"
+
+    param_lines: list[str] = []
+    for p in template.params:
+        tag = "必填" if p.required else "可选"
+        if p.default is not None:
+            tag += f"，默认 {p.default}"
+        param_lines.append(f"  • {p.name}（{tag}，类型 {p.type}）：{p.description}")
+
+    current_lines: list[str] = []
+    for name, value in session.params.items():
+        current_lines.append(f"    {name} = {value}")
+
+    try:
+        engine = get_template_engine()
+        rendered = engine.render(template, session.params)
+        script_content = rendered.content.strip()
+    except Exception:
+        script_content = "（脚本渲染失败）"
+
+    return (
+        f"【模板信息】\n"
+        f"名称：{template.name}\n"
+        f"描述：{template.description}\n\n"
+        f"【参数定义】\n"
+        + "\n".join(param_lines)
+        + "\n\n"
+        + "【当前参数值】\n"
+        + "\n".join(current_lines)
+        + "\n\n"
+        + "【渲染后脚本】\n"
+        + script_content
+        + "\n"
+    )
+
+
+@router.post("/{session_id}/diagnose", response_model=SessionResponse)
+async def diagnose_execution(
+    session_id: str,
+    session_manager: SessionManager = Depends(get_session_manager),
+) -> SessionResponse:
+    """Trigger LLM diagnosis for the current execution error.
+
+    Called by the frontend when session enters ERROR_RECOVERY with
+    error_context.diagnosis = None. Performs LLM-driven analysis of
+    the execution failure and stores the result back into the session.
+
+    Args:
+        session_id: Session UUID.
+        session_manager: SessionManager dependency.
+
+    Returns:
+        Updated SessionResponse with diagnosis in error_context.
+
+    Raises:
+        HTTPException: 404 if session not found, 400 if not in
+            ERROR_RECOVERY or diagnosis already exists.
+
+    Design:
+        plan-core DC-0049, plan-ux §4.1
+    """
+    session = _get_session_or_404(session_id, session_manager)
+
+    if session.state != SessionState.ERROR_RECOVERY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Session not in ERROR_RECOVERY state: {session.state.name}",
+        )
+
+    error_ctx = session.error_context
+    if error_ctx is None:
+        raise HTTPException(
+            status_code=400, detail="No error context in session"
+        )
+
+    if error_ctx.diagnosis is not None:
+        # Diagnosis already performed — return cached result
+        return _build_session_response(session_id, session)
+
+    # First-time diagnosis: build context and call LLM
+    diagnosis_context = _build_diagnosis_context(session)
+    try:
+        diagnosis = await asyncio.to_thread(
+            analyze_execution_error,
+            returncode=error_ctx.returncode,
+            stdout=error_ctx.stdout,
+            stderr=error_ctx.stderr,
+            diagnosis_context=diagnosis_context,
+            history=list(session.history),
+            client=get_llm_client(),
+            builder=get_prompt_builder(),
+        )
+    except Exception as exc:
+        logger.error("LLM diagnosis failed: %s", exc)
+        diagnosis = ErrorDiagnosis(
+            cause="诊断失败，无法自动分析错误原因。",
+            suggestion="请检查上方错误输出，或尝试手动修改参数后重试。",
+            fixed_params={},
+            confidence=0.0,
+            can_auto_fix=False,
+        )
+
+    # Update session with diagnosis result
+    new_error_ctx = ExecutionErrorContext(
+        returncode=error_ctx.returncode,
+        stdout=error_ctx.stdout,
+        stderr=error_ctx.stderr,
+        duration_ms=error_ctx.duration_ms,
+        diagnosis=diagnosis,
+    )
+    new_session = session.with_error(new_error_ctx)
+    session_manager.update_session(session_id, new_session)
+    logger.info(
+        "Execution diagnosis completed (session=%s, can_auto_fix=%s)",
+        session_id,
+        diagnosis.can_auto_fix,
+    )
+
+    return _build_session_response(session_id, new_session)
 
 
 @router.post("/{session_id}/workspace", response_model=SessionResponse)

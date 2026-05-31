@@ -10,6 +10,11 @@ export async function createSession(
   return resp.data
 }
 
+export async function getSession(sessionId: string): Promise<SessionSnapshot> {
+  const resp = await apiClient.get(`/session/${sessionId}`)
+  return resp.data
+}
+
 export async function processIntent(
   sessionId: string,
   input: string
@@ -60,5 +65,12 @@ export async function updateWorkspace(
   const resp = await apiClient.post(`/session/${sessionId}/workspace`, {
     path,
   })
+  return resp.data
+}
+
+export async function diagnoseSession(
+  sessionId: string
+): Promise<SessionSnapshot> {
+  const resp = await apiClient.post(`/session/${sessionId}/diagnose`)
   return resp.data
 }

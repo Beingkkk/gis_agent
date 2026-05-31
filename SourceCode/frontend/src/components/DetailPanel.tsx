@@ -1,4 +1,4 @@
-import type { TemplateDetail } from '../types'
+import type { TemplateDetail, ErrorContext } from '../types'
 import ParamForm from './ParamForm'
 import ScriptPreview from './ScriptPreview'
 
@@ -7,6 +7,7 @@ interface DetailPanelProps {
   templateDetail: TemplateDetail | null
   paramValues: Record<string, string>
   scriptPreview: string | null
+  errorContext: ErrorContext | null
   onLockTemplate: (templateId: string) => void
   onSubmitParams: (params: Record<string, string>) => void
   onExecute: () => void
@@ -19,6 +20,7 @@ export default function DetailPanel({
   templateDetail,
   paramValues,
   scriptPreview,
+  errorContext,
   onLockTemplate,
   onSubmitParams,
   onExecute,
@@ -90,6 +92,123 @@ export default function DetailPanel({
             onEdit={onEditParams}
             onCancel={onCancel}
           />
+        </div>
+      </div>
+    )
+  }
+
+  if (state === 'ERROR_RECOVERY' && errorContext) {
+    const diagnosis = errorContext.diagnosis
+    const isDiagnosing = diagnosis === null || diagnosis === undefined
+    return (
+      <div className="flex flex-col h-full">
+        {/* Error Banner */}
+        <div
+          className="px-[18px] py-3.5 border-b border-red-200 flex items-center justify-between"
+          style={{
+            background: 'linear-gradient(135deg, #fef2f2 0%, #fef2f2 100%)',
+          }}
+        >
+          <div className="text-[12.5px] font-medium flex items-center gap-2">
+            <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <strong className="text-red-700">执行失败</strong>
+            <span className="text-[11px] text-red-400 font-mono">rc={errorContext.returncode}</span>
+          </div>
+          <button
+            onClick={onCancel}
+            className="text-[11px] font-medium px-2.5 py-[5px] rounded-md border border-red-200 text-red-600 hover:bg-red-50 transition-all"
+          >
+            放弃
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-[18px] py-4 space-y-4">
+          {/* Diagnosis */}
+          {isDiagnosing ? (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 flex items-center gap-3">
+              <div className="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-amber-800">正在分析错误原因...</p>
+                <p className="text-xs text-amber-600 mt-0.5">LLM 诊断中，请稍候</p>
+              </div>
+            </div>
+          ) : diagnosis ? (
+            <div className="rounded-lg bg-red-50 border border-red-200 p-4">
+              <h3 className="text-sm font-semibold text-red-800 mb-2">诊断结果</h3>
+              <div className="space-y-2">
+                <div>
+                  <span className="text-[11px] font-medium text-red-600 uppercase">根因</span>
+                  <p className="text-sm text-red-700 mt-0.5">{diagnosis.cause}</p>
+                </div>
+                <div>
+                  <span className="text-[11px] font-medium text-red-600 uppercase">建议</span>
+                  <p className="text-sm text-red-700 mt-0.5">{diagnosis.suggestion}</p>
+                </div>
+                {diagnosis.can_auto_fix && (
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <svg className="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-xs font-medium text-emerald-700">可自动修复</span>
+                    {Object.keys(diagnosis.fixed_params).length > 0 && (
+                      <span className="text-xs text-emerald-600">
+                        ({Object.entries(diagnosis.fixed_params).map(([k, v]) => `${k}=${v}`).join(', ')})
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Error output */}
+          {(errorContext.stderr || errorContext.stdout) && (
+            <div>
+              <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-[0.8px] mb-2">
+                错误输出
+              </h3>
+              <div className="bg-[#0f172a] rounded-lg overflow-hidden">
+                <pre className="text-slate-300 p-3 text-[11px] font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-[200px] overflow-y-auto">
+                  {errorContext.stderr || errorContext.stdout}
+                </pre>
+              </div>
+            </div>
+          )}
+
+          {/* Recovery options */}
+          <div className="space-y-2 pt-2">
+            <button
+              onClick={onExecute}
+              className="w-full h-10 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-all shadow-[0_1px_4px_rgba(16,185,129,0.2)] flex items-center justify-center gap-1.5"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+              重新执行
+            </button>
+            <button
+              onClick={onEditParams}
+              className="w-full h-10 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-all flex items-center justify-center gap-1.5"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+              修改参数
+            </button>
+            <button
+              onClick={onCancel}
+              className="w-full h-10 rounded-xl border border-red-200 text-sm font-medium text-red-600 hover:bg-red-50 transition-all flex items-center justify-center gap-1.5"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+              </svg>
+              放弃任务
+            </button>
+          </div>
         </div>
       </div>
     )

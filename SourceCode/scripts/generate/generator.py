@@ -152,20 +152,106 @@ def _extract_template_vars(command_template: str) -> set[str]:
     return (template_vars | if_vars) - {"endif"}
 
 
+def _fix_json_keys(text: str) -> str:
+    """Fix unquoted JSON object keys in LLM output.
+
+    LLMs sometimes output {name: "value"} instead of {"name": "value"}.
+    This fixes the most common cases while preserving already-quoted keys.
+    """
+    # Fix 1: keys immediately after { or , (most common pattern)
+    fixed = re.sub(r'(?<=[{,])\s*([a-zA-Z_]\w*)\s*:', r'"\1":', text)
+    # Fix 2: keys at start of line (indented object members)
+    fixed = re.sub(r'(^|\n)\s*([a-zA-Z_]\w*)\s*:', r'\1"\2":', fixed)
+    return fixed
+
+
+def _parse_json_forgiving(text: str) -> dict[str, Any]:
+    """Parse JSON with multiple fallback strategies for LLM output.
+
+    Tries: direct parse → fix bare keys → extract {...} block → fix bare keys on extracted.
+    Raises JSONDecodeError if all strategies fail.
+    """
+    cleaned = _strip_markdown_json(text)
+
+    strategies = [cleaned]
+
+    # Fix bare keys
+    fixed = _fix_json_keys(cleaned)
+    if fixed != cleaned:
+        strategies.append(fixed)
+
+    # Extract first {...} block
+    first_brace = cleaned.find("{")
+    last_brace = cleaned.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        extracted = cleaned[first_brace : last_brace + 1]
+        strategies.append(extracted)
+        fixed_extracted = _fix_json_keys(extracted)
+        if fixed_extracted != extracted:
+            strategies.append(fixed_extracted)
+
+    last_error: json.JSONDecodeError | None = None
+    for attempt, candidate in enumerate(strategies):
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            logger.debug("JSON parse strategy %d failed: %s", attempt + 1, exc)
+            continue
+
+    raise last_error  # type: ignore[return-value]
+
+
+def _sanitize_param(param: ParamDef) -> ParamDef:
+    """Fix common param issues from LLM generation."""
+    # Fix 1: required=True with default -> make non-required
+    if param.required and param.default is not None:
+        logger.info(
+            "Fixing param '%s': required=true but has default, setting required=false",
+            param.name,
+        )
+        param = ParamDef(
+            name=param.name,
+            type=param.type,
+            required=False,
+            description=param.description,
+            default=param.default,
+            options=param.options,
+        )
+
+    # Fix 2: enum/format without options -> add placeholder
+    if param.type in ("enum", "format") and not param.options:
+        logger.info(
+            "Fixing param '%s': %s type has empty options, adding placeholder",
+            param.name,
+            param.type,
+        )
+        param = ParamDef(
+            name=param.name,
+            type=param.type,
+            required=param.required,
+            description=param.description,
+            default=param.default,
+            options=["(see documentation)"],
+        )
+
+    return param
+
+
 def _parse_template_def(raw_json: str) -> TemplateDefinition:
     """Parse LLM JSON output into TemplateDefinition.
 
     Auto-completes missing params referenced in command_template
-    to reduce bulk-generation failures.
+    and sanitizes common param issues to reduce bulk-generation failures.
     """
-    cleaned = _strip_markdown_json(raw_json)
-    data = json.loads(cleaned)
+    data = _parse_json_forgiving(raw_json)
 
     params_raw = data.get("params") or []
-    params = [_parse_param(p) for p in params_raw if p is not None]
+    params = [_sanitize_param(_parse_param(p)) for p in params_raw if p is not None]
     param_names = {p.name for p in params}
 
-    # Auto-complete undeclared template variables as optional string params
+    # Auto-complete undeclared template variables as optional boolean params
+    # (boolean is the safest guess for flags used in {% if %} blocks)
     command_template = data["command_template"]
     undeclared = _extract_template_vars(command_template) - param_names
     if undeclared:
@@ -178,7 +264,7 @@ def _parse_template_def(raw_json: str) -> TemplateDefinition:
             params.append(
                 ParamDef(
                     name=name,
-                    type="string",
+                    type="boolean",
                     required=False,
                     description="(auto-completed)",
                 )

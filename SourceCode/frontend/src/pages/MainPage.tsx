@@ -7,11 +7,13 @@ import { useSession } from '../hooks/useSession'
 import { useWebSocket } from '../hooks/useWebSocket'
 import {
   createSession,
+  getSession,
   processIntent,
   lockTemplate,
   submitParams,
   clearSession,
   updateWorkspace,
+  diagnoseSession,
 } from '../api/session'
 import { listTemplates, getTemplate } from '../api/templates'
 import type { TemplateDef, TemplateDetail } from '../types'
@@ -24,6 +26,7 @@ export default function MainPage() {
     messages,
     templates,
     scriptPreview,
+    errorContext,
     isLoading,
     workspace,
     setSession,
@@ -195,8 +198,35 @@ export default function MainPage() {
               ...prev,
               msg.success
                 ? '✅ 执行完成'
-                : `❌ 执行失败: ${msg.error || '未知错误'}`,
+                : `❌ 执行失败 (返回码: ${msg.returncode || '未知'})`,
             ])
+            // Refresh session state from backend after execution completes
+            // Backend updates session to IDLE (success) or ERROR_RECOVERY (failure)
+            if (sessionId) {
+              getSession(sessionId)
+                .then((snapshot) => {
+                  setSession(snapshot)
+                  if (!msg.success) {
+                    // Execution failed → backend set state to ERROR_RECOVERY
+                    // If diagnosis not yet performed, trigger LLM diagnosis (DC-0049)
+                    if (
+                      snapshot.error_context?.diagnosis === null ||
+                      snapshot.error_context?.diagnosis === undefined
+                    ) {
+                      diagnoseSession(sessionId)
+                        .then((diagnosed) => {
+                          setSession(diagnosed)
+                        })
+                        .catch((e) => console.error('诊断失败:', e))
+                    }
+                  } else {
+                    // Execution succeeded → backend set state to IDLE
+                    setSelectedTemplate(null)
+                    setExecLog([])
+                  }
+                })
+                .catch((e) => console.error('刷新会话状态失败:', e))
+            }
           } else if (msg.type === 'error') {
             setExecLog((prev) => [...prev, `❌ ${msg.message || '错误'}`])
           }
@@ -280,6 +310,7 @@ export default function MainPage() {
           templateDetail={selectedTemplate}
           paramValues={taskContext?.params || {}}
           scriptPreview={scriptPreview}
+          errorContext={errorContext}
           onLockTemplate={(id) =>
             sessionId && lockTemplate(sessionId, id).then(setSession)
           }

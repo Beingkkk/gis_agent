@@ -28,6 +28,12 @@ export interface SessionSnapshot {
   workspace: string
 }
 
+export interface TimelineStep {
+  order: number
+  template_name: string
+  status: 'pending' | 'running' | 'done' | 'error'
+}
+
 export interface ChatMessage {
   role: 'user' | 'agent'
   content: string
@@ -35,10 +41,20 @@ export interface ChatMessage {
   meta?: Record<string, unknown>
 }
 
+export interface ErrorDiagnosis {
+  cause: string
+  suggestion: string
+  fixed_params: Record<string, string>
+  confidence: number
+  can_auto_fix: boolean
+}
+
 export interface ErrorContext {
-  message: string
-  cause?: string
-  suggestion?: string
+  returncode: number
+  stdout: string
+  stderr: string
+  duration_ms: number
+  diagnosis: ErrorDiagnosis | null
 }
 
 export interface TemplateDef {

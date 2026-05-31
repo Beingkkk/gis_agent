@@ -103,6 +103,68 @@ export default function ChatMessage({
     )
   }
 
+  if (message.type === 'timeline' && message.meta?.steps) {
+    const steps = message.meta.steps as Array<{
+      order: number
+      template_name: string
+      status: 'pending' | 'running' | 'done' | 'error'
+    }>
+    return (
+      <div className="flex gap-2.5 max-w-[92%] animate-[msgIn_0.3s_cubic-bezier(0.4,0,0.2,1)]">
+        <div
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5"
+          style={{
+            background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+            color: '#fff',
+            boxShadow: '0 1px 4px rgba(37,99,235,0.2)',
+          }}
+        >
+          AI
+        </div>
+        <div className="flex-1 w-full">
+          {message.content && (
+            <div className="bg-white px-4 py-3 rounded-2xl rounded-tl-sm border border-slate-200 text-[13.5px] leading-relaxed text-slate-900 shadow-sm mb-2">
+              {message.content}
+            </div>
+          )}
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <div className="flex items-center gap-1">
+              {steps.map((step, i) => (
+                <div key={step.order} className="flex items-center gap-1 flex-1">
+                  <div className={`flex-1 h-2 rounded-full ${
+                    step.status === 'done' ? 'bg-emerald-400' :
+                    step.status === 'running' ? 'bg-blue-400' :
+                    step.status === 'error' ? 'bg-red-400' :
+                    'bg-slate-200'
+                  }`} />
+                  {i < steps.length - 1 && (
+                    <div className={`w-3 h-px ${
+                      step.status === 'done' ? 'bg-emerald-400' : 'bg-slate-200'
+                    }`} />
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-between mt-2">
+              {steps.map((step) => (
+                <div key={step.order} className="flex-1 text-center">
+                  <span className={`text-[11px] font-medium ${
+                    step.status === 'done' ? 'text-emerald-600' :
+                    step.status === 'running' ? 'text-blue-600' :
+                    step.status === 'error' ? 'text-red-600' :
+                    'text-slate-400'
+                  }`}>
+                    {step.template_name}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (message.type === 'error') {
     return (
       <div className={`flex gap-2.5 max-w-[88%] animate-[msgIn_0.3s_cubic-bezier(0.4,0,0.2,1)] ${isUser ? 'self-end flex-row-reverse' : ''}`}>

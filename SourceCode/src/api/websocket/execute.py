@@ -20,7 +20,7 @@ from api.dependencies import (
     get_template_engine,
     get_workspace,
 )
-from core.models import SessionState
+from core.models import ExecutionErrorContext, SessionState
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,9 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
     executes via subprocess, and streams stdout/stderr lines back
     as ``{"type": "output", "line": "...", "stream": "stdout"}``
     frames, followed by ``{"type": "done", "success": true/false}``.
+
+    On failure, updates session state to ERROR_RECOVERY with error_context.
+    On success, resets session state to IDLE.
 
     Args:
         websocket: FastAPI WebSocket instance.
@@ -84,13 +87,20 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
         await websocket.send_json({"type": "done", "success": False, "error": str(exc)})
         return
 
-    async def _stream_output(stream: asyncio.StreamReader, stream_name: str) -> None:
-        """Read lines from stream and send via WebSocket."""
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+    start_time = time.time()
+
+    async def _stream_output(
+        stream: asyncio.StreamReader, stream_name: str, collector: list[str]
+    ) -> None:
+        """Read lines from stream, collect for error context, and send via WebSocket."""
         while True:
             line_bytes = await stream.readline()
             if not line_bytes:
                 break
             line = line_bytes.decode("utf-8", errors="replace").rstrip("\n")
+            collector.append(line)
             await websocket.send_json(
                 {"type": "output", "line": line, "stream": stream_name}
             )
@@ -106,14 +116,54 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
         )
         return
 
-    stdout_task = asyncio.create_task(_stream_output(process.stdout, "stdout"))
-    stderr_task = asyncio.create_task(_stream_output(process.stderr, "stderr"))
+    stdout_task = asyncio.create_task(
+        _stream_output(process.stdout, "stdout", stdout_lines)
+    )
+    stderr_task = asyncio.create_task(
+        _stream_output(process.stderr, "stderr", stderr_lines)
+    )
 
     try:
         # Wait for process completion with timeout
         returncode = await asyncio.wait_for(process.wait(), timeout=_DEFAULT_TIMEOUT)
         # Ensure readers finish (drain remaining output)
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        # Update session state based on execution result
+        if returncode == 0:
+            # Success → IDLE (execution breakpoint: full reset per DC-0067)
+            new_session = (
+                session.with_state(SessionState.IDLE)
+                .clear_history()
+                .clear_error()
+            )
+            session_manager.update_session(session_id, new_session)
+            logger.info(
+                "Execution succeeded (session=%s, duration=%dms)",
+                session_id,
+                duration_ms,
+            )
+        else:
+            # Failure → ERROR_RECOVERY with error context
+            error_ctx = ExecutionErrorContext(
+                returncode=returncode,
+                stdout="\n".join(stdout_lines),
+                stderr="\n".join(stderr_lines),
+                duration_ms=duration_ms,
+            )
+            new_session = (
+                session.with_state(SessionState.ERROR_RECOVERY)
+                .with_error(error_ctx)
+            )
+            session_manager.update_session(session_id, new_session)
+            logger.warning(
+                "Execution failed (session=%s, rc=%d, duration=%dms)",
+                session_id,
+                returncode,
+                duration_ms,
+            )
+
         await websocket.send_json(
             {"type": "done", "success": returncode == 0, "returncode": returncode}
         )
@@ -126,6 +176,19 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
             pass
         stdout_task.cancel()
         stderr_task.cancel()
+        duration_ms = int((time.time() - start_time) * 1000)
+        # Timeout → ERROR_RECOVERY
+        error_ctx = ExecutionErrorContext(
+            returncode=-1,
+            stdout="\n".join(stdout_lines),
+            stderr="Execution timed out after {} seconds".format(_DEFAULT_TIMEOUT),
+            duration_ms=duration_ms,
+        )
+        new_session = (
+            session.with_state(SessionState.ERROR_RECOVERY)
+            .with_error(error_ctx)
+        )
+        session_manager.update_session(session_id, new_session)
         try:
             await websocket.send_json(
                 {"type": "done", "success": False, "error": "timeout"}

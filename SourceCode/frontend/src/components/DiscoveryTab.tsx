@@ -240,6 +240,26 @@ export default function DiscoveryTab({
               </span>
             </div>
 
+            {/* 状态提示：PARAM_COLLECT / 未匹配 */}
+            {state === 'PARAM_COLLECT' && (
+              <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-100 flex-shrink-0"
+              >
+                <p className="text-xs text-emerald-700 font-medium"
+                >
+                  ✓ 已确认模板，请填写参数
+                </p>
+              </div>
+            )}
+            {state === 'INTENT_CONFIRM' && candidates.length === 0 && (
+              <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-100 flex-shrink-0"
+              >
+                <p className="text-xs text-amber-700 font-medium"
+                >
+                  未找到匹配的模板，请尝试其他描述或从下方手动选择
+                </p>
+              </div>
+            )}
+
             {/* 分类标签过滤器 */}
             <div className="px-4 pb-2.5 flex gap-1.5 flex-wrap flex-shrink-0"
             >

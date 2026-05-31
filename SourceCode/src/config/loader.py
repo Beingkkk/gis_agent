@@ -50,6 +50,7 @@ def _apply_env_overrides(raw: dict[str, Any]) -> dict[str, Any]:
         ),
         "GISAGENT_API_HOST": ("api", "host", str),
         "GISAGENT_API_PORT": ("api", "port", int),
+        "GISAGENT_GDAL_BIN": ("gdal_bin", "gdal_bin", str),
     }
 
     for env_name, (section, key, cast_type) in env_map.items():
@@ -137,6 +138,8 @@ def _fill_defaults(raw: dict[str, Any]) -> dict[str, Any]:
     api.setdefault("host", "0.0.0.0")
     api.setdefault("port", 8000)
 
+    raw.setdefault("gdal_bin", "")
+
     return raw
 
 
@@ -156,6 +159,7 @@ def _build_config(raw: dict[str, Any]) -> Config:
             host=raw["api"].get("host", "0.0.0.0"),
             port=raw["api"].get("port", 8000),
         ),
+        gdal_bin=raw.get("gdal_bin", ""),
     )
 
 

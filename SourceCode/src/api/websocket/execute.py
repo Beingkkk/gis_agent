@@ -79,6 +79,19 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
     workspace = get_workspace()
     script_path = _write_script_content(script_content, workspace)
 
+    # Build environment: prepend gdal_bin to PATH if configured
+    env: Optional[dict[str, str]] = None
+    try:
+        from config.loader import get_config
+        gdal_bin = get_config().gdal_bin
+        if gdal_bin:
+            env = dict(os.environ)
+            sep = os.pathsep  # ';' on Windows
+            env["PATH"] = f"{gdal_bin}{sep}{env.get('PATH', '')}"
+            logger.info("Prepending gdal_bin to PATH: %s", gdal_bin)
+    except Exception:
+        pass
+
     # Execute with streaming
     try:
         process = await asyncio.create_subprocess_exec(
@@ -88,6 +101,7 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
             cwd=str(workspace.root),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
     except Exception as exc:
         logger.exception("Failed to start subprocess: %s", exc)

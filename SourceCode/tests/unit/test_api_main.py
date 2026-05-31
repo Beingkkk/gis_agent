@@ -54,7 +54,9 @@ class TestCreateApp:
         client = TestClient(create_app())
         response = client.get("/health")
         assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
+        data = response.json()
+        assert data["status"] == "ok"
+        assert "gdal_bin" in data
 
     def test_404_unknown_route(self) -> None:
         client = TestClient(create_app())

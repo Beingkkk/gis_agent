@@ -149,7 +149,13 @@ def _build_session_response(session_id: str, session: Session) -> SessionRespons
             engine = get_template_engine()
             rendered = engine.render(template, session.params)
             script_preview = rendered.content.strip()
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Script preview rendering failed for template=%s params=%s: %s",
+                template.id,
+                session.params,
+                exc,
+            )
             script_preview = None
 
     # Get current workspace absolute path

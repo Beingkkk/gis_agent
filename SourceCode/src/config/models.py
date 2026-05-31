@@ -38,3 +38,4 @@ class Config:
     llm: LLMConfig
     workspace: WorkspaceConfig
     api: APIConfig = APIConfig()
+    gdal_bin: str = ""

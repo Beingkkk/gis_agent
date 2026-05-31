@@ -138,7 +138,14 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health_check() -> dict[str, str]:
         """Health check endpoint."""
-        return {"status": "ok"}
+        gdal_bin = ""
+        try:
+            from config.loader import get_config
+
+            gdal_bin = get_config().gdal_bin
+        except Exception:
+            pass
+        return {"status": "ok", "gdal_bin": gdal_bin}
 
     return app
 

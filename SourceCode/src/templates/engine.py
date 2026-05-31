@@ -70,9 +70,9 @@ class SecurityCheckError(TemplateError):
     """
 
 
-# Whitelist: letters, digits, underscore, dot, slash, colon, at, hyphen,
-# equals, double-quote, whitespace.
-_WHITELIST_RE = re.compile(r'^[\w\./:@\-="\s]+$', re.UNICODE)
+# Whitelist: letters, digits, underscore, dot, slash, backslash, colon, at,
+# hyphen, equals, double-quote, whitespace.
+_WHITELIST_RE = re.compile(r'^[\w\./:\\@\-="\s]*$', re.UNICODE)
 
 
 def quote_filter(value: str) -> str:

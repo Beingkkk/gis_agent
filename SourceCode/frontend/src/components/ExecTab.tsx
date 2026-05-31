@@ -28,10 +28,14 @@ interface ExecTabProps {
   execResult: ExecResult | null
   /** 错误上下文（失败态需要） */
   errorContext: ErrorContext | null
+  /** 当前参数值 */
+  paramValues?: Record<string, string>
   /** 未填完的必填参数 */
   missingParams?: string[]
   /** 工作空间路径 */
   workspace?: string | null
+  /** GDAL bin 目录路径 */
+  gdalBin?: string
   /** 脚本编辑回调 */
   onScriptChange: (script: string) => void
   /** 刷新脚本（根据当前参数重新生成） */
@@ -74,8 +78,10 @@ export default function ExecTab({
   execLog,
   execResult,
   errorContext,
+  paramValues,
   missingParams,
   workspace,
+  gdalBin,
   onScriptChange,
   onRefreshScript,
   onExecute,
@@ -95,7 +101,20 @@ export default function ExecTab({
 
   /** 工作空间路径显示（header 右侧公用） */
   const WorkspaceDisplay = () => (
-    <div className="flex items-center gap-2 min-w-0">
+    <div className="flex items-center gap-3 min-w-0">
+      {gdalBin && (
+        <div className="flex items-center gap-1 text-[10px] text-slate-400"
+          title={`GDAL: ${gdalBin}`}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400 flex-shrink-0"
+          >
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M2 12l10 5 10-5" />
+          </svg>
+          <span className="font-mono truncate max-w-[120px]">{gdalBin}</span>
+        </div>
+      )}
       <div className="flex items-center gap-1.5 text-xs min-w-0 overflow-x-auto scrollbar-hide">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400 flex-shrink-0">
           <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
@@ -172,23 +191,32 @@ export default function ExecTab({
               </div>
               <div className="px-4 py-3 space-y-1.5"
               >
-                {templateDetail.params.map((p) => (
-                  <div key={p.name} className="flex items-center justify-between text-xs"
-                  >
-                    <span className="text-slate-500"
+                {templateDetail.params.map((p) => {
+                  const val = paramValues?.[p.name] ?? ''
+                  const isFilled = val !== ''
+                  return (
+                    <div key={p.name} className="flex items-center gap-2 text-xs"
                     >
-                      {p.name}
-                      {p.required && <span className="text-red-400 ml-0.5">*</span>}
-                    </span>
-                    <span className={`font-mono px-1.5 py-[1px] rounded ${
-                      p.required && !templateDetail ? 'text-red-600 bg-red-50' : 'text-slate-700 bg-slate-50'
-                    }`}
-                    >
-                      {/* 参数值需要从 taskContext 中获取，这里简化为展示参数定义 */}
-                      {p.type}
-                    </span>
-                  </div>
-                ))}
+                      <span className="text-slate-500 w-[100px] flex-shrink-0 truncate"
+                        title={p.name}
+                      >
+                        {p.name}
+                        {p.required && <span className="text-red-400 ml-0.5">*</span>}
+                      </span>
+                      <span className={`font-mono px-1.5 py-[1px] rounded truncate ${
+                        isFilled
+                          ? 'text-emerald-700 bg-emerald-50'
+                          : p.required
+                            ? 'text-red-600 bg-red-50'
+                            : 'text-slate-500 bg-slate-50'
+                      }`}
+                        title={isFilled ? val : p.type}
+                      >
+                        {isFilled ? val : p.type}
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -265,7 +293,7 @@ export default function ExecTab({
         </div>
 
         {/* Terminal output */}
-        <div className="flex-1 overflow-hidden bg-[#0f172a] flex flex-col"
+        <div className="flex-1 overflow-hidden bg-[#0f172a] flex flex-col max-h-[400px]"
         >
           <div className="px-4 py-2 bg-[#1e293b] border-b border-white/[0.06] flex items-center justify-between flex-shrink-0"
           >

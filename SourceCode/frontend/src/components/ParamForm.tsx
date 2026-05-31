@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import { selectFile, selectDirectory } from '../electron-api'
+import { groupParams, sortGroups } from './paramGroups'
 import type { ParamDef } from '../types'
 
 interface ParamFormProps {
@@ -8,86 +9,8 @@ interface ParamFormProps {
   workspace?: string | null
   onSubmit: (values: Record<string, string>) => void
   onCancel: () => void
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 分组规则（方案 B：前端启发式推断，不修改模板系统）
-// ═══════════════════════════════════════════════════════════════════════════
-
-const GROUP_RULES: { name: string; keywords: string[] }[] = [
-  {
-    name: '输入输出',
-    keywords: [
-      'input', 'output', 'of', 'format', 'input_layer', 'output_layer',
-      'output_dir', 'source', 'dest', 'in', 'out',
-    ],
-  },
-  {
-    name: '坐标系设置',
-    keywords: ['s_srs', 't_srs', 'srs', 'crs', 'rpc', 'geoloc', 's_srs', 'a_srs'],
-  },
-  {
-    name: '变换选项',
-    keywords: [
-      'resampling', 'xres', 'yres', 'order', 'et', 'te', 'ts', 'tr', 'tap',
-      'wo', 'ot', 'scale', 'outsize',
-    ],
-  },
-  {
-    name: '裁剪与范围',
-    keywords: [
-      'cutline', 'crop_to_cutline', 'projwin', 'srcwin', 'extent',
-      'clip', 'bbox',
-    ],
-  },
-  {
-    name: '高级选项',
-    keywords: [
-      'overwrite', 'quiet', 'multi', 'dstalpha', 'update', 'append',
-      'upsert', 'skip_errors', 'processes', 'nodata', 'mask',
-      'creation_option', 'layer_creation_option',
-    ],
-  },
-]
-
-const FALLBACK_GROUP = '其他选项'
-
-/** 按参数名推断所属分组 */
-function inferParamGroup(paramName: string): string {
-  const lower = paramName.toLowerCase()
-  for (const rule of GROUP_RULES) {
-    if (rule.keywords.some((k) => lower === k || lower.includes(k))) {
-      return rule.name
-    }
-  }
-  return FALLBACK_GROUP
-}
-
-/** 将参数列表按分组聚合，保持原始顺序 */
-function groupParams(params: ParamDef[]): Map<string, ParamDef[]> {
-  const map = new Map<string, ParamDef[]>()
-  for (const p of params) {
-    const group = inferParamGroup(p.name)
-    if (!map.has(group)) map.set(group, [])
-    map.get(group)!.push(p)
-  }
-  return map
-}
-
-/** 分组排序：有必填参数的组排前面，"其他选项"排最后 */
-function sortGroups(
-  grouped: Map<string, ParamDef[]>,
-): [string, ParamDef[]][] {
-  const entries = Array.from(grouped.entries())
-  return entries.sort((a, b) => {
-    const aHasReq = a[1].some((p) => p.required)
-    const bHasReq = b[1].some((p) => p.required)
-    if (aHasReq && !bHasReq) return -1
-    if (!aHasReq && bHasReq) return 1
-    if (a[0] === FALLBACK_GROUP) return 1
-    if (b[0] === FALLBACK_GROUP) return -1
-    return 0
-  })
+  /** 只读模式：禁用输入、隐藏底部操作按钮 */
+  readOnly?: boolean
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -192,23 +115,31 @@ function ParamRow({
   value,
   onChange,
   onBrowse,
+  readOnly,
 }: {
   param: ParamDef
   value: string
   onChange: (name: string, v: string) => void
   onBrowse: (name: string, isDir: boolean) => void
+  readOnly?: boolean
 }) {
   const isFilled = value !== ''
   const inputBase = `w-full h-8 border rounded-lg px-2.5 text-[12.5px]
     transition-all focus:outline-none focus:ring-[3px] focus:ring-blue-500/8`
-  const inputFilled = `border-emerald-200 bg-emerald-50/60 text-emerald-800`
-  const inputEmpty = `border-slate-200 bg-[#f8fafc] focus:border-blue-500 focus:bg-white`
+  const inputFilled = readOnly
+    ? `border-slate-100 bg-slate-50 text-slate-700 cursor-default`
+    : `border-emerald-200 bg-emerald-50/60 text-emerald-800`
+  const inputEmpty = readOnly
+    ? `border-slate-100 bg-slate-50 text-slate-400 cursor-default`
+    : `border-slate-200 bg-[#f8fafc] focus:border-blue-500 focus:bg-white`
   const inputCls = `${inputBase} ${isFilled ? inputFilled : inputEmpty}`
 
   const renderInput = () => {
     const common = {
       value: value || '',
       className: inputCls,
+      readOnly,
+      disabled: readOnly,
     }
 
     switch (param.type) {
@@ -279,19 +210,21 @@ function ParamRow({
               type="text"
               {...common}
               placeholder={param.description || '选择路径…'}
-              onChange={(e) => onChange(param.name, e.target.value)}
+              onChange={(e) => !readOnly && onChange(param.name, e.target.value)}
               className={`${inputCls} flex-1`}
             />
-            <button
-              type="button"
-              onClick={() => onBrowse(param.name, param.type === 'folder_path')}
-              className="h-8 px-2.5 border border-slate-200 rounded-lg
-                text-[11px] font-medium text-slate-500 bg-white
-                hover:bg-slate-50 hover:border-slate-300 transition-all
-                whitespace-nowrap flex-shrink-0"
-            >
-              浏览…
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => onBrowse(param.name, param.type === 'folder_path')}
+                className="h-8 px-2.5 border border-slate-200 rounded-lg
+                  text-[11px] font-medium text-slate-500 bg-white
+                  hover:bg-slate-50 hover:border-slate-300 transition-all
+                  whitespace-nowrap flex-shrink-0"
+              >
+                浏览…
+              </button>
+            )}
           </div>
         )
 
@@ -353,6 +286,7 @@ function ParamSection({
   onBrowse,
   onToggleExpand,
   expanded,
+  readOnly,
 }: {
   title: string
   params: ParamDef[]
@@ -361,6 +295,7 @@ function ParamSection({
   onBrowse: (name: string, isDir: boolean) => void
   onToggleExpand: () => void
   expanded: boolean
+  readOnly?: boolean
 }) {
   const filledCount = params.filter(
     (p) => values[p.name] !== undefined && values[p.name] !== '',
@@ -448,6 +383,7 @@ function ParamSection({
                 value={values[param.name] ?? ''}
                 onChange={onChange}
                 onBrowse={onBrowse}
+                readOnly={readOnly}
               />
               {idx < params.length - 1 && (
                 <div className="border-t border-slate-50" />
@@ -470,6 +406,7 @@ export default function ParamForm({
   workspace,
   onSubmit,
   onCancel,
+  readOnly = false,
 }: ParamFormProps) {
   const [values, setValues] = useState<Record<string, string>>(() => {
     const v: Record<string, string> = {}
@@ -559,27 +496,29 @@ export default function ParamForm({
         >
           <span className="text-[13px] font-bold text-slate-800"
           >
-            参数设置
+            {readOnly ? '参数值' : '参数设置'}
           </span>
-          <div className="flex gap-1"
-          >
-            <button
-              type="button"
-              onClick={collapseAll}
-              className="text-[11px] px-2 py-[3px] rounded-md border border-slate-200
-                text-slate-500 hover:bg-slate-50 transition-all"
+          {!readOnly && (
+            <div className="flex gap-1"
             >
-              − 收起
-            </button>
-            <button
-              type="button"
-              onClick={expandAll}
-              className="text-[11px] px-2 py-[3px] rounded-md border border-slate-200
-                text-slate-500 hover:bg-slate-50 transition-all"
-            >
-              + 展开
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={collapseAll}
+                className="text-[11px] px-2 py-[3px] rounded-md border border-slate-200
+                  text-slate-500 hover:bg-slate-50 transition-all"
+              >
+                − 收起
+              </button>
+              <button
+                type="button"
+                onClick={expandAll}
+                className="text-[11px] px-2 py-[3px] rounded-md border border-slate-200
+                  text-slate-500 hover:bg-slate-50 transition-all"
+              >
+                + 展开
+              </button>
+            </div>
+          )}
         </div>
         <ProgressBar filled={filledCount} total={totalCount} />
       </div>
@@ -597,39 +536,42 @@ export default function ParamForm({
             onBrowse={handleBrowse}
             onToggleExpand={() => toggleSection(groupName)}
             expanded={expandedSections.has(groupName)}
+            readOnly={readOnly}
           />
         ))}
       </div>
 
       {/* Footer actions */}
-      <div className="px-5 py-3 border-t border-slate-100 flex-shrink-0
-        flex gap-2"
-      >
-        <button
-          type="submit"
-          className="flex-1 h-9 rounded-lg bg-blue-600 text-white
-            text-[12.5px] font-semibold hover:bg-blue-700 transition-all
-            shadow-[0_1px_3px_rgba(37,99,235,0.2)]
-            flex items-center justify-center gap-1.5"
+      {!readOnly && (
+        <div className="px-5 py-3 border-t border-slate-100 flex-shrink-0
+          flex gap-2"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="2.5"
-            strokeLinecap="round" strokeLinejoin="round"
+          <button
+            type="submit"
+            className="flex-1 h-9 rounded-lg bg-blue-600 text-white
+              text-[12.5px] font-semibold hover:bg-blue-700 transition-all
+              shadow-[0_1px_3px_rgba(37,99,235,0.2)]
+              flex items-center justify-center gap-1.5"
           >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-          确认参数
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="h-9 rounded-lg border border-slate-200 px-4
-            text-[12.5px] font-medium text-slate-600
-            hover:bg-slate-50 transition-all"
-        >
-          取消
-        </button>
-      </div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5"
+              strokeLinecap="round" strokeLinejoin="round"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            确认参数
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="h-9 rounded-lg border border-slate-200 px-4
+              text-[12.5px] font-medium text-slate-600
+              hover:bg-slate-50 transition-all"
+          >
+            取消
+          </button>
+        </div>
+      )}
     </form>
   )
 }

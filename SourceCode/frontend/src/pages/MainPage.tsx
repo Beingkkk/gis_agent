@@ -21,6 +21,7 @@ import {
   executeScript,
 } from '../api/session'
 import { listTemplates, getTemplate } from '../api/templates'
+import { getHealth } from '../api/health'
 import { getApiBaseUrl } from '../electron-api'
 import type { TemplateDef, TemplateDetail, ExecResult } from '../types'
 
@@ -51,9 +52,10 @@ export default function MainPage() {
   const [execLog, setExecLog] = useState<string[]>([])
   const [isExecuting, setIsExecuting] = useState(false)
   const [execResult, setExecResult] = useState<ExecResult | null>(null)
+  const [gdalBin, setGdalBin] = useState<string>('')
   const { connect: connectExec } = useWebSocket()
 
-  // ─── Init: create session + load templates ──────────────────────
+  // ─── Init: create session + load templates + health check ──────
   useEffect(() => {
     const init = async () => {
       try {
@@ -61,6 +63,10 @@ export default function MainPage() {
         setSession(session)
         const list = await listTemplates()
         setTemplates(list)
+        const health = await getHealth()
+        if (health.gdal_bin) {
+          setGdalBin(health.gdal_bin)
+        }
       } catch (e) {
         console.error('初始化失败:', e)
       }
@@ -412,8 +418,10 @@ export default function MainPage() {
                     execLog={execLog}
                     execResult={execResult}
                     errorContext={errorContext}
+                    paramValues={taskContext?.params || {}}
                     missingParams={taskContext?.missing_params}
                     workspace={workspace}
+                    gdalBin={gdalBin}
                     onScriptChange={setEditedScript}
                     onRefreshScript={handleRefreshScript}
                     onExecute={handleExecute}
@@ -437,7 +445,6 @@ export default function MainPage() {
               templateDetail={selectedTemplate}
               paramValues={taskContext?.params || {}}
               workspace={workspace}
-              scriptPreview={scriptPreview}
               errorContext={errorContext}
               onLockTemplate={(id) =>
                 sessionId && lockTemplate(sessionId, id).then(setSession)

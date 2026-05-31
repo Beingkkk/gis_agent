@@ -1,13 +1,12 @@
+import { useState } from 'react'
 import type { TemplateDetail, ErrorContext } from '../types'
 import ParamForm from './ParamForm'
-import ScriptPreview from './ScriptPreview'
 
 interface DetailPanelProps {
   state: string
   templateDetail: TemplateDetail | null
   paramValues: Record<string, string>
   workspace?: string | null
-  scriptPreview: string | null
   errorContext: ErrorContext | null
   onLockTemplate: (templateId: string) => void
   onSubmitParams: (params: Record<string, string>) => void
@@ -21,7 +20,6 @@ export default function DetailPanel({
   templateDetail,
   paramValues,
   workspace,
-  scriptPreview,
   errorContext,
   onLockTemplate,
   onSubmitParams,
@@ -29,6 +27,8 @@ export default function DetailPanel({
   onEditParams,
   onCancel,
 }: DetailPanelProps) {
+  const [showParams, setShowParams] = useState(false)
+
   if (state === 'PARAM_COLLECT' && templateDetail) {
     return (
       <div className="flex flex-col h-full">
@@ -67,7 +67,7 @@ export default function DetailPanel({
     )
   }
 
-  if (state === 'SCRIPT_PREVIEW' && scriptPreview) {
+  if (state === 'SCRIPT_PREVIEW' && templateDetail) {
     return (
       <div className="flex flex-col h-full">
         {/* Task Banner */}
@@ -78,7 +78,7 @@ export default function DetailPanel({
           }}
         >
           <div className="text-[12.5px] font-medium">
-            脚本预览 <strong className="text-blue-600">{templateDetail?.name}</strong>
+            脚本预览 <strong className="text-blue-600">{templateDetail.name}</strong>
           </div>
           <button
             onClick={onCancel}
@@ -88,13 +88,46 @@ export default function DetailPanel({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-[18px] py-4">
-          <ScriptPreview
-            script={scriptPreview}
-            onExecute={onExecute}
-            onEdit={onEditParams}
-            onCancel={onCancel}
-          />
+        <div className="flex-1 overflow-y-auto">
+          {/* Toggle params */}
+          <div className="px-[18px] pt-4 pb-2">
+            <button
+              type="button"
+              onClick={() => setShowParams(!showParams)}
+              className="w-full flex items-center justify-between px-4 py-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-colors text-left"
+            >
+              <div className="flex items-center gap-2">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400">
+                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+                <span className="text-[12.5px] font-medium text-slate-700">
+                  {showParams ? '收起参数' : '调整参数'}
+                </span>
+              </div>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`text-slate-400 transition-transform duration-200 ${showParams ? 'rotate-180' : ''}`}>
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Collapsible param form */}
+          {showParams && (
+            <div className="px-[18px] pb-4">
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <ParamForm
+                  params={templateDetail.params}
+                  values={paramValues}
+                  workspace={workspace}
+                  onSubmit={(params) => {
+                    onSubmitParams(params)
+                    setShowParams(false)
+                  }}
+                  onCancel={() => setShowParams(false)}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )
@@ -212,6 +245,41 @@ export default function DetailPanel({
               放弃任务
             </button>
           </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── IDLE with filled params → read-only ParamForm ─────────────────────
+  if (state === 'IDLE' && templateDetail && Object.keys(paramValues).length > 0) {
+    return (
+      <div className="flex flex-col h-full"
+      >
+        <div
+          className="px-[18px] py-3.5 border-b border-slate-200 flex items-center justify-between"
+          style={{ background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)' }}
+        >
+          <div className="text-[12.5px] font-medium"
+          >
+            任务完成 <strong className="text-emerald-600">{templateDetail.name}</strong>
+            <span className="text-[11px] text-slate-400 ml-1.5 font-mono">{templateDetail.id}</span>
+          </div>
+          <button
+            onClick={onCancel}
+            className="text-[11px] font-medium px-2.5 py-[5px] rounded-md border border-red-100 text-red-600 hover:bg-red-50 transition-all"
+          >
+            放弃
+          </button>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <ParamForm
+            params={templateDetail.params}
+            values={paramValues}
+            workspace={workspace}
+            onSubmit={() => {}}
+            onCancel={() => {}}
+            readOnly
+          />
         </div>
       </div>
     )

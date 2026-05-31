@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.0.0 |
+| 版本 | v1.1.0 |
 | 状态 | 设计基线 |
 | 作者 | - |
 | 日期 | 2026-05-31 |
@@ -79,16 +79,15 @@
 
 ### DC-E02: IPC 接口最小化原则
 
-**决策**: Electron 预加载脚本只暴露 3 个 API：`selectFile`、`selectDirectory`、`isElectron`。禁止暴露完整的 `fs`、`path`、`child_process` 等 Node.js 模块。
+**决策**: Electron 预加载脚本只暴露 3 个 API：`selectFile`、`selectDirectory`、`getApiBaseUrl`。禁止暴露完整的 `fs`、`path`、`child_process` 等 Node.js 模块。
 
 **接口**:
 
 ```typescript
 // preload.ts 暴露的 API
 interface ElectronAPI {
-  isElectron: boolean;
-  selectFile(options?: { 
-    title?: string; 
+  selectFile(options?: {
+    title?: string;
     defaultPath?: string;
     filters?: { name: string; extensions: string[] }[];
   }): Promise<string | null>;
@@ -96,17 +95,18 @@ interface ElectronAPI {
     title?: string;
     defaultPath?: string;
   }): Promise<string | null>;
+  getApiBaseUrl(): Promise<string | null>;
 }
 ```
 
 **理由**:
 - 最小暴露面 = 最小攻击面，符合安全原则
-- 前端代码在浏览器和 Electron 间可切换：`isElectron` 为 false 时回退到手动输入
+- `getApiBaseUrl` 使渲染进程能构造绝对 API/WebSocket URL（`file://` 协议无法使用相对路径）
 - 未来如需扩展（如拖拽文件），可在预加载脚本中新增独立方法
 
 ### DC-E03: Python 后端进程由 Electron 主进程托管
 
-**决策**: Electron 主进程在 `app.whenReady()` 后启动 Python FastAPI 子进程，在 `app.quit()` 前终止子进程。后端端口固定为 8000（或从环境变量读取）。
+**决策**: Electron 主进程在 `app.whenReady()` 后启动 Python FastAPI 子进程，在 `app.quit()` 前终止子进程。后端端口从 `config.json` 动态读取（默认 18000），而非硬编码。
 
 **启动流程**:
 
@@ -154,7 +154,7 @@ const scriptPath = path.join(__dirname, '../../start_api.py');
 
 ### DC-E04: 前端文件浏览统一走 Electron IPC
 
-**决策**: `ParamForm` 和 `ChatArea` 中的浏览按钮在 Electron 环境下统一调用 `window.electron.selectFile()` / `selectDirectory()`，返回绝对路径。非 Electron 环境回退到手动输入。
+**决策**: `ParamForm` 和 `ChatArea` 中的浏览按钮统一调用 `window.electron.selectFile()` / `selectDirectory()`，返回绝对路径。前端不再支持纯浏览器模式运行。
 
 **改造点**:
 
@@ -167,18 +167,20 @@ const scriptPath = path.join(__dirname, '../../start_api.py');
 
 ```typescript
 // frontend/src/electron-api.ts
-export async function selectDirectory(defaultPath?: string): Promise<string | null> {
-  if ((window as any).electron?.isElectron) {
-    return await (window as any).electron.selectDirectory({ defaultPath });
+export async function selectDirectory(options?: {
+  title?: string;
+  defaultPath?: string;
+}): Promise<string | null> {
+  if (window.electron) {
+    return window.electron.selectDirectory(options);
   }
-  // 非 Electron：回退到 prompt（或返回 null 让用户手动输入）
   return null;
 }
 ```
 
 **理由**:
-- 统一封装使代码在 Electron 和浏览器间可切换
-- 避免散布 `window.electron` 类型断言
+- 统一封装避免散布 `window.electron` 类型断言
+- 浏览器安全沙箱无法返回绝对路径，故不再支持纯浏览器入口
 
 ### DC-E05: 打包策略为 Electron + 源码分发
 
@@ -214,9 +216,9 @@ GIS-Agent-Setup.exe
 import { contextBridge, ipcRenderer } from 'electron';
 
 export interface ElectronAPI {
-  isElectron: boolean;
   selectFile(options?: SelectFileOptions): Promise<string | null>;
   selectDirectory(options?: SelectDirectoryOptions): Promise<string | null>;
+  getApiBaseUrl(): Promise<string | null>;
 }
 
 interface SelectFileOptions {
@@ -231,14 +233,16 @@ interface SelectDirectoryOptions {
 }
 
 contextBridge.exposeInMainWorld('electron', {
-  isElectron: true,
-  
   selectFile: async (options?: SelectFileOptions): Promise<string | null> => {
     return ipcRenderer.invoke('dialog:selectFile', options);
   },
-  
+
   selectDirectory: async (options?: SelectDirectoryOptions): Promise<string | null> => {
     return ipcRenderer.invoke('dialog:selectDirectory', options);
+  },
+
+  getApiBaseUrl: async (): Promise<string | null> => {
+    return ipcRenderer.invoke('app:getApiBaseUrl');
   },
 } as ElectronAPI);
 ```
@@ -263,6 +267,10 @@ ipcMain.handle('dialog:selectDirectory', async (_, options) => {
     properties: ['openDirectory'],
   });
   return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('app:getApiBaseUrl', () => {
+  return `http://localhost:${getBackendPort()}`;
 });
 ```
 
@@ -346,7 +354,7 @@ function createPythonManager(): PythonProcessManager {
     │       └──→ 等待 stdout 中出现 "Uvicorn running"
     │               │
     │               ▼
-    │       [后端就绪 @ http://localhost:8000]
+    │       [后端就绪 @ http://localhost:18000]
     │
     ├──→ 创建 BrowserWindow
     │       │
@@ -424,7 +432,7 @@ function createPythonManager(): PythonProcessManager {
 |------|--------|
 | `window.electron.selectFile()` | `ParamForm.tsx` |
 | `window.electron.selectDirectory()` | `ChatArea.tsx`, `ParamForm.tsx` |
-| `window.electron.isElectron` | 任意前端组件（特性检测） |
+| `window.electron.getApiBaseUrl()` | `api/client.ts`, `MainPage.tsx` |
 
 ### 5.3 新增依赖
 
@@ -442,10 +450,9 @@ function createPythonManager(): PythonProcessManager {
 | 异常场景 | 处理策略 |
 |---------|---------|
 | Python 后端启动失败（conda 环境不存在） | 弹窗提示："未找到 gis-agent conda 环境，请先运行 `conda env create`" |
-| Python 后端启动超时（30s） | 弹窗提示："后端启动超时，请检查端口 8000 是否被占用" |
+| Python 后端启动超时（30s） | 弹窗提示："后端启动超时，请检查端口是否被占用" |
 | Python 后端运行中崩溃 | 检测退出码，弹窗提示并尝试重启（最多 3 次） |
 | 用户取消文件对话框 | IPC 返回 `null`，前端保持原值不变 |
-| 非 Electron 环境访问 `window.electron` | 预加载脚本不存在 → `undefined`，前端特性检测后回退 |
 | 打包后路径解析错误 | 使用 `app.getAppPath()` / `__dirname` 区分开发/生产路径 |
 
 ---
@@ -493,4 +500,5 @@ function createPythonManager(): PythonProcessManager {
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.1.0 | 2026-05-31 | 废弃浏览器 UI 回退；移除 `isElectron` 字段；新增 `getApiBaseUrl` IPC；后端端口改为从 config.json 动态读取；路由改为 HashRouter |
 | v1.0.0 | 2026-05-31 | 初版，定义 Electron 壳 + 独立 Python 后端方案 |

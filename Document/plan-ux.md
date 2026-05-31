@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.3.0 |
+| 版本 | v1.4.0 |
 | 状态 | 设计基线 |
 | 作者 | - |
 | 日期 | 2026-05-29 |
@@ -13,7 +13,7 @@
 
 ### 1.1 模块职责
 
-实现 GIS Agent 的图形用户界面：基于浏览器的前端交互层，通过 HTTP API 和 WebSocket 与后端通信。本模块**替换原有的 CLI 层（`cli/`）**，复用 core、llm、templates 三层业务逻辑，将 REPL 文本交互升级为可视化卡片、表单、对话流的交互范式。
+实现 GIS Agent 的图形用户界面：基于 Electron 桌面的前端交互层，通过 HTTP API 和 WebSocket 与后端通信。本模块**替换原有的 CLI 层（`cli/`）**，复用 core、llm、templates 三层业务逻辑，将 REPL 文本交互升级为可视化卡片、表单、对话流的交互范式。
 
 本模块同时覆盖 Pipeline 多任务串行和 J2 模板生成器两个新增功能的 UX。
 
@@ -51,7 +51,7 @@
 - Electron 通过 `dialog.showOpenDialog` 可获取完整绝对路径，解决核心痛点
 - Python FastAPI 作为独立子进程运行，后端代码零改动（参见 plan-electron DC-E01）
 - 前端业务逻辑（React 组件、状态管理、API 调用）基本不变，仅需替换文件浏览实现（参见 plan-electron DC-E04）
-- 前端代码仍与浏览器方案兼容，`isElectron` 特性检测支持非 Electron 环境回退
+- 路由采用 `HashRouter`（`react-router-dom`），兼容 Electron `file://` 协议
 
 **替代方案（已否决）**:
 - 继续使用浏览器：`<input type="file">` 无法返回绝对路径，工作空间和参数路径功能不可用
@@ -352,7 +352,7 @@ interface TemplateDetail extends TemplateDef {
 ### 4.1 单任务流程
 
 ```
-用户打开浏览器 ──→ GET /templates（加载左栏卡片）
+用户打开应用 ──→ GET /templates（加载左栏卡片）
                       │
                       ▼
 用户输入需求 ──→ POST /session/{id}/intent
@@ -436,7 +436,7 @@ frontend/
 ├── src/
 │   ├── main.tsx                    # 入口，启动时请求 /session 创建会话
 │   ├── App.tsx                     # 路由：/ /generator /pipeline
-│   ├── electron-api.ts             # IPC 封装：isElectron / selectFile / selectDirectory
+│   ├── electron-api.ts             # IPC 封装：getApiBaseUrl / selectFile / selectDirectory
 │   ├── api/
 │   │   ├── client.ts               # axios 实例，baseURL = "/api"
 │   │   ├── session.ts              # 会话相关 API 调用
@@ -523,29 +523,18 @@ npm run electron:build # electron-builder 打包
 # 输出：frontend/dist-electron/GIS-Agent-Setup.exe
 ```
 
-### 7.3 纯浏览器模式（向后兼容，plan-electron DC-E01）
-
-前端构建产物仍可独立部署，供无 Electron 环境使用：
-
-```bash
-cd SourceCode
-# 前端 build 后，FastAPI 挂载 static 目录
-python start_api.py
-# 访问 http://localhost:8000
-```
-
 ### 端口配置
 
-后端端口通过 `config/config.json` 的 `api.port` 配置，默认 8000：
+后端端口通过 `config/config.json` 的 `api.port` 配置，默认 18000：
 ```json
 {
-  "api": { "host": "0.0.0.0", "port": 8000 }
+  "api": { "host": "0.0.0.0", "port": 18000 }
 }
 ```
 
 前端开发服务器通过 `frontend/.env` 同步代理目标：
 ```
-VITE_API_PORT=8000
+VITE_API_PORT=18000
 ```
 
 ---
@@ -555,7 +544,7 @@ VITE_API_PORT=8000
 UX 方案**不删除**现有 CLI 代码。`cli/` 目录保持完整，与 `api/` 并行存在：
 
 - `python start_cli.py` → 启动命令行版本
-- `python start_api.py` → 启动浏览器版本
+- `python start_api.py` → 启动 API 服务（由 Electron 内部调用）
 
 两套入口共享 core/llm/templates，互不干扰。CLI 的维护成本不增加。
 
@@ -584,6 +573,7 @@ UX 方案**不删除**现有 CLI 代码。`cli/` 目录保持完整，与 `api/`
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.4.0 | 2026-05-31 | 废弃纯浏览器模式：移除 §7.3 浏览器模式、移除 `isElectron` 特性检测、路由改为 HashRouter；端口默认改为 18000 |
 | v1.3.0 | 2026-05-31 | **架构变更**：DC-UX-01 从纯浏览器方案升级为 Electron 桌面外壳（plan-electron DC-E01）；更新 §5 组件结构增加 `electron/` 目录；更新 §7 启动方式增加 Electron 开发/生产模式；保留纯浏览器模式作为向后兼容 |
 | v1.2.0 | 2026-05-30 | 更新 §3.1 `process_intent` API 为两阶段匹配（DC-0098）；更新 §4.1 单任务流程图，增加快速路径（关键词高分直达）和 LLM 精排三级决策分支 |
 | v1.1.0 | 2026-05-29 | 新增 `/pipeline` 路由；启动方式改为 `start_api.py`/`start_cli.py`；端口支持前后端配置同步 |

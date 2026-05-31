@@ -1,9 +1,11 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo } from 'react'
+import { selectFile, selectDirectory } from '../electron-api'
 import type { ParamDef } from '../types'
 
 interface ParamFormProps {
   params: ParamDef[]
   values: Record<string, string>
+  workspace?: string | null
   onSubmit: (values: Record<string, string>) => void
   onCancel: () => void
 }
@@ -11,6 +13,7 @@ interface ParamFormProps {
 export default function ParamForm({
   params,
   values: initialValues,
+  workspace,
   onSubmit,
   onCancel,
 }: ParamFormProps) {
@@ -21,9 +24,6 @@ export default function ParamForm({
     }
     return v
   })
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const dirInputRef = useRef<HTMLInputElement>(null)
-  const [activeBrowseParam, setActiveBrowseParam] = useState<string | null>(null)
 
   const handleChange = (name: string, value: string) => {
     setValues((prev) => ({ ...prev, [name]: value }))
@@ -34,45 +34,13 @@ export default function ParamForm({
     onSubmit(values)
   }
 
-  const handleBrowseClick = (paramName: string, isDir: boolean) => {
-    setActiveBrowseParam(paramName)
-    const input = isDir ? dirInputRef.current : fileInputRef.current
-    input?.click()
-  }
-
-  const handleFileSelect = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    isDir: boolean,
-  ) => {
-    const files = e.target.files
-    if (files && files.length > 0 && activeBrowseParam) {
-      const file = files[0]
-      let path = ''
-      const filePath = (file as any).path as string | undefined
-      if (filePath) {
-        if (isDir) {
-          const relPath = file.webkitRelativePath || ''
-          if (relPath) {
-            const dirName = relPath.split('/')[0]
-            const fullDir = filePath
-              .substring(0, filePath.lastIndexOf(relPath))
-              .replace(/[/\\]$/, '')
-            path = fullDir ? `${fullDir}/${dirName}` : dirName
-          } else {
-            path = filePath
-          }
-        } else {
-          path = filePath
-        }
-      } else if (file.webkitRelativePath) {
-        path = file.webkitRelativePath.split('/')[0]
-      } else {
-        path = file.name
-      }
-      handleChange(activeBrowseParam, path)
+  const handleBrowseClick = async (paramName: string, isDir: boolean) => {
+    const path = isDir
+      ? await selectDirectory({ defaultPath: workspace || undefined })
+      : await selectFile({ defaultPath: workspace || undefined })
+    if (path) {
+      handleChange(paramName, path)
     }
-    setActiveBrowseParam(null)
-    e.target.value = ''
   }
 
   // Calculate fill status
@@ -89,20 +57,6 @@ export default function ParamForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Hidden file inputs for browse buttons */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        onChange={(e) => handleFileSelect(e, false)}
-      />
-      <input
-        ref={dirInputRef}
-        type="file"
-        className="hidden"
-        onChange={(e) => handleFileSelect(e, true)}
-        {...({ webkitdirectory: '', directory: '' } as any)}
-      />
       {/* Fill status bar */}
       {!allOptional && (
         <div className="flex items-center justify-between mb-4">

@@ -1,4 +1,5 @@
-import { useRef, useEffect, useCallback, useState } from 'react'
+import { useRef, useEffect, useCallback } from 'react'
+import { selectDirectory } from '../electron-api'
 import type { ChatMessage as ChatMessageType } from '../types'
 import ChatMessage from './ChatMessage'
 
@@ -41,21 +42,10 @@ export default function ChatArea({
   onUpdateWorkspace,
 }: ChatAreaProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
-  const [isEditingWorkspace, setIsEditingWorkspace] = useState(false)
-  const [workspaceInput, setWorkspaceInput] = useState('')
-  const workspaceInputRef = useRef<HTMLInputElement>(null)
-  const dirInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
-
-  useEffect(() => {
-    if (isEditingWorkspace) {
-      workspaceInputRef.current?.focus()
-      workspaceInputRef.current?.select()
-    }
-  }, [isEditingWorkspace])
 
   const { text, sub, dotColor } = statusInfo(state)
   const isActive = state === 'EXECUTING'
@@ -66,59 +56,13 @@ export default function ChatArea({
     }
   }, [onClearSession])
 
-  const handleWorkspaceClick = () => {
-    setWorkspaceInput(workspace || '')
-    setIsEditingWorkspace(true)
-  }
-
-  const handleWorkspaceSubmit = () => {
-    const path = workspaceInput.trim()
+  const handleBrowseClick = async () => {
+    const path = await selectDirectory()
     if (path && path !== workspace) {
       onUpdateWorkspace?.(path)
     }
-    setIsEditingWorkspace(false)
   }
 
-  const handleWorkspaceKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleWorkspaceSubmit()
-    } else if (e.key === 'Escape') {
-      setIsEditingWorkspace(false)
-    }
-  }
-
-  const handleBrowseClick = () => {
-    dirInputRef.current?.click()
-  }
-
-  const handleDirectorySelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (files && files.length > 0) {
-      const file = files[0]
-      let path = ''
-      const filePath = (file as any).path as string | undefined
-      if (filePath) {
-        const relPath = file.webkitRelativePath || ''
-        if (relPath) {
-          const dirName = relPath.split('/')[0]
-          const fullDir = filePath
-            .substring(0, filePath.lastIndexOf(relPath))
-            .replace(/[/\\]$/, '')
-          path = fullDir ? `${fullDir}/${dirName}` : dirName
-        } else {
-          path = filePath
-        }
-      } else if (file.webkitRelativePath) {
-        path = file.webkitRelativePath.split('/')[0]
-      } else {
-        path = file.name
-      }
-      if (path) {
-        setWorkspaceInput(path)
-      }
-    }
-    e.target.value = ''
-  }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -132,52 +76,24 @@ export default function ChatArea({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {/* Workspace path — editable */}
-          {isEditingWorkspace ? (
-            <div className="flex items-center gap-1.5">
-              <input
-                ref={workspaceInputRef}
-                type="text"
-                value={workspaceInput}
-                onChange={(e) => setWorkspaceInput(e.target.value)}
-                onKeyDown={handleWorkspaceKeyDown}
-                onBlur={handleWorkspaceSubmit}
-                placeholder="输入工作空间路径..."
-                className="h-8 w-80 border border-slate-200 rounded-md px-2.5 text-xs bg-slate-50 focus:border-blue-500 focus:outline-none focus:ring-[2px] focus:ring-blue-500/8 font-mono"
-              />
-              <button
-                type="button"
-                onClick={handleBrowseClick}
-                className="h-8 px-2.5 rounded-md bg-white text-slate-500 text-[11px] hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-colors border border-slate-200 font-medium"
-              >
-                浏览
-              </button>
-              <input
-                ref={dirInputRef}
-                type="file"
-                className="hidden"
-                onChange={handleDirectorySelect}
-                {...({ webkitdirectory: '', directory: '' } as any)}
-              />
-            </div>
-          ) : (
-            <button
-              onClick={handleWorkspaceClick}
-              className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-blue-600 transition-colors group px-2.5 py-1.5 rounded-md hover:bg-blue-50/60 border border-transparent hover:border-blue-100"
-              title="点击切换工作空间"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400 group-hover:text-blue-500">
+          {/* Workspace path — label + browse button */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 text-xs">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400 flex-shrink-0">
                 <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
               </svg>
-              <span className="font-mono max-w-[300px] truncate" title={workspace || '未设置工作空间'}>
-                {workspace || '未设置工作空间'}
+              <span className="font-mono text-slate-600 max-w-[200px] truncate" title={workspace || '未设置'}>
+                {workspace || '未设置'}
               </span>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-300 group-hover:text-blue-400 ml-0.5">
-                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-              </svg>
+            </div>
+            <button
+              type="button"
+              onClick={handleBrowseClick}
+              className="h-7 px-2.5 rounded-md bg-white text-slate-500 text-[11px] hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-colors border border-slate-200 font-medium"
+            >
+              浏览
             </button>
-          )}
+          </div>
 
           {onClearSession && (
             <button

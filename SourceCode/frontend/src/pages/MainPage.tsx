@@ -309,6 +309,7 @@ export default function MainPage() {
           state={state}
           templateDetail={selectedTemplate}
           paramValues={taskContext?.params || {}}
+          workspace={workspace}
           scriptPreview={scriptPreview}
           errorContext={errorContext}
           onLockTemplate={(id) =>

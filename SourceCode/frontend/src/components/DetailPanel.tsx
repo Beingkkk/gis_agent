@@ -6,6 +6,7 @@ interface DetailPanelProps {
   state: string
   templateDetail: TemplateDetail | null
   paramValues: Record<string, string>
+  workspace?: string | null
   scriptPreview: string | null
   errorContext: ErrorContext | null
   onLockTemplate: (templateId: string) => void
@@ -19,6 +20,7 @@ export default function DetailPanel({
   state,
   templateDetail,
   paramValues,
+  workspace,
   scriptPreview,
   errorContext,
   onLockTemplate,
@@ -56,6 +58,7 @@ export default function DetailPanel({
           <ParamForm
             params={templateDetail.params}
             values={paramValues}
+            workspace={workspace}
             onSubmit={onSubmitParams}
             onCancel={onCancel}
           />

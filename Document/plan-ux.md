@@ -2,8 +2,8 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.0.0 |
-| 状态 | 草案 |
+| 版本 | v1.3.0 |
+| 状态 | 设计基线 |
 | 作者 | - |
 | 日期 | 2026-05-29 |
 
@@ -40,15 +40,22 @@
 
 ## 2. 设计决策
 
-### DC-UX-01: 采用浏览器方案（React + FastAPI），不打包 Electron
+### DC-UX-01: 采用 Electron 桌面外壳 + FastAPI 后端（方案B）
 
-**决策**: 前端使用 React + TypeScript + Vite 构建，后端使用 FastAPI 提供 HTTP API 和 WebSocket。用户启动后端服务后，自动打开浏览器标签访问本地地址。
+**决策**: 前端使用 React + TypeScript + Vite 构建，通过 Electron 桌面外壳提供原生文件系统访问能力。后端使用 FastAPI 提供 HTTP API 和 WebSocket，作为 Electron 主进程启动的独立 Python 子进程运行。
+
+**历史**: v1.0.0 原决策为纯浏览器方案（React + FastAPI，用户手动启动后端并打开浏览器），因标准浏览器无法通过 `<input type="file">` 获取本地文件系统绝对路径（F6/F7 需求无法满足），于 v1.3.0 废弃。
 
 **理由**:
-- 避免 Electron 打包复杂性和包体积问题
-- 前端代码与桌面方案 100% 兼容，未来可随时升级为 Electron
-- FastAPI 原生支持 WebSocket，LLM 流式和脚本执行日志的实时推送实现简单
-- 开发与 CLI 版本并行运行，互不干扰
+- 标准浏览器的安全沙箱禁止返回绝对文件路径，导致工作空间设置和参数路径浏览功能无法正常工作
+- Electron 通过 `dialog.showOpenDialog` 可获取完整绝对路径，解决核心痛点
+- Python FastAPI 作为独立子进程运行，后端代码零改动（参见 plan-electron DC-E01）
+- 前端业务逻辑（React 组件、状态管理、API 调用）基本不变，仅需替换文件浏览实现（参见 plan-electron DC-E04）
+- 前端代码仍与浏览器方案兼容，`isElectron` 特性检测支持非 Electron 环境回退
+
+**替代方案（已否决）**:
+- 继续使用浏览器：`<input type="file">` 无法返回绝对路径，工作空间和参数路径功能不可用
+- Electron 全内置方案（Python 打包进 Electron）：conda + GDAL 打包复杂，包体积过大，违反 DEP-4
 
 ### DC-UX-02: CLI 状态机直接映射为 UI 状态，不改核心逻辑
 
@@ -422,9 +429,14 @@ interface TemplateDetail extends TemplateDef {
 
 ```
 frontend/
+├── electron/                       # Electron 桌面外壳（plan-electron）
+│   ├── main.ts                     # 主进程：窗口管理、Python 进程生命周期
+│   ├── preload.ts                  # 预加载脚本：暴露 IPC API 给前端
+│   └── tsconfig.json               # Electron 专用 TS 配置
 ├── src/
 │   ├── main.tsx                    # 入口，启动时请求 /session 创建会话
 │   ├── App.tsx                     # 路由：/ /generator /pipeline
+│   ├── electron-api.ts             # IPC 封装：isElectron / selectFile / selectDirectory
 │   ├── api/
 │   │   ├── client.ts               # axios 实例，baseURL = "/api"
 │   │   ├── session.ts              # 会话相关 API 调用
@@ -488,17 +500,35 @@ SourceCode/src/
 
 ## 7. 启动方式
 
+### 7.1 Electron 开发模式（推荐）
+
 ```bash
 cd SourceCode
 
-# 方式 1：开发模式（前后端分离启动）
-# 终端 1
+# 终端 1：启动 Python 后端
 python start_api.py
 
-# 终端 2
-cd frontend && npm run dev
+# 终端 2：启动前端开发服务器 + Electron
+cd frontend
+npm run dev          # Vite dev server
+npm run electron:dev # Electron 加载 localhost:5173
+```
 
-# 方式 2：生产模式（后端托管前端静态文件）
+### 7.2 Electron 生产模式
+
+```bash
+cd frontend
+npm run build          # Vite 构建前端
+npm run electron:build # electron-builder 打包
+# 输出：frontend/dist-electron/GIS-Agent-Setup.exe
+```
+
+### 7.3 纯浏览器模式（向后兼容，plan-electron DC-E01）
+
+前端构建产物仍可独立部署，供无 Electron 环境使用：
+
+```bash
+cd SourceCode
 # 前端 build 后，FastAPI 挂载 static 目录
 python start_api.py
 # 访问 http://localhost:8000
@@ -509,13 +539,13 @@ python start_api.py
 后端端口通过 `config/config.json` 的 `api.port` 配置，默认 8000：
 ```json
 {
-  "api": { "host": "0.0.0.0", "port": 9000 }
+  "api": { "host": "0.0.0.0", "port": 8000 }
 }
 ```
 
 前端开发服务器通过 `frontend/.env` 同步代理目标：
 ```
-VITE_API_PORT=9000
+VITE_API_PORT=8000
 ```
 
 ---
@@ -554,6 +584,7 @@ UX 方案**不删除**现有 CLI 代码。`cli/` 目录保持完整，与 `api/`
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.3.0 | 2026-05-31 | **架构变更**：DC-UX-01 从纯浏览器方案升级为 Electron 桌面外壳（plan-electron DC-E01）；更新 §5 组件结构增加 `electron/` 目录；更新 §7 启动方式增加 Electron 开发/生产模式；保留纯浏览器模式作为向后兼容 |
 | v1.2.0 | 2026-05-30 | 更新 §3.1 `process_intent` API 为两阶段匹配（DC-0098）；更新 §4.1 单任务流程图，增加快速路径（关键词高分直达）和 LLM 精排三级决策分支 |
-| v1.0.0 | 2026-05-29 | 初版，定义 React + FastAPI 浏览器 UI 方案 |
 | v1.1.0 | 2026-05-29 | 新增 `/pipeline` 路由；启动方式改为 `start_api.py`/`start_cli.py`；端口支持前后端配置同步 |
+| v1.0.0 | 2026-05-29 | 初版，定义 React + FastAPI 浏览器 UI 方案 |

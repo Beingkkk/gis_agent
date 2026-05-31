@@ -1,6 +1,6 @@
 """Tests for core.workspace module.
 
-Design: DC-0010, DC-0011, DC-0012, DC-0013, DC-0014
+Design: DC-0010, DC-0011, DC-0012, DC-0014
 """
 
 from pathlib import Path
@@ -10,7 +10,6 @@ import pytest
 
 import core.workspace as _workspace_module
 from core.workspace import (
-    AgentsMdContent,
     PathNotFoundError,
     Workspace,
     WorkspaceError,
@@ -140,36 +139,6 @@ def test_generate_output_path_preserves_subdir(workspace: Workspace) -> None:
     assert result.name.endswith(".json")
 
 
-def test_load_agents_md_exists(workspace: Workspace) -> None:
-    """Agents.md exists -> returns AgentsMdContent with full text."""
-    agents_path = workspace.root / "Agents.md"
-    agents_path.write_text("# Project Config\n- epsg: 4326\n", encoding="utf-8")
-    result = workspace.load_agents_md()
-    assert result is not None
-    assert isinstance(result, AgentsMdContent)
-    assert result.content == "# Project Config\n- epsg: 4326\n"
-    assert result.path == agents_path
-
-
-def test_load_agents_md_not_exists(workspace: Workspace) -> None:
-    """Agents.md absent -> returns None."""
-    result = workspace.load_agents_md()
-    assert result is None
-
-
-def test_load_agents_md_permission_error(workspace: Workspace) -> None:
-    """Agents.md exists but unreadable -> raises WorkspaceError."""
-    agents_path = workspace.root / "Agents.md"
-    agents_path.write_text("content")
-    with patch.object(
-        Path,
-        "read_text",
-        side_effect=PermissionError("Permission denied"),
-    ):
-        with pytest.raises(WorkspaceError):
-            workspace.load_agents_md()
-
-
 def test_get_cwd_returns_root(workspace: Workspace) -> None:
     """get_cwd returns the workspace root."""
     assert workspace.get_cwd() == workspace.root
@@ -192,45 +161,3 @@ def test_workspace_instance_is_immutable(workspace: Workspace) -> None:
     """Workspace attributes are read-only (no setters)."""
     with pytest.raises((AttributeError, TypeError)):
         workspace.root = Path("/tmp")  # type: ignore[misc]
-
-
-# ---------------------------------------------------------------------------
-# save_agents_md
-# ---------------------------------------------------------------------------
-
-
-def test_save_agents_md_creates_file_with_header(workspace: Workspace) -> None:
-    """File absent -> create with header + content."""
-    content = "## 任务记录\n- **意图**: test"
-    result = workspace.save_agents_md(content)
-
-    assert result == workspace.root / "Agents.md"
-    assert result.exists()
-    text = result.read_text(encoding="utf-8")
-    assert text.startswith("# GIS Agent 项目配置\n\n")
-    assert "## 任务记录" in text
-    assert "test" in text
-
-
-def test_save_agents_md_appends_to_existing(workspace: Workspace) -> None:
-    """File exists -> append to end without overwriting."""
-    agents_path = workspace.root / "Agents.md"
-    agents_path.write_text("# Existing\n", encoding="utf-8")
-
-    content = "## New Task\n- data: foo"
-    result = workspace.save_agents_md(content)
-
-    text = result.read_text(encoding="utf-8")
-    assert text.startswith("# Existing\n")
-    assert "\n## New Task" in text
-    assert "foo" in text
-
-
-def test_save_agents_md_raises_on_permission_error(workspace: Workspace) -> None:
-    """Write fails -> raises WorkspaceError."""
-    agents_path = workspace.root / "Agents.md"
-    agents_path.write_text("existing")
-
-    with patch("builtins.open", side_effect=PermissionError("denied")):
-        with pytest.raises(WorkspaceError):
-            workspace.save_agents_md("new content")

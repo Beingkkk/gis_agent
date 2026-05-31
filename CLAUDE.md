@@ -76,12 +76,20 @@ Use `codegraph_search` to find specific functions. The following are design patt
 
 ### Two-Stage Intent Matching (DC-0098)
 
-`api/routes/session.py::process_intent` implements a two-stage pipeline:
+`api/routes/session.py::process_intent` implements a two-stage pipeline for **DiscoveryTab only** (Q&A has its own endpoint, see below):
 1. **Coarse filter**: `core/matching.score_template_match()` on ALL templates (fast, code-level). Weights: keywords=+3, concepts=+2, id/name/description/notes=+1.
 2. **Fine rank**: `llm.intent.classify_intent()` on top-10 candidates (LLM semantic match).
 3. **Auto-decision** by confidence: ≥0.85 → `PARAM_COLLECT`; ≥0.50 → `INTENT_CONFIRM` (top-1 + alternates); <0.50 → `INTENT_CONFIRM` (top-3 keyword candidates).
 
 The same `score_template_match()` scoring is reused by Q&A context selection (`llm/qa.py`).
+
+### Q&A API Separation (DC-0071)
+
+Q&A and intent matching are separated at the API level:
+- **`POST /session/{id}/intent`** — DiscoveryTab only. Pure intent matching, no `is_question` keyword heuristic. All inputs go through template matching.
+- **`POST /session/{id}/chat`** — QATab only. Always treated as a question. Calls `answer_question()` with `locked_template` to determine whether to include template context (template-knowledge mode) or not (GIS-expert mode).
+
+This removes the old keyword-based (`什么`, `怎么`) question detection from `process_intent`. Intent is determined by which Tab the user is in, not by parsing their text.
 
 ### ERROR_RECOVERY in the Desktop UI
 
@@ -100,7 +108,8 @@ The J2 template generator (`scripts/generate/`) is a **development-time only** b
 
 - `useSession` (Zustand) holds minimal UI state: `sessionId`, `state`, `taskContext`, `messages`, `scriptPreview`, `errorContext`, `workspace`.
 - Every API call returns a `SessionSnapshot`; the frontend replaces its state wholesale (DC-UX-03).
-- HTTP for state transitions (intent/lock/params/clear/workspace). WebSocket for LLM streaming Q&A (`/ws/chat/{id}`) and real-time execution logs (`/ws/execute/{id}`).
+- HTTP for state transitions (intent/**chat**/lock/params/clear/workspace). WebSocket for LLM streaming Q&A (`/ws/chat/{id}`) and real-time execution logs (`/ws/execute/{id}`).
+- **Three-TAB architecture** (DC-UX-10): Discovery (template search), Q&A (GIS expert chat), Exec (script execution). Each TAB calls a dedicated API — `processIntent` for Discovery, `chatQuestion` for Q&A.
 - After WebSocket execution completes, frontend calls `GET /session/{id}` to refresh the updated state.
 - Routing uses `HashRouter` (not `BrowserRouter`) because Electron loads from `file://` protocol.
 - API base URL is resolved via IPC (`getApiBaseUrl()`) returning an absolute URL like `http://localhost:18000`; the frontend never relies on relative `/api` paths in production.
@@ -285,10 +294,12 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `Document/plan-core.md` | ERROR_RECOVERY design (DC-0048/DC-0049), matching engine (DC-0094), two-stage matching (DC-0098) |
 | `Document/plan-ux.md` | WebSocket streaming (DC-UX-04/05), state→UI mapping, Pipeline/Generator UX |
 | `Document/plan-electron.md` | Electron shell architecture, IPC design, Python process lifecycle |
-| `src/api/routes/session.py` | Two-stage intent matching API (DC-0098) + `POST /diagnose` for lazy error diagnosis |
+| `src/api/routes/session.py` | Two-stage intent matching API (DC-0098) + `POST /chat` for Q&A + `POST /diagnose` for lazy error diagnosis |
 | `src/api/websocket/execute.py` | Execution breakpoint: success→IDLE / failure→ERROR_RECOVERY (DC-0048/DC-0067) |
 | `src/core/processor.py` | CLI state machine dispatcher; `_handle_error_recovery()` is the CLI-side diagnosis driver |
 | `src/core/matching.py` | Unified template matching scoring (keywords=+3, concepts=+2, id/name/desc/notes=+1) |
+| `src/llm/prompts.py` | PromptBuilder with 5 scenario-specific system prompts (DC-0071): intent / template-qa / gis-expert / param / diagnosis |
+| `src/llm/qa.py` | `answer_question()` — code-level branching: `locked_template` determines template-knowledge vs GIS-expert mode |
 | `src/llm/diagnosis.py` | `analyze_execution_error()` — LLM error diagnosis returning structured `ErrorDiagnosis` |
 | `frontend/electron/main.ts` | Electron main process: frameless window, Python child process, IPC handlers (file dialogs + window controls) |
 | `frontend/electron/preload.ts` | `contextBridge` preload script exposing `selectFile`, `selectDirectory`, `getApiBaseUrl`, `windowControl` |
@@ -296,9 +307,11 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `frontend/src/components/TopBar.tsx` | Custom title bar with draggable region and window control buttons (DC-E07) |
 | `frontend/src/api/client.ts` | Axios instance with dynamic absolute baseURL via IPC |
 | `frontend/src/main.tsx` | Entry point using `HashRouter` (required for `file://` protocol) |
-| `frontend/src/pages/MainPage.tsx` | Main UI orchestrator: session lifecycle, WebSocket execution, state refresh |
+| `frontend/src/pages/MainPage.tsx` | Main UI orchestrator: three-TAB lifecycle, WebSocket execution, state refresh |
+| `frontend/src/components/DiscoveryTab.tsx` | Template discovery TAB: unified input box (local filter + intent send), card grid, candidate mode |
+| `frontend/src/components/QATab.tsx` | GIS Q&A TAB: chat stream, locked-template badge, workspace display |
+| `frontend/src/components/ExecTab.tsx` | Script execution TAB: command preview / executing / success / failure states |
 | `frontend/src/components/DetailPanel.tsx` | Right-panel state renderer: ParamForm / ScriptPreview / ERROR_RECOVERY diagnosis |
-| `frontend/src/components/TemplateCardList.tsx` | Left sidebar with client-side search (name/id/description/keywords, DC-0096) |
 | `frontend/src/pages/GeneratorPage.tsx` | Five-step J2 wizard: Monaco-style editor, inline Jinja2 highlight, live re-validation |
 | `src/templates/scanner.py` | `.j2` file scanner — parses comment headers into `TemplateDef` at startup |
 
@@ -337,6 +350,7 @@ After adding a template, restart the application to pick it up (templates are sc
 - Before implementing any feature, check if a corresponding `plan-{module}.md` exists in `Document/`. If not, the feature is not yet ready for coding.
 - When modifying code, verify the change aligns with the locked plan. If the plan needs updating, follow the change control process in `Document/constitution.md`.
 - The `llm/` module is the **only** code allowed to import `anthropic` (CODE-3). Never add anthropic imports outside `llm/`.
+- `PromptBuilder` provides **5 scenario-specific methods** (`build_intent_prompt`, `build_template_qa_prompt`, `build_gis_expert_prompt`, `build_param_prompt`, `build_diagnosis_prompt`). Do not add new catch-all methods — each LLM call scene gets its own dedicated prompt.
 - `Document/Resource/` is gitignored; do not commit its contents.
 - `SourceCode/model/embedding/` contains large model files (deprecated per ADR-0001, no longer used at runtime); should not be committed.
 - `SourceCode/config/config.json` is gitignored; never commit credentials.

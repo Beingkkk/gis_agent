@@ -9,92 +9,71 @@ from llm.prompts import PromptBuilder
 class TestPromptBuilderInit:
     """Test PromptBuilder initialization."""
 
-    def test_init_without_agents_md(self) -> None:
-        """Can initialize without Agents.md."""
-        builder = PromptBuilder(agents_md=None)
-        assert builder is not None
-
-    def test_init_with_agents_md(self) -> None:
-        """Can initialize with Agents.md content."""
-        builder = PromptBuilder(agents_md="# Project config\n- default_crs: 4326")
-        assert builder is not None
-
-
-class TestBuildSystemPrompt:
-    """Test PromptBuilder.build_system_prompt()."""
-
-    def test_contains_fixed_safety_constraints(self) -> None:
-        """DC-0032, P1: System prompt contains safety constraints."""
+    def test_init(self) -> None:
+        """Can initialize PromptBuilder."""
         builder = PromptBuilder()
-        prompt = builder.build_system_prompt()
+        assert builder is not None
 
-        assert "模板" in prompt or "template" in prompt.lower()
-        assert "命令" in prompt or "command" in prompt.lower()
 
-    def test_contains_agents_md_when_provided(self) -> None:
-        """DC-0035, F11: Agents.md content injected into system prompt."""
-        agents_md = "# 城市道路项目\n- 默认坐标系: EPSG:4326"
-        builder = PromptBuilder(agents_md=agents_md)
-        prompt = builder.build_system_prompt()
+class TestBuildIntentPrompt:
+    """Test build_intent_prompt."""
 
-        assert "城市道路项目" in prompt
-        assert "EPSG:4326" in prompt
+    def test_contains_intent_constraints(self) -> None:
+        """DC-0032, F2: Intent prompt contains template selection rules."""
+        builder = PromptBuilder()
+        prompt = builder.build_intent_prompt("候选模板: shp2geojson")
 
-    def test_omits_agents_md_when_none(self) -> None:
-        """DC-0035: No Agents.md section when none provided."""
-        builder = PromptBuilder(agents_md=None)
-        prompt = builder.build_system_prompt()
+        assert "候选模板" in prompt or "template" in prompt.lower()
+        assert "JSON" in prompt
 
-        # Should not contain placeholder for missing agents_md
-        assert "Agents.md" not in prompt
 
-    def test_contains_template_context_when_provided(self) -> None:
+class TestBuildTemplateQaPrompt:
+    """Test build_template_qa_prompt."""
+
+    def test_contains_template_context(self) -> None:
         """DC-0035, P4: Template knowledge context included for Q&A scene."""
-        tpl_ctx = "【模板 1】shp2geojson（Shapefile 转 GeoJSON）"
+        tpl_ctx = "shp2geojson（Shapefile 转 GeoJSON）"
         builder = PromptBuilder()
-        prompt = builder.build_system_prompt(template_context=tpl_ctx)
+        prompt = builder.build_template_qa_prompt(tpl_ctx)
 
         assert "shp2geojson" in prompt
         assert "GeoJSON" in prompt
+        assert "模板问答" in prompt
 
-    def test_omits_template_context_when_none(self) -> None:
-        """DC-0035: No template context section when none provided."""
+
+class TestBuildGisExpertPrompt:
+    """Test build_gis_expert_prompt."""
+
+    def test_contains_gis_expert_role(self) -> None:
+        """DC-0035: GIS expert prompt contains expert role definition."""
         builder = PromptBuilder()
-        prompt = builder.build_system_prompt()
+        prompt = builder.build_gis_expert_prompt()
 
-        # Template context markers should not appear
-        assert "模板知识上下文" not in prompt
+        assert "GIS" in prompt
+        assert "专家" in prompt
 
-    def test_contains_task_context_when_provided(self) -> None:
-        """DC-0035: Task context included for param extraction."""
-        task_ctx = "当前模板: shp2geojson, 已收集: {input: 'roads.shp'}"
+
+class TestBuildParamPrompt:
+    """Test build_param_prompt."""
+
+    def test_contains_param_constraints(self) -> None:
+        """DC-0035, F3: Param prompt contains extraction rules."""
+        task_ctx = "当前模板: shp2geojson"
         builder = PromptBuilder()
-        prompt = builder.build_system_prompt(task_context=task_ctx)
+        prompt = builder.build_param_prompt(task_ctx)
 
+        assert "参数提取" in prompt
         assert "shp2geojson" in prompt
 
-    def test_prompt_order_fixed_constraints_first(self) -> None:
-        """DC-0035: Fixed constraints come first in prompt."""
-        agents_md = "Project config"
-        tpl_ctx = "Template context"
-        builder = PromptBuilder(agents_md=agents_md)
-        prompt = builder.build_system_prompt(template_context=tpl_ctx)
 
-        # Safety constraints should appear before dynamic content
-        safety_idx = prompt.find("模板")
-        agents_idx = prompt.find("Project config")
+class TestBuildDiagnosisPrompt:
+    """Test build_diagnosis_prompt."""
 
-        if safety_idx != -1 and agents_idx != -1:
-            assert safety_idx < agents_idx
-
-
-class TestPromptBuilderForIntent:
-    """Test prompts for intent classification scenario."""
-
-    def test_build_intent_prompt_structure(self) -> None:
-        """F2: Intent classification prompt contains template constraint."""
+    def test_contains_diagnosis_role(self) -> None:
+        """DC-0036, F10: Diagnosis prompt contains expert role."""
+        task_ctx = "returncode: 1, stderr: error"
         builder = PromptBuilder()
-        prompt = builder.build_system_prompt()
+        prompt = builder.build_diagnosis_prompt(task_ctx)
 
-        # Should reference template selection
-        assert "模板" in prompt or "template" in prompt.lower()
+        assert "诊断" in prompt
+        assert "error" in prompt

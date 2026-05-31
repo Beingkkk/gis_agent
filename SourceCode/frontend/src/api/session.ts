@@ -23,6 +23,14 @@ export async function processIntent(
   return resp.data
 }
 
+export async function chatQuestion(
+  sessionId: string,
+  input: string
+): Promise<SessionSnapshot> {
+  const resp = await apiClient.post(`/session/${sessionId}/chat`, { input })
+  return resp.data
+}
+
 export async function lockTemplate(
   sessionId: string,
   templateId: string
@@ -43,12 +51,13 @@ export async function submitParams(
 
 export async function executeScript(
   sessionId: string,
-  dryRun = false
+  dryRun = false,
+  script?: string
 ): Promise<{ execution_id: string }> {
   const resp = await apiClient.post(
     `/session/${sessionId}/execute`,
     null,
-    { params: { dry_run: dryRun } }
+    { params: { dry_run: dryRun, script } }
   )
   return resp.data
 }

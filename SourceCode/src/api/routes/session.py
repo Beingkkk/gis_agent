@@ -55,6 +55,7 @@ class SessionResponse(BaseModel):
     error_context: Optional[dict[str, Any]]
     history: list[dict[str, str]]
     workspace: str
+    user_script: Optional[str] = None
 
 
 class IntentRequest(BaseModel):
@@ -139,9 +140,11 @@ def _build_session_response(session_id: str, session: Session) -> SessionRespons
 
     history = [{"role": msg.role, "content": msg.content} for msg in session.history]
 
-    # Extract script preview if in SCRIPT_PREVIEW state
+    # Extract script preview: prioritize user-edited script (DC-UX-11)
     script_preview: Optional[str] = None
-    if session.state == SessionState.SCRIPT_PREVIEW and template:
+    if session.user_script:
+        script_preview = session.user_script
+    elif session.state == SessionState.SCRIPT_PREVIEW and template:
         try:
             engine = get_template_engine()
             rendered = engine.render(template, session.params)
@@ -180,6 +183,7 @@ def _build_session_response(session_id: str, session: Session) -> SessionRespons
         error_context=error_context,
         history=history,
         workspace=workspace_path,
+        user_script=session.user_script,
     )
 
 
@@ -237,7 +241,6 @@ async def process_intent(
     2. Fine ranking: classify_intent on top-N candidates (LLM semantic match)
 
     Routes:
-    - Q&A question → IDLE with text reply
     - Strong keyword match (score ≥ 8) → PARAM_COLLECT (fast path)
     - LLM confidence ≥ 0.85 → PARAM_COLLECT (auto-select, no user pick)
     - LLM confidence ≥ 0.5  → INTENT_CONFIRM with top-1 candidate
@@ -267,53 +270,7 @@ async def process_intent(
     scored.sort(key=lambda x: x[1], reverse=True)
     best_score = scored[0][1] if scored else 0
 
-    # --- Route 1: Q&A question → IDLE with text reply ---
-    _EXPLORATORY_MARKERS = {
-        "什么", "哪些", "怎么", "如何", "为什么", "能否", "可以",
-        "支持", "介绍", "说明", "解释", "了解", "知道",
-    }
-    _QUESTION_PATTERNS = ("?", "？", "吗", "么", "呢", "吧")
-    is_question = (
-        user_input.endswith(_QUESTION_PATTERNS)
-        or any(m in user_input_lower for m in _EXPLORATORY_MARKERS)
-    )
-
-    if is_question:
-        context_templates = [t for t, s in scored if s > 0][:5]
-        if not context_templates and all_templates:
-            context_templates = all_templates[:3]
-
-        try:
-            llm_client = get_llm_client()
-            prompt_builder = get_prompt_builder()
-            reply = await asyncio.to_thread(
-                answer_question,
-                user_input=request.input,
-                templates=context_templates,
-                history=list(session.history),
-                client=llm_client,
-                builder=prompt_builder,
-            )
-        except Exception as exc:
-            logger.warning("LLM Q&A failed: %s", exc)
-            reply = (
-                "抱歉，当前无法调用 LLM 回答你的问题。"
-                "你可以从左栏浏览模板卡片，或直接描述具体数据处理需求。"
-            )
-
-        new_session = (
-            session.with_state(SessionState.IDLE)
-            .with_history(
-                Message(role="user", content=request.input)
-            )
-            .with_history(
-                Message(role="agent", content=reply)
-            )
-        )
-        session_manager.update_session(session_id, new_session)
-        return _build_session_response(session_id, new_session)
-
-    # --- Route 2: Fast path — strong keyword match (score ≥ 8) ---
+    # --- Route 1: Fast path — strong keyword match (score ≥ 8) ---
     # ~2-3 keyword hits → confident enough to skip LLM
     if best_score >= _KEYWORD_HIGH_THRESHOLD:
         best_template = scored[0][0]
@@ -327,7 +284,7 @@ async def process_intent(
         session_manager.update_session(session_id, new_session)
         return _build_session_response(session_id, new_session)
 
-    # --- Route 3: Two-stage matching (coarse + LLM fine-rank) ---
+    # --- Route 2: Two-stage matching (coarse + LLM fine-rank) ---
     # Build candidate pool from top keyword-scored templates
     candidate_pool = [t for t, s in scored if s > 0][:_CANDIDATE_POOL_SIZE]
     if not candidate_pool:
@@ -362,7 +319,7 @@ async def process_intent(
 
     # --- Decision: auto-select vs. recommend vs. show candidates ---
 
-    # 3a: Absolute advantage — LLM confidence ≥ 0.85 → auto-select
+    # 2a: Absolute advantage — LLM confidence ≥ 0.85 → auto-select
     if llm_result and llm_result.confidence >= _AUTO_SELECT_CONFIDENCE:
         selected = registry.get_template(llm_result.template_id)
         if selected:
@@ -382,7 +339,7 @@ async def process_intent(
             session_manager.update_session(session_id, new_session)
             return _build_session_response(session_id, new_session)
 
-    # 3b: Strong match — LLM confidence ≥ 0.5 → show top-1 as primary
+    # 2b: Strong match — LLM confidence ≥ 0.5 → show top-1 as primary
     if llm_result and llm_result.confidence >= _STRONG_MATCH_CONFIDENCE:
         selected = registry.get_template(llm_result.template_id)
         if selected:
@@ -401,7 +358,7 @@ async def process_intent(
             session_manager.update_session(session_id, new_session)
             return _build_session_response(session_id, new_session)
 
-    # 3c: Weak/unknown match → show top-3 keyword candidates
+    # 2c: Weak/unknown match → show top-3 keyword candidates
     top_candidates = [t for t, s in scored if s > 0][:3]
     if not top_candidates:
         top_candidates = all_templates[:3]
@@ -411,6 +368,71 @@ async def process_intent(
         .with_candidates(top_candidates)
         .with_history(
             Message(role="user", content=request.input)
+        )
+    )
+    session_manager.update_session(session_id, new_session)
+    return _build_session_response(session_id, new_session)
+
+
+@router.post("/{session_id}/chat", response_model=SessionResponse)
+async def chat_question(
+    session_id: str,
+    request: IntentRequest,
+    session_manager: SessionManager = Depends(get_session_manager),
+) -> SessionResponse:
+    """Handle Q&A from the QATab.
+
+    Always treats input as a question — no intent matching or template
+    search. If a template is locked, answers with full template context;
+    otherwise answers as a GIS expert with no template context.
+
+    Design: DC-UX-10 (GIS Q&A Tab)
+    """
+    session = _get_session_or_404(session_id, session_manager)
+    registry = get_registry()
+    user_input = request.input.strip()
+
+    # Code-level branch: template-knowledge Q&A vs GIS-expert Q&A
+    if session.template is not None:
+        # Score remaining templates for supplementary context
+        all_templates = registry.list_templates()
+        scored = [
+            (t, score_template_match(t, user_input))
+            for t in all_templates
+            if t.id != session.template.id
+        ]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        context_templates = [t for t, s in scored if s > 0][:3]
+    else:
+        context_templates = []
+
+    try:
+        llm_client = get_llm_client()
+        prompt_builder = get_prompt_builder()
+        reply = await asyncio.to_thread(
+            answer_question,
+            user_input=request.input,
+            templates=context_templates,
+            history=list(session.history),
+            client=llm_client,
+            builder=prompt_builder,
+            locked_template=session.template,
+            current_params=dict(session.params) if session.params else None,
+        )
+    except Exception as exc:
+        logger.warning("LLM Q&A failed: %s", exc)
+        reply = (
+            "抱歉，当前无法调用 LLM 回答你的问题。"
+            "请稍后重试。"
+        )
+
+    new_session = (
+        session
+        .with_history(
+            Message(role="user", content=request.input)
+        )
+        .with_history(
+            Message(role="assistant", content=reply)
         )
     )
     session_manager.update_session(session_id, new_session)
@@ -445,7 +467,11 @@ async def lock_template(
             status_code=400, detail=f"Template not found: {request.template_id}"
         )
 
-    new_session = session.with_state(SessionState.PARAM_COLLECT).with_template(template)
+    new_session = (
+        session.with_state(SessionState.PARAM_COLLECT)
+        .with_template(template)
+        .clear_user_script()
+    )
     session_manager.update_session(session_id, new_session)
     return _build_session_response(session_id, new_session)
 
@@ -488,7 +514,10 @@ async def submit_params(
     missing = sorted(required - provided)
 
     if missing:
-        new_session = session.with_state(SessionState.PARAM_COLLECT)
+        new_session = (
+            session.with_state(SessionState.PARAM_COLLECT)
+            .clear_user_script()
+        )
         for name, value in merged_params.items():
             new_session = new_session.with_param(name, value)
         session_manager.update_session(session_id, new_session)
@@ -502,7 +531,7 @@ async def submit_params(
         raise HTTPException(status_code=400, detail="; ".join(errors))
 
     # All valid → SCRIPT_PREVIEW
-    new_session = session.with_state(SessionState.SCRIPT_PREVIEW)
+    new_session = session.with_state(SessionState.SCRIPT_PREVIEW).clear_user_script()
     for name, value in valid_params.items():
         new_session = new_session.with_param(name, value)
     session_manager.update_session(session_id, new_session)
@@ -513,6 +542,7 @@ async def submit_params(
 async def execute_script(
     session_id: str,
     dry_run: bool = False,
+    script: Optional[str] = None,
     session_manager: SessionManager = Depends(get_session_manager),
 ) -> Union[DryRunResponse, JSONResponse]:
     """Trigger script execution.
@@ -523,6 +553,7 @@ async def execute_script(
     Args:
         session_id: Session UUID.
         dry_run: If True, return preview without triggering execution.
+        script: Optional user-edited script (overrides template rendering).
         session_manager: SessionManager dependency.
 
     Returns:
@@ -530,9 +561,17 @@ async def execute_script(
     """
     session = _get_session_or_404(session_id, session_manager)
 
+    # Store user-edited script if provided (DC-UX-11: 命令编辑)
+    if script is not None:
+        new_session = session.with_user_script(script.strip() or None)
+        session_manager.update_session(session_id, new_session)
+        session = new_session
+
     if dry_run:
         script_preview = None
-        if session.template:
+        if session.user_script:
+            script_preview = session.user_script
+        elif session.template:
             try:
                 engine = get_template_engine()
                 rendered = engine.render(session.template, session.params)
@@ -744,10 +783,10 @@ async def update_session_workspace(
     request: WorkspaceRequest,
     session_manager: SessionManager = Depends(get_session_manager),
 ) -> SessionResponse:
-    """Update workspace path, reset session, and recreate dependent components.
+    """Update workspace path and recreate dependent components.
 
     Validates that the new path exists and is a directory before switching.
-    Clears the session state as a side effect.
+    Preserves the current session state (template, params, history, etc.).
 
     Args:
         session_id: Session UUID.
@@ -755,12 +794,12 @@ async def update_session_workspace(
         session_manager: SessionManager dependency.
 
     Returns:
-        Cleared SessionResponse with new workspace context.
+        SessionResponse with new workspace context, session state unchanged.
 
     Raises:
         HTTPException: 400 if path invalid, 404 if session not found.
     """
-    _get_session_or_404(session_id, session_manager)
+    session = _get_session_or_404(session_id, session_manager)
 
     try:
         new_path = Path(request.path).resolve()
@@ -772,7 +811,4 @@ async def update_session_workspace(
             status_code=400, detail=f"Invalid workspace path: {exc}"
         ) from exc
 
-    session_manager.clear_session(session_id)
-    cleared = session_manager.get_session(session_id)
-    assert cleared is not None
-    return _build_session_response(session_id, cleared)
+    return _build_session_response(session_id, session)

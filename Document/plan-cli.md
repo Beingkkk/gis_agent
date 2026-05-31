@@ -86,7 +86,6 @@ def repl_loop(session: Session) -> None:
 | `/workspace` | 显示当前工作空间路径 |
 | `/templates` | 列出可用模板 |
 | `/status` | 显示当前状态、工作空间、历史轮数 |
-| `/init` | 将当前会话的任务意图、模板、参数写入 Agents.md |
 | `/help` | 显示帮助信息 |
 
 ### DC-0063: 脚本执行使用 subprocess，cwd 限定在工作空间
@@ -143,39 +142,6 @@ def repl_loop(session: Session) -> None:
 **实现要点**:
 - `REPL.output_fn` property 返回 `self._output_fn`
 - `main()` 中 `processor.set_output_fn(repl.output_fn)` 完成接线
-
-### DC-0067: `/init` 命令将会话快照持久化到 Agents.md
-
-**决策**: 提供 `/init` 斜杠命令，将当前 Session 中的任务意图、匹配模板、收集到的参数追加写入工作空间的 `Agents.md`。文件不存在时自动创建。
-
-**理由**:
-- Agents.md 作为项目级长期记忆，当前仅支持手动编写，门槛高
-- 用户在完成一轮有意义的对话后，通过 `/init` 一键固化配置，降低维护成本
-- 追加模式不覆盖已有内容，支持多任务记录
-- 无模板时（IDLE 状态）拒绝写入，避免生成空记录
-
-**写入内容格式**:
-```markdown
-## 任务记录 — 2026-05-28 14:32:15
-
-- **意图**: Shapefile 转 GeoJSON
-- **模板**: shp2geojson
-- **参数**:
-  - input (file_path, 必填): roads.shp — 输入 Shapefile 路径
-  - output (file_path, 必填): roads_out.geojson — 输出 GeoJSON 路径
-  - t_srs (crs, 可选, 默认 EPSG:4326): EPSG:4326 — 目标坐标系
-```
-
-**边界处理**:
-| 场景 | 行为 |
-|------|------|
-| Session 无 template（还在 IDLE/INTENT_CONFIRM） | 提示"当前没有已确认的任务，请先描述需求并完成参数收集" |
-| Agents.md 不存在 | 自动创建，写入文件头 `# GIS Agent 项目配置` + 任务记录 |
-| Agents.md 已存在 | 追加到末尾，不覆盖 |
-| 参数值为空字符串 | 值记为"(未提供)"，但保留参数名和类型 |
-| 写入失败（权限等） | 捕获 OSError，提示具体错误，不抛异常 |
-
----
 
 ## 3. 接口定义
 
@@ -336,7 +302,6 @@ class SlashCommandHandler:
         "workspace": _cmd_workspace,
         "templates": _cmd_templates,
         "status": _cmd_status,
-        "init": _cmd_init,
         "help": _cmd_help,
     }
 
@@ -590,8 +555,6 @@ CLI 层是顶层，不向下暴露接口给其他模块。
 | 斜杠命令 `/clear` | 清除后 session 回到 IDLE，history 为空 |
 | 斜杠命令 `/workspace` | 显示当前工作空间路径 |
 | 斜杠命令未知 | 提示未知命令，继续循环 |
-| 斜杠命令 `/init` | 有 template 时追加写入 Agents.md，无 template 时提示拒绝 |
-| 斜杠命令 `/init` 文件不存在 | 自动创建 Agents.md 并写入 |
 | Y 确认执行 | 调用 ScriptExecutor.execute() |
 | N 取消执行 | 返回 PARAM_COLLECT 状态 |
 | 无效确认输入 | 循环要求重新输入，不崩溃 |
@@ -629,7 +592,6 @@ CLI 层是顶层，不向下暴露接口给其他模块。
 | F7 | DC-0060 | `--workspace` 参数 | 指定工作空间 |
 | F8 | DC-0061 | REPL 循环 + Session 传递 | 会话内记忆 |
 | F10 | DC-0063 扩展 | `REPL._execute_script()` 执行失败流程 | 失败后构造 `ExecutionErrorContext`，进入 `ERROR_RECOVERY` |
-| F11 | DC-0067 | `/init` 命令 | Agents.md 持久化会话配置 |
 | P2 | DC-0066 | SCRIPT_PREVIEW 确认流程 | 先展后行 |
 | P3 | DC-0063 | `cwd=workspace.root` | 最小权限 |
 | W1 | DC-0063 | 脚本写入工作空间 | 输出文件放置位置 |
@@ -645,6 +607,5 @@ CLI 层是顶层，不向下暴露接口给其他模块。
 |------|------|---------|
 | v1.0.4 | 2026-05-29 | 新增 DC-0071：REPL 新增 `output_fn` property 暴露输出函数；`main()` 启动流程新增 `processor.set_output_fn(repl.output_fn)` 接线步骤；Q&A 回答支持流式逐块输出；§2 新增设计决策、§3.3 更新 REPL 接口、§4.1 更新启动流程 |
 | v1.0.3 | 2026-05-28 | DC-0063 扩展：执行失败后不再直接返回 IDLE，而是构造 `ExecutionErrorContext` 并进入 `ERROR_RECOVERY` 状态；REPL 主循环和脚本执行流程图更新；测试策略新增错误恢复场景 |
-| v1.0.2 | 2026-05-28 | 新增 `/init` 斜杠命令（DC-0067）：将当前 Session 的任务意图、模板、参数追加写入 Agents.md，支持自动创建文件和边界情况处理 |
 | v1.0.1 | 2026-05-28 | REPL 执行结果输出格式改进：成功/失败均展示 stdout + stderr + 返回码 + 耗时；quote_filter Windows 兼容（双引号）；移除 RAG 启动初始化 |
 | v1.0.0 | 2026-05-26 | 初版，定义 CLI 启动流程、REPL 循环、斜杠命令、用户确认、脚本执行沙箱 |

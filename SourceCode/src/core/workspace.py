@@ -1,6 +1,6 @@
 """Workspace management module.
 
-Provides project anchor point, path normalization, Agents.md loading,
+Provides project anchor point, path normalization,
 and default cwd for script execution.
 
 Public API:
@@ -8,7 +8,6 @@ Public API:
     get_workspace() -> Workspace
     Workspace.resolve_path(user_input) -> Path
     Workspace.generate_output_path(user_input, ext) -> Path
-    Workspace.load_agents_md() -> AgentsMdContent | None
 
 Design: plan-workspace v2.0.0 (DC-0010 ~ DC-0014)
 """
@@ -31,22 +30,14 @@ class PathNotFoundError(WorkspaceError):
     """File path does not exist (informational check, not security block)."""
 
 
-@dataclass(frozen=True)
-class AgentsMdContent:
-    """Agents.md loading result."""
-
-    content: str
-    path: Path
-
-
 class Workspace:
     """Workspace manager.
 
-    Provides path normalization, output filename generation, Agents.md loading.
+    Provides path normalization, output filename generation.
     Process-level singleton, accessed via initialize() / get_workspace().
 
     Design:
-        DC-0010, DC-0011, DC-0012, DC-0013, DC-0014
+        DC-0010, DC-0011, DC-0012, DC-0014
     """
 
     def __init__(self, root: Path) -> None:
@@ -131,62 +122,9 @@ class Workspace:
 
         return (parent / filename).resolve()
 
-    def load_agents_md(self) -> Optional[AgentsMdContent]:
-        """Load Agents.md from workspace root.
-
-        Returns:
-            AgentsMdContent if file exists, None otherwise.
-
-        Raises:
-            WorkspaceError: File exists but cannot be read.
-        """
-        agents_path = self._root / "Agents.md"
-        if not agents_path.exists():
-            return None
-
-        try:
-            content = agents_path.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise WorkspaceError(f"Failed to read Agents.md: {exc}") from exc
-
-        return AgentsMdContent(content=content, path=agents_path)
-
     def get_cwd(self) -> Path:
         """Return workspace root as default cwd for script execution."""
         return self._root
-
-    def save_agents_md(self, content: str) -> Path:
-        """Append content to Agents.md in workspace root.
-
-        Creates the file with a header if it does not exist.
-        Content is appended with a leading newline separator.
-
-        Args:
-            content: Text to append.
-
-        Returns:
-            Path to the Agents.md file.
-
-        Raises:
-            WorkspaceError: File cannot be written.
-
-        Design:
-            DC-0045
-        """
-        agents_path = self._root / "Agents.md"
-        header = "# GIS Agent 项目配置\n\n"
-
-        try:
-            agents_path.parent.mkdir(parents=True, exist_ok=True)
-            if not agents_path.exists():
-                agents_path.write_text(header + content, encoding="utf-8")
-            else:
-                with open(agents_path, "a", encoding="utf-8") as f:
-                    f.write("\n" + content)
-        except OSError as exc:
-            raise WorkspaceError(f"Failed to write Agents.md: {exc}") from exc
-
-        return agents_path
 
 
 _workspace_instance: Optional[Workspace] = None

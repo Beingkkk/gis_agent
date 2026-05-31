@@ -82,9 +82,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     template_engine = TemplateEngine(template_dir, get_workspace())
     llm_client = LLMClient()
 
-    agents_md = get_workspace().load_agents_md()
-    agents_md_content = agents_md.content if agents_md is not None else None
-    prompt_builder = PromptBuilder(agents_md_content)
+    prompt_builder = PromptBuilder()
 
     processor = SessionProcessor(
         registry=registry,

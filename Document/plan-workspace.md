@@ -13,9 +13,9 @@
 
 ### 1.1 模块职责
 
-管理 GIS Agent 的项目锚点与默认操作上下文：工作空间的初始化与规范化、`Agents.md` 长期记忆的自动加载、路径规范化辅助、输出文件名防覆盖。本模块是**项目记忆的入口**（F11），同时作为脚本执行的默认当前目录（W2）。
+管理 GIS Agent 的项目锚点与默认操作上下文：工作空间的初始化与规范化、路径规范化辅助、输出文件名防覆盖。本模块作为脚本执行的默认当前目录（W2）。
 
-> **设计定位说明**：GIS 数据通常体积大且分散在多个目录，强制将数据集中在单一工作空间内不现实。因此本模块**不限制**文件操作必须在 workspace 内——数据路径可以是任意合法路径。工作空间的核心意义是存放 `Agents.md`，为 Agent 提供项目级长期记忆和默认上下文。
+> **设计定位说明**：GIS 数据通常体积大且分散在多个目录，强制将数据集中在单一工作空间内不现实。因此本模块**不限制**文件操作必须在 workspace 内——数据路径可以是任意合法路径。工作空间的核心意义是作为脚本执行的默认当前目录（cwd）和输出文件的默认基准目录。
 
 ### 1.2 所属架构层次
 
@@ -25,8 +25,7 @@
 
 | 需求 ID | 需求描述 |
 |:-------:|---------|
-| F7 | 支持 `--workspace` 参数；作为默认 cwd 和 Agents.md 探测位置 |
-| F11 | 自动读取工作空间下的 `Agents.md` 注入系统提示词 |
+| F7 | 支持 `--workspace` 参数；作为默认 cwd 和路径解析基准 |
 | W1 | 生成脚本和输出文件**默认**放置在工作空间下（可覆盖） |
 | W2 | 脚本执行时，将工作空间作为进程的默认当前目录（cwd） |
 
@@ -68,15 +67,6 @@
 
 **时间戳格式**: `%Y%m%d_%H%M%S`（如 `roads_20260526_143052.json`）
 
-### DC-0013: Agents.md 在工作空间根目录自动探测
-
-**决策**: 每次设置/切换工作空间时，自动检测根目录下是否存在 `Agents.md`，若存在则加载其全文内容。
-
-**理由**:
-- 符合 F11 的无感加载要求
-- 与项目级配置解耦，每个工作空间可有自己的记忆
-- 失败静默：文件不存在时不报错，返回 `None`
-
 ### DC-0014: Workspace 类采用进程级单例
 
 **决策**: `Workspace` 实例在进程内唯一，通过 `get_workspace()` 全局访问。
@@ -116,13 +106,6 @@ from pathlib import Path
 from typing import Optional
 
 
-@dataclass(frozen=True)
-class AgentsMdContent:
-    """Agents.md 加载结果。"""
-    content: str
-    path: Path
-
-
 class Workspace:
     """工作空间管理器。
 
@@ -130,7 +113,7 @@ class Workspace:
     进程内单例，通过 initialize() / get_workspace() 访问。
 
     Design:
-        DC-0010, DC-0011, DC-0012, DC-0013, DC-0014
+        DC-0010, DC-0011, DC-0012, DC-0014
     """
 
     def __init__(self, root: Path) -> None:
@@ -179,16 +162,6 @@ class Workspace:
             规范化后的绝对输出路径。
             若 user_input 为相对路径，以 workspace.root 为基准；
             若为绝对路径，直接使用。
-        """
-
-    def load_agents_md(self) -> Optional[AgentsMdContent]:
-        """加载工作空间根目录下的 Agents.md。
-
-        Returns:
-            AgentsMdContent 对象，若文件不存在则返回 None。
-
-        Raises:
-            WorkspaceError: 文件存在但读取失败（权限问题等）。
         """
 
     def get_cwd(self) -> Path:
@@ -240,11 +213,7 @@ def get_workspace() -> Workspace:
     ├──→ 检查目录是否存在且可读
     │       └── 否 → 抛出 WorkspaceNotFoundError
     │
-    ├──→ 存储为模块级单例
-    │
-    └──→ 调用 load_agents_md()
-            ├──→ 存在：返回 AgentsMdContent → 注入 LLM 系统提示词
-            └──→ 不存在：返回 None → 静默继续
+    └──→ 存储为模块级单例
 ```
 
 ### 4.2 路径解析流程（v2.0.0）
@@ -324,7 +293,6 @@ Workspace.generate_output_path("processed/roads", ".geojson")
 | `WorkspaceNotFoundError` | 指定的 `--workspace` 目录不存在 | CLI 打印错误并退出（退出码 2） |
 | `WorkspaceNotFoundError` | 路径存在但不是目录（是文件） | 同上 |
 | `PathNotFoundError` | `must_exist=True` 时输入文件不存在 | CLI 提示文件不存在，建议检查路径 |
-| `WorkspaceError` | Agents.md 存在但读取失败（权限） | 打印警告，继续运行（非致命） |
 
 ---
 
@@ -344,8 +312,6 @@ Workspace.generate_output_path("processed/roads", ".geojson")
 | `must_exist=True` 且文件不存在 | 抛出 PathNotFoundError |
 | 输出文件生成 | 返回的路径含时间戳，以 workspace 为基准 |
 | 输出文件绝对路径 | `generate_output_path("/tmp/out", ".sh")` 使用 /tmp 为基准 |
-| Agents.md 存在 | 返回 AgentsMdContent，content 为全文 |
-| Agents.md 不存在 | 返回 None |
 | 未初始化访问 | `get_workspace()` 抛出 RuntimeError |
 | 会话不可变性 | 相关属性为只读 |
 
@@ -370,7 +336,6 @@ Workspace.generate_output_path("processed/roads", ".geojson")
 | F7 | DC-0014 | `initialize()` / `get_workspace()` | 全局工作空间管理 |
 | W1 | DC-0010 | `Workspace.root` | 输出文件默认放置位置（可覆盖） |
 | W2 | DC-0010 | `Workspace.get_cwd()` | 脚本执行默认 cwd |
-| F11 | DC-0013 | `Workspace.load_agents_md()` | Agents.md 自动加载 |
 | P3 | DC-0012 | `generate_output_path()` | 时间戳防覆盖 |
 | CODE-2 | DC-0010, DC-0011 | `resolve_path()` | 路径统一规范化入口 |
 
@@ -380,5 +345,7 @@ Workspace.generate_output_path("processed/roads", ".geojson")
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
-| **v2.0.0** | **2026-05-27** | **重大设计变更**：工作空间定位从"安全沙箱"调整为"记忆锚点 + 默认操作目录"。移除了 `PathEscapeError` 和路径前缀匹配安全边界（DC-0011）。路径解析不再限制在工作空间内，GIS 数据可来自任意合法路径。 |
-| v1.0.0 | 2026-05-26 | 初版，定义工作空间管理、路径安全校验、Agents.md 加载机制 |
+| **v2.1.0** | **2026-05-31** | **移除 Agents.md**：去除 `AgentsMdContent`、`load_agents_md()`、`save_agents_md()` 及相关设计决策（DC-0013、DC-0045）。工作空间纯粹作为默认 cwd 和输出基准目录，不再承载项目级长期记忆功能。 |
+| **v2.1.0** | **2026-05-31** | **切换工作空间保留会话状态**：`update_session_workspace` 不再调用 `clear_session()`，切换时保留 template、params、history 等全部会话上下文，仅变更默认操作目录。 |
+| **v2.0.0** | **2026-05-27** | **重大设计变更**：工作空间定位从"安全沙箱"调整为"默认操作目录"。移除了 `PathEscapeError` 和路径前缀匹配安全边界（DC-0011）。路径解析不再限制在工作空间内，GIS 数据可来自任意合法路径。 |
+| v1.0.0 | 2026-05-26 | 初版，定义工作空间管理、路径安全校验 |

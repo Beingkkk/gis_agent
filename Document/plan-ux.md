@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.5.0 |
+| 版本 | v1.6.0 |
 | 状态 | 设计基线 |
 | 作者 | - |
 | 日期 | 2026-05-29 |
@@ -70,12 +70,20 @@
 
 | SessionState | UI 表现 | 用户操作 |
 |-------------|---------|---------|
-| `IDLE` | 探索态 | 左栏浏览卡片，聊天自由问答 |
-| `INTENT_CONFIRM` | 意图确认 | 聊天区显示候选卡片，用户点击"确认"按钮 |
-| `PARAM_COLLECT` | 参数填写 | 右栏展开表单，用户直接输入 |
-| `SCRIPT_PREVIEW` | 脚本预览 | 聊天区显示脚本代码块 + 执行/修改/取消按钮 |
-| `EXECUTING` | 执行中 | 脚本区变为进度状态，实时输出日志 |
-| `ERROR_RECOVERY` | 错误恢复 | 聊天区显示诊断结果 + 修复选项 |
+| `IDLE` | 模板识别 TAB | 浏览模板卡片网格或搜索，自由问答 |
+| `INTENT_CONFIRM` | 模板识别 TAB | 显示 LLM 匹配的候选模板列表，用户点击"确认" |
+| `PARAM_COLLECT` | 模板识别 TAB + 右侧面板 | 右侧面板展开参数表单，用户填写；可随时点击"预览命令"查看生成的 bash |
+| `SCRIPT_PREVIEW` | 脚本执行 TAB | 命令预览态：显示生成的 bash 命令（点击刷新更新），提供"执行"/"返回修改"按钮 |
+| `EXECUTING` | 脚本执行 TAB | 执行中态：实时输出日志，显示进度，可取消 |
+| `ERROR_RECOVERY` | 脚本执行 TAB | 失败态：显示错误输出和返回码，提供"一键诊断"（跳转 GIS 问答 TAB）或"返回修改" |
+
+**状态 → TAB 路由**：
+
+| 状态 | 自动激活的 TAB |
+|------|---------------|
+| `IDLE` / `INTENT_CONFIRM` / `PARAM_COLLECT` | 模板识别 |
+| `SCRIPT_PREVIEW` / `EXECUTING` | 脚本执行 |
+| `ERROR_RECOVERY` | 脚本执行（失败后）→ GIS 问答（一键诊断后） |
 
 ### DC-UX-03: Session 对象由后端维护，前端仅持有 session_id
 
@@ -198,7 +206,7 @@ interface DataLink {
 
 **决策**: `ParamForm` 渲染方式全面重构：
 
-1. **面板扩宽**：`DetailPanel` 容器从 `w-[360px]` 扩至 `w-[520px]`，`Layout` 中聊天区相应缩小，确保参数面板有足够水平空间。
+1. **面板扩宽**：`DetailPanel` 容器从 `w-[360px]` 扩至 **`w-[580px]`**，`Layout` 中主交互区相应缩小（左栏 300px 已移除并入 TAB），确保参数面板有足够水平空间。
 2. **水平行布局**：每个参数渲染为一行，Label 列固定宽度左对齐（`w-[140px]`），Input 列弹性填充。Label 区域包含参数名、必填标记 `*`、信息图标 `?`、类型标签。
 3. **参数分组折叠**：参数按逻辑分组渲染为可折叠的 Accordion 面板。分组通过前端**启发式规则**推断，不修改模板系统和 `@param` 注释格式。
 4. **默认展开策略**：含必填参数的分组默认展开；全为可选参数的分组默认折叠。
@@ -239,6 +247,107 @@ interface DataLink {
 - 类型标签让用户不用看输入控件就能预判参数类型，减少认知负担
 - 填充状态反馈让用户一眼看出哪些参数已填、哪些还需填写
 
+### DC-UX-10: 三 TAB 分离：模板识别 / GIS 问答 / 脚本执行
+
+**决策**: 将模板搜索匹配、知识问答、脚本执行从混合的聊天区分离为三个独立的顶部 TAB。每个 TAB 对应独立的后端 API，代码层面决定场景，不依赖 LLM 猜测用户意图。
+
+| TAB | 职责 | 后端 API | 历史累积 | 典型内容 |
+|-----|------|---------|---------|---------|
+| **模板识别** | 搜索模板、LLM 意图匹配、选中模板 | `POST /session/{id}/intent` | ❌ 不累积 | 模板卡片网格、分类过滤芯片、候选模板列表（带置信度） |
+| **GIS 问答** | 学习 GIS 概念、问参数含义、获取使用建议 | `POST /session/{id}/chat` | ✅ 累积多轮 | 聊天消息流、快捷问题建议、诊断结果 |
+| **脚本执行** | 命令预览、执行、结果查看 | `WS /ws/execute/{id}` | ❌ 单次覆盖 | 命令编辑器、实时日志、成功/失败结果 |
+
+**DiscoveryTab（模板识别）约束**：
+- 所有输入走 `process_intent()`，**仅做意图匹配，不做问答**
+- 不再通过关键词（如"什么""怎么"）判断是否为问答请求
+- 用户有纯问答需求时，需切换到 GIS 问答 TAB
+
+**QATab（GIS 问答）约束**：
+- 所有输入走 `chat_question()`，**始终视为问答请求，不做意图匹配**
+- 后端根据 `session.template` 是否存在，代码层面选择模板知识问答或 GIS 专家问答
+- 提问"这个模板的参数怎么填"时，若已锁定模板则基于模板上下文回答；若未锁定则作为 GIS 专家问题回答
+
+**GIS 问答 TAB 的特殊机制**：
+- 提供"清空会话"按钮，一键清除所有历史消息
+- 当用户已选中模板时，问答上下文自动绑定该模板的元数据（`@concept`、`@note`、`@common_error`），AI 回答会引用模板知识
+- 一键诊断（DC-UX-12）自动向此 TAB 发送诊断消息，**诊断前自动清空历史**
+
+**理由**：
+- 模板搜索和知识问答虽然都使用 LLM，但目的不同、交互模式不同、历史策略不同，混在一起会让用户困惑
+- 旧设计中通过关键词（"什么""怎么"等）判断用户意图，存在误判风险；改为 UI 层面 + 代码层面分离后，意图判断零歧义
+- 模板识别需要"干净 slate"（每次输入独立匹配），而问答需要"累积上下文"（多轮追问）
+- 分离后两个 TAB 的界面可以针对各自场景优化（卡片网格 vs 消息流）
+
+### DC-UX-11: 脚本执行 TAB：命令预览 + 执行 + 结果
+
+**决策**: 确认参数后自动切换到脚本执行 TAB。该 TAB 包含四种状态：
+
+| 状态 | 触发条件 | 界面内容 | 用户操作 |
+|------|---------|---------|---------|
+| **命令预览** | 确认参数后自动进入；或填参数过程中手动点击"预览命令" | 命令编辑器（显示生成的 bash）、参数摘要表 | 点击"刷新"更新命令、点击"执行"启动、点击"返回修改"回到参数面板 |
+| **执行中** | 点击"执行"后 | 转圈状态条 + 实时日志输出（黑色终端风格） | 点击"取消"终止执行 |
+| **成功** | 执行返回码 0 | 绿色成功卡片 + 结果详情表（输出文件、大小、坐标系、耗时） | "打开输出目录"、"新任务" |
+| **失败** | 执行返回码非 0 | 红色失败卡片 + 错误输出高亮 + **一键诊断按钮** | "一键诊断"、"返回修改参数" |
+
+**命令预览刷新机制**：
+- 用户调整参数后，点击"刷新"按钮才重新生成并显示命令（非实时刷新）
+- 参数未填完时允许进入预览态，但"执行"按钮禁用，提示"还有 N 个必填参数"
+
+**执行历史策略**：单次任务内多次执行覆盖上一次的日志，始终只展示当前任务的最新状态。
+
+**理由**:
+- 脚本展示、执行、结果查看是同一任务的连续阶段，放在同一视图内比分散在聊天流中更直觉
+- 命令编辑器让用户在执行前最后确认命令内容，符合 P2"先展后行"
+- 成功/失败结果在同一位置呈现，用户不需要在多个区域间跳转
+
+### DC-UX-12: 一键诊断：执行错误自动问答
+
+**决策**: 脚本执行失败时，用户点击"一键诊断"按钮，系统自动完成以下操作：
+
+1. **收集上下文**：模板名称、模板 ID、模板元数据（`@note`、`@common_error`）、参数值列表、生成的执行命令、stdout、stderr、返回码、工作空间路径、执行耗时
+2. **切换到 GIS 问答 TAB**
+3. **清空 GIS 问答历史**（确保诊断上下文独立，不受之前问答干扰）
+4. **自动发送诊断消息**：以用户身份发送一条结构化的诊断请求消息，包含上述全部上下文
+5. **LLM 诊断**：后端接收到诊断请求后，使用专门的诊断 Prompt，结合模板 `@common_error` 和错误输出进行推理，返回根因分析和修复建议
+
+**诊断 Prompt 设计要点**：
+- 系统 Prompt 明确 instruct："你是一个 GIS 数据处理专家，请根据以下模板信息和错误输出，分析失败原因并给出具体修复建议"
+- 用户消息包含：模板描述、参数值、执行命令、错误输出、相关 `@common_error`
+- 要求 LLM 输出：根因（1-2 句话）、修复步骤（编号列表）、修复后的命令（如有）
+
+**理由**:
+- 用户看到 GDAL 错误输出时往往不知道从何入手，手动复制粘贴到问答区操作繁琐
+- 自动收集全部上下文确保 LLM 有足够信息进行准确诊断
+- 清空历史避免之前的问答话题干扰诊断精度
+- 诊断结果保留在问答区，支持用户多轮追问（"具体怎么操作？""有没有更简单的方法？"）
+
+### DC-UX-13: 布局从三栏变为两栏 + 三 TAB
+
+**决策**: 移除独立的模板列表侧边栏（原 300px），将其功能并入模板识别 TAB。主交互区改为 flex-1 自适应。参数面板从 520px 扩宽至 **580px**。
+
+**新布局**：
+
+```
+┌─────────────────────────────────────────┬──────────────────────┐
+│ TopBar                                   │                      │
+├──────────────────────────────────────────┼──────────────────────┤
+│ [🔍模板识别] [💬GIS问答] [⚡脚本执行]      │   参数/详情面板      │
+│ 📁 工作空间：...                          │   580px              │
+├──────────────────────────────────────────┤                      │
+│                                          │                      │
+│  TAB 内容区                               │                      │
+│  （根据选中 TAB 和状态切换）               │                      │
+│                                          │                      │
+│  flex-1                                  │   flex-shrink-0      │
+│                                          │                      │
+└──────────────────────────────────────────┴──────────────────────┘
+```
+
+**理由**:
+- 模板列表和聊天区本质上都是"找模板"，合并到同一 TAB 减少了用户的认知负担
+- 释放的 300px 空间分配给参数面板，让参数表单更从容（label 列从 140px → 160px）
+- 三 TAB 的切换比在三栏间跳转更符合用户的任务流（发现 → 配置 → 执行）
+
 ---
 
 ## 3. 接口定义
@@ -254,7 +363,9 @@ async def create_session(workspace: Optional[str] = None) -> Session:
 
 @router.post("/session/{session_id}/intent", response_model=SessionResponse)
 async def process_intent(session_id: str, request: IntentRequest) -> Session:
-    """用户输入自然语言需求，返回匹配模板和候选列表。
+    """DiscoveryTab 用户输入自然语言需求，返回匹配模板和候选列表。
+
+    **此接口不处理 Q&A**，仅做意图匹配。Q&A 请使用 `/session/{id}/chat`。
 
     两阶段匹配（DC-0098）：
     1. 对所有模板执行关键词打分（score_template_match）
@@ -264,6 +375,17 @@ async def process_intent(session_id: str, request: IntentRequest) -> Session:
        ≥ 0.85 → PARAM_COLLECT（绝对优势，自动选中）
        ≥ 0.50 → INTENT_CONFIRM（返回 top-1 推荐 + 备选）
        < 0.50 → INTENT_CONFIRM（返回 top-3 关键词候选）
+    """
+
+@router.post("/session/{session_id}/chat", response_model=SessionResponse)
+async def chat_question(session_id: str, request: IntentRequest) -> Session:
+    """QATab 用户提问，始终视为问答请求。
+
+    不走意图匹配，直接调用 `answer_question()`：
+    - 若 session 已锁定模板 → 基于模板上下文回答（模板知识问答）
+    - 若 session 无锁定模板 → GIS 专家问答（无模板上下文）
+
+    返回 IDLE 状态 + agent 回复消息。
     """
 
 @router.post("/session/{session_id}/lock", response_model=SessionResponse)
@@ -284,7 +406,8 @@ async def clear_session(session_id: str):
 
 @router.post("/session/{session_id}/workspace", response_model=SessionResponse)
 async def update_session_workspace(session_id: str, request: WorkspaceRequest) -> Session:
-    """更新工作空间路径，验证目录存在后切换，并清空当前会话。"""
+    """更新工作空间路径，验证目录存在后切换。
+    保留当前会话状态（template、params、history 等不变），仅变更默认 cwd 和输出基准目录。"""
 
 # api/routes/templates.py
 
@@ -397,52 +520,81 @@ interface TemplateDetail extends TemplateDef {
 ### 4.1 单任务流程
 
 ```
-用户打开应用 ──→ GET /templates（加载左栏卡片）
+用户打开应用 ──→ GET /templates（加载模板识别 TAB 的卡片网格）
                       │
                       ▼
-用户输入需求 ──→ POST /session/{id}/intent
+用户在模板识别 TAB 输入需求
                       │
               ┌──────┼──────┐
-              │      │      │
-              ▼      ▼      ▼
-       快速路径  探索性问题  需精排
-   （关键词高分）    │      │
-              │      │      │
-              ▼      ▼      ▼
-        PARAM_COLLECT  IDLE   LLM 精排（classify_intent）
-   （直达参数填写）  (Q&A       │
-               │    文本回复)   ├──→ confidence ≥ 0.85
-               │              │       │
-               │              │       ▼
-               │              │   PARAM_COLLECT（自动选中）
-               │              │
-               │              ├──→ 0.50 ≤ confidence < 0.85
-               │              │       │
-               │              │       ▼
-               │              │   INTENT_CONFIRM（top-1 推荐 + 备选）
-               │              │
-               │              └──→ confidence < 0.50
-               │                      │
-               │                      ▼
-               │                  INTENT_CONFIRM（top-3 候选）
-               │                      │
-               └──────────────────────┤
-                                      │
-                                      └─→ 用户点击确认
-                                          POST /session/{id}/lock
+              │             │
+              ▼             ▼
+       快速路径（关键词高分）  需精排
+   （关键词高分）             │
+              │             │
+              ▼             ▼
+        PARAM_COLLECT    LLM 精排（classify_intent）
+   （直达参数填写）      │
+            ├──→ confidence ≥ 0.85
+            │       │
+            │       ▼
+            │   PARAM_COLLECT（自动选中）
+            │
+            ├──→ 0.50 ≤ confidence < 0.85
+            │       │
+            │       ▼
+            │   INTENT_CONFIRM（top-1 推荐 + 备选）
+            │
+            └──→ confidence < 0.50
+                    │
+                    ▼
+                INTENT_CONFIRM（top-3 候选）
+                    │
+                    │
+                    │
+                    └─→ 用户点击确认
+                                        POST /session/{id}/lock
+                                             │
+                                             ▼
+                                 进入 PARAM_COLLECT（右侧面板展开参数表单）
+                                             │
+                                 用户填写参数（可随时点击"预览命令"）
+                                             │
+                                 点击"确认参数" ──→ 自动切换到脚本执行 TAB
+                                             │
+                                             ▼
+                                 脚本执行 TAB：命令预览态
+                                             │
+                                 点击"刷新"更新命令（参数有改动时）
+                                             │
+                                 点击"执行" ──→ WS /ws/execute 连接
+                                             │
+                                             ▼
+                                 脚本执行 TAB：执行中态（实时日志推送）
+                                             │
+                               ┌────────────┴────────────┐
+                               │                         │
+                               ▼                         ▼
+                          成功（rc=0）              失败（rc≠0）
+                               │                         │
+                               ▼                         ▼
+                    脚本执行 TAB：成功态           脚本执行 TAB：失败态
+                    （结果详情+打开输出目录）       （错误输出+一键诊断按钮）
+                               │                         │
+                               │                         └──→ 点击"一键诊断"
+                               │                               │
+                               │                               ▼
+                               │                    GIS 问答 TAB（自动清空历史）
+                               │                               │
+                               │                               ▼
+                               │                    LLM 自动诊断（结构化上下文）
+                               │                               │
+                               │                               ▼
+                               │                    诊断结果展示（支持多轮追问）
+                               │                               │
+                               └───────────────────────────────┘
                                                │
                                                ▼
-                                   进入 PARAM_COLLECT（右栏表单展开）
-                                               │
-                                   用户填写参数 ──→ POST /session/{id}/params
-                                               │
-                                               ▼
-                                   返回脚本预览（SCRIPT_PREVIEW）
-                                               │
-                                   用户点击执行 ──→ WS /ws/execute 连接
-                                               │
-                                               ▼
-                                   实时推送执行日志（EXECUTING → IDLE）
+                                    用户选择"新任务" → 回到模板识别 TAB（IDLE）
 ```
 
 ### 4.2 Pipeline 流程
@@ -489,14 +641,18 @@ frontend/
 │   │   ├── pipeline.ts             # Pipeline API
 │   │   └── generator.ts            # 模板生成器 API
 │   ├── components/
-│   │   ├── Layout.tsx              # 三栏布局框架
-│   │   ├── TopBar.tsx              # 顶部栏（Logo + 状态 + 工作区信息）
-│   │   ├── TemplateCardList.tsx    # 左栏：模板卡片列表
-│   │   ├── ChatArea.tsx            # 中栏：聊天消息 + 输入框
-│   │   ├── ChatMessage.tsx         # 单条消息气泡（支持多种 type）
+│   │   ├── Layout.tsx              # 两栏布局框架（主交互区 + 参数面板）
+│   │   ├── TopBar.tsx              # 顶部栏（Logo + 状态）
+│   │   ├── TabBar.tsx              # TAB 切换栏（模板识别 / GIS 问答 / 脚本执行）
+│   │   ├── DiscoveryTab.tsx        # 模板识别 TAB：搜索框 + 卡片网格 + 候选结果
+│   │   ├── QATab.tsx               # GIS 问答 TAB：聊天消息流 + 输入框 + 清空按钮
+│   │   ├── ExecTab.tsx             # 脚本执行 TAB：命令预览 / 执行中 / 成功 / 失败 四态 + 工作空间选择
+│   │   ├── CmdEditor.tsx           # 命令编辑器（显示生成的 bash，语法高亮）
+│   │   ├── ExecStatusPanel.tsx     # 执行状态面板（成功/失败结果展示）
 │   │   ├── DetailPanel.tsx         # 右栏：模板详情 / 参数表单
-│   │   ├── ParamForm.tsx           # 参数表单组件
-│   │   ├── ScriptPreview.tsx       # 脚本代码块预览
+│   │   ├── ParamForm.tsx           # 参数表单组件（分组折叠 + 水平行布局）
+│   │   ├── TemplateCardList.tsx    # 模板卡片列表（用于 DiscoveryTab 内）
+│   │   ├── ChatMessage.tsx         # 单条消息气泡（支持多种 type）
 │   │   ├── PipelineOverview.tsx    # Pipeline 横向时间线
 │   │   ├── PipelineStepCard.tsx    # Pipeline 纵向任务卡片
 │   │   └── DataFlowIndicator.tsx   # 步骤间数据流指示
@@ -618,6 +774,9 @@ UX 方案**不删除**现有 CLI 代码。`cli/` 目录保持完整，与 `api/`
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.8.0 | 2026-05-31 | **切换工作空间保留会话状态**：`POST /session/{id}/workspace` 不再清空会话，仅变更默认 cwd 和输出基准目录；template、params、history、error_context 等全部保留；§3.1 `update_session_workspace` docstring 更新 |
+| v1.7.0 | 2026-05-31 | **API 分离 + Prompt 场景拆分**：§3.1 新增 `POST /session/{id}/chat` endpoint（Q&A 专用）；更新 DC-UX-10 为三 TAB 分离（模板识别 / GIS 问答 / 脚本执行），明确各 TAB 的后端 API 和行为约束；移除 `process_intent` 中的 `is_question` 判断逻辑；§4.1 流程图移除"探索性问题 → Q&A 文本回复"分支 |
+| v1.6.0 | 2026-05-31 | **架构升级：三 TAB 设计**。新增 DC-UX-10（双 TAB 分离：模板识别 / GIS 问答）、DC-UX-11（脚本执行 TAB：四态命令预览/执行/成功/失败）、DC-UX-12（一键诊断：执行错误自动问答）、DC-UX-13（两栏+三TAB布局，面板扩宽至 580px）；更新 DC-UX-02 状态映射表；重绘 §4.1 单任务流程图；更新 §5 组件结构 |
 | v1.5.0 | 2026-05-31 | 新增 DC-UX-08：参数面板分组折叠 + 水平行布局 + 面板扩宽至 520px（方案 B：前端启发式分组）；新增 DC-UX-09：描述 Tooltip 化 + 进度条替代 Dot 指示器 + 类型标签彩色化 |
 | v1.4.0 | 2026-05-31 | 废弃纯浏览器模式：移除 §7.3 浏览器模式、移除 `isElectron` 特性检测、路由改为 HashRouter；端口默认改为 18000 |
 | v1.3.0 | 2026-05-31 | **架构变更**：DC-UX-01 从纯浏览器方案升级为 Electron 桌面外壳（plan-electron DC-E01）；更新 §5 组件结构增加 `electron/` 目录；更新 §7 启动方式增加 Electron 开发/生产模式；保留纯浏览器模式作为向后兼容 |

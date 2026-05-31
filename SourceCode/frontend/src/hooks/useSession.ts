@@ -6,6 +6,7 @@ import type {
   CandidateTemplate,
   TemplateDef,
   ErrorContext,
+  TabId,
 } from '../types'
 
 interface SessionStore {
@@ -26,12 +27,28 @@ interface SessionStore {
   templates: TemplateDef[]
   workspace: string | null
 
+  // === v4: 三 TAB 架构新增状态 (DC-UX-10 ~ DC-UX-13) ===
+
+  /** 当前激活的 TAB */
+  activeTab: TabId
+  /** GIS 问答 TAB 的独立消息历史（累积，支持清空） */
+  qaMessages: ChatMessage[]
+  /** 用户在 ExecTab 中编辑后的命令（覆盖 session.script_preview） */
+  editedScript: string | null
+
   setSession: (snapshot: SessionSnapshot) => void
   addMessage: (msg: ChatMessage) => void
   setLoading: (loading: boolean) => void
   setTemplates: (templates: TemplateDef[]) => void
   setWorkspace: (path: string) => void
   reset: () => void
+
+  // === v4: 三 TAB 架构新增方法 ===
+
+  setActiveTab: (tab: TabId) => void
+  addQAMessage: (msg: ChatMessage) => void
+  clearQAMessages: () => void
+  setEditedScript: (script: string | null) => void
 }
 
 const initialState = {
@@ -45,6 +62,10 @@ const initialState = {
   isLoading: false,
   templates: [] as TemplateDef[],
   workspace: null as string | null,
+  // v4
+  activeTab: 'discovery' as TabId,
+  qaMessages: [] as ChatMessage[],
+  editedScript: null as string | null,
 }
 
 export const useSession = create<SessionStore>((set) => ({
@@ -60,6 +81,7 @@ export const useSession = create<SessionStore>((set) => ({
       messages: snapshot.history,
       lockedTemplateId: snapshot.task_context.template_id,
       workspace: snapshot.workspace,
+      editedScript: snapshot.user_script,
     }),
 
   addMessage: (msg) =>
@@ -74,4 +96,17 @@ export const useSession = create<SessionStore>((set) => ({
   setWorkspace: (path) => set({ workspace: path }),
 
   reset: () => set(initialState),
+
+  // === v4 methods ===
+
+  setActiveTab: (tab) => set({ activeTab: tab }),
+
+  addQAMessage: (msg) =>
+    set((state) => ({
+      qaMessages: [...state.qaMessages, msg],
+    })),
+
+  clearQAMessages: () => set({ qaMessages: [] }),
+
+  setEditedScript: (script) => set({ editedScript: script }),
 }))

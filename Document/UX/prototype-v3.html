@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GIS Agent v3 — 双 TAB 设计：模板识别 / GIS 问答</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+        'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+      font-size: 13px; color: #334155; background: #e2e8f0;
+      height: 100vh; overflow: hidden;
+    }
+
+    /* ─── TopBar ───────────────────────────────────────────── */
+    .topbar {
+      height: 38px; flex-shrink: 0;
+      background: linear-gradient(90deg, #fff 0%, #f8fafc 100%);
+      border-bottom: 1px solid #e2e8f0;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 16px; user-select: none;
+    }
+    .topbar-brand { display: flex; align-items: center; gap: 8px;
+      font-weight: 700; font-size: 13px; color: #1e293b; }
+    .topbar-brand-icon { width: 18px; height: 18px; border-radius: 5px;
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      display: flex; align-items: center; justify-content: center; }
+    .topbar-brand-icon svg { width: 10px; height: 10px; }
+
+    /* ─── Main Layout: 2-column ────────────────────────────── */
+    .main { flex: 1; display: flex; overflow: hidden; }
+
+    /* ════════════════════════════════════════════════════════
+       Column 1: 主交互区（双 TAB）
+       ════════════════════════════════════════════════════════ */
+    .main-column {
+      flex: 1; min-width: 480px;
+      background: #f8fafc;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    /* ── Tab Bar ── */
+    .tab-bar {
+      display: flex; padding: 0 16px;
+      background: #fff; border-bottom: 1px solid #e2e8f0;
+      flex-shrink: 0; gap: 4px;
+    }
+    .tab-btn {
+      padding: 10px 16px; font-size: 12.5px; font-weight: 600;
+      color: #94a3b8; border: none; background: transparent;
+      cursor: pointer; position: relative; transition: color 0.15s;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .tab-btn:hover { color: #64748b; }
+    .tab-btn.active {
+      color: #1d4ed8;
+    }
+    .tab-btn.active::after {
+      content: ''; position: absolute; bottom: 0; left: 8px; right: 8px;
+      height: 2px; background: #3b82f6; border-radius: 1px 1px 0 0;
+    }
+    .tab-badge {
+      font-size: 9px; font-weight: 600; padding: 1px 5px;
+      border-radius: 4px; background: #f1f5f9; color: #94a3b8;
+    }
+    .tab-btn.active .tab-badge { background: #dbeafe; color: #3b82f6; }
+    .tab-icon { width: 14px; height: 14px; }
+
+    /* ── Workspace bar (below tabs) ── */
+    .workspace-bar {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 16px; background: #fff;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: 11.5px; color: #64748b; flex-shrink: 0;
+    }
+    .workspace-bar svg { color: #3b82f6; flex-shrink: 0; }
+    .workspace-bar .path { font-family: monospace; color: #334155; }
+    .workspace-bar .change-btn {
+      font-size: 11px; padding: 2px 8px; border-radius: 4px;
+      border: 1px solid #e2e8f0; background: #fff; color: #64748b;
+      cursor: pointer; margin-left: auto;
+    }
+    .workspace-bar .change-btn:hover { background: #f8fafc; }
+
+    /* ── Tab Content Area ── */
+    .tab-content {
+      flex: 1; overflow-y: auto;
+    }
+
+    /* ════════════════════════════════════════════════════════
+       TAB 1: 模板识别 (Template Discovery)
+       ════════════════════════════════════════════════════════ */
+
+    .discovery-area { padding: 14px 16px; }
+
+    /* Search input */
+    .discover-search-wrap {
+      display: flex; align-items: center; gap: 10px;
+      background: #fff; border: 1px solid #e2e8f0;
+      border-radius: 10px; padding: 0 14px;
+      transition: all 0.2s; margin-bottom: 12px;
+    }
+    .discover-search-wrap:focus-within {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.08);
+    }
+    .discover-search-wrap input {
+      flex: 1; border: none; outline: none; background: transparent;
+      font-size: 13px; color: #334155; height: 40px;
+    }
+    .discover-search-wrap input::placeholder { color: #94a3b8; }
+    .discover-search-btn {
+      width: 30px; height: 30px; border-radius: 8px;
+      background: #3b82f6; color: #fff; border: none;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; flex-shrink: 0;
+      opacity: 0; visibility: hidden; transition: all 0.15s;
+    }
+    .discover-search-wrap.has-text .discover-search-btn {
+      opacity: 1; visibility: visible;
+    }
+
+    .discover-hint {
+      font-size: 11px; color: #94a3b8; margin-bottom: 14px;
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    /* Filter chips */
+    .filter-chips {
+      display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap;
+    }
+    .filter-chip {
+      font-size: 11.5px; padding: 4px 12px; border-radius: 8px;
+      border: 1px solid #e2e8f0; background: #fff; color: #475569;
+      cursor: pointer; transition: all 0.15s; font-weight: 500;
+    }
+    .filter-chip:hover { border-color: #cbd5e1; background: #f8fafc; }
+    .filter-chip.active {
+      background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8;
+    }
+
+    /* Template grid */
+    .template-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+      gap: 10px;
+    }
+    .template-card {
+      background: #fff; border: 1px solid #e2e8f0;
+      border-radius: 12px; padding: 14px;
+      cursor: pointer; transition: all 0.15s;
+      position: relative;
+    }
+    .template-card:hover {
+      border-color: #bfdbfe;
+      box-shadow: 0 2px 8px rgba(59,130,246,0.08);
+      transform: translateY(-1px);
+    }
+    .template-card.selected {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59,130,246,0.15), 0 2px 8px rgba(59,130,246,0.08);
+    }
+    .template-card .cat-badge {
+      font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 4px;
+      display: inline-block; margin-bottom: 8px;
+    }
+    .cat-vector { background: #ecfdf5; color: #047857; }
+    .cat-raster { background: #fffbeb; color: #b45309; }
+    .cat-general { background: #eef2ff; color: #4338ca; }
+    .template-card-name { font-size: 13px; font-weight: 600; color: #1e293b; margin-bottom: 4px; }
+    .template-card-desc { font-size: 11.5px; color: #64748b; line-height: 1.45; }
+    .template-card-tags { display: flex; gap: 4px; margin-top: 10px; flex-wrap: wrap; }
+    .template-card-tag {
+      font-size: 10px; padding: 1px 6px; border-radius: 4px;
+      background: #f1f5f9; color: #64748b;
+    }
+    .template-card.selected .template-card-tag { background: #dbeafe; color: #3b82f6; }
+
+    /* Candidate results (after LLM match) */
+    .candidate-header {
+      font-size: 11.5px; font-weight: 600; color: #94a3b8;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
+    }
+    .candidate-header::after { content: ''; flex: 1; height: 1px; background: #e2e8f0; }
+    .candidate-list { display: flex; flex-direction: column; gap: 6px; }
+    .candidate-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; background: #fff; border-radius: 10px;
+      border: 1px solid transparent; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .candidate-item:hover { border-color: #bfdbfe; background: #eff6ff; }
+    .candidate-item.selected {
+      border-color: #3b82f6; background: #eff6ff;
+    }
+    .candidate-item .rank {
+      width: 24px; height: 24px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: #fff;
+      background: #3b82f6; flex-shrink: 0;
+    }
+    .candidate-item .c-name { font-size: 12.5px; font-weight: 600; color: #1e293b; }
+    .candidate-item .c-desc { font-size: 11px; color: #64748b; margin-top: 1px; }
+    .candidate-item .c-score {
+      font-size: 10px; color: #3b82f6; font-weight: 600;
+      margin-left: auto; flex-shrink: 0; background: #dbeafe;
+      padding: 2px 7px; border-radius: 4px;
+    }
+
+    /* No-history notice */
+    .no-history-notice {
+      font-size: 11px; color: #94a3b8; background: #f1f5f9;
+      padding: 6px 12px; border-radius: 6px; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    /* ════════════════════════════════════════════════════════
+       TAB 2: GIS 问答 (GIS Q&A)
+       ════════════════════════════════════════════════════════ */
+
+    .qa-area {
+      flex: 1; display: flex; flex-direction: column; overflow: hidden;
+    }
+    .qa-messages {
+      flex: 1; overflow-y: auto; padding: 16px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .msg { max-width: 88%; padding: 10px 14px; border-radius: 12px;
+      font-size: 12.5px; line-height: 1.6; }
+    .msg-user {
+      align-self: flex-end; background: #3b82f6; color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .msg-bot {
+      align-self: flex-start; background: #fff; color: #334155;
+      border: 1px solid #e2e8f0; border-bottom-left-radius: 4px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+    .msg-bot strong { color: #1e293b; }
+    .msg-tip {
+      align-self: flex-start; background: #eff6ff;
+      border: 1px solid #bfdbfe; border-radius: 12px;
+      padding: 10px 14px; font-size: 12.5px; color: #1d4ed8;
+      border-bottom-left-radius: 4px;
+    }
+
+    /* QA Input area */
+    .qa-input-area {
+      flex-shrink: 0; padding: 12px 16px;
+      background: #fff; border-top: 1px solid #e2e8f0;
+    }
+    .qa-input-wrap {
+      display: flex; gap: 8px; align-items: flex-end;
+      background: #f8fafc; border: 1px solid #e2e8f0;
+      border-radius: 12px; padding: 8px 12px;
+      transition: all 0.2s;
+    }
+    .qa-input-wrap:focus-within {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.08);
+      background: #fff;
+    }
+    .qa-input {
+      flex: 1; min-height: 24px; max-height: 100px;
+      border: none; outline: none; font-size: 13px;
+      background: transparent; color: #334155; resize: none;
+      line-height: 1.5; font-family: inherit;
+    }
+    .qa-input::placeholder { color: #94a3b8; }
+    .qa-send-btn {
+      width: 32px; height: 32px; border-radius: 10px;
+      background: #3b82f6; color: #fff; border: none;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; flex-shrink: 0; transition: all 0.15s;
+    }
+    .qa-send-btn:hover { background: #2563eb; }
+    .qa-toolbar {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 6px;
+    }
+    .qa-toolbar-hint {
+      font-size: 11px; color: #94a3b8;
+    }
+    .qa-clear-btn {
+      font-size: 11px; padding: 3px 10px; border-radius: 6px;
+      border: 1px solid #e2e8f0; background: #fff; color: #94a3b8;
+      cursor: pointer; display: flex; align-items: center; gap: 4px;
+      transition: all 0.15s;
+    }
+    .qa-clear-btn:hover {
+      background: #fef2f2; border-color: #fecaca; color: #ef4444;
+    }
+
+    /* Empty state for Q&A */
+    .qa-empty {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      color: #94a3b8; text-align: center; padding: 40px;
+    }
+    .qa-empty-icon {
+      width: 48px; height: 48px; border-radius: 14px;
+      background: #f1f5f9; display: flex;
+      align-items: center; justify-content: center;
+      margin-bottom: 14px;
+    }
+    .qa-empty-title { font-size: 14px; font-weight: 600; color: #475569; margin-bottom: 6px; }
+    .qa-empty-desc { font-size: 12px; color: #94a3b8; line-height: 1.6; max-width: 300px; }
+    .qa-suggestions {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px;
+      justify-content: center;
+    }
+    .qa-suggestion-chip {
+      font-size: 11.5px; padding: 5px 12px; border-radius: 8px;
+      border: 1px solid #e2e8f0; background: #fff; color: #475569;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .qa-suggestion-chip:hover { border-color: #3b82f6; color: #3b82f6; background: #eff6ff; }
+
+    /* ════════════════════════════════════════════════════════
+       Column 2: 参数/详情面板 (580px)
+       ════════════════════════════════════════════════════════ */
+    .param-column {
+      width: 580px; flex-shrink: 0;
+      background: #fff; border-left: 1px solid #e2e8f0;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    /* Panel header */
+    .param-col-header {
+      padding: 14px 20px 10px; border-bottom: 1px solid #f1f5f9;
+      flex-shrink: 0;
+    }
+    .param-col-header-top {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .param-col-title {
+      font-size: 13.5px; font-weight: 700; color: #1e293b;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .state-badge {
+      font-size: 10.5px; font-weight: 600;
+      padding: 2px 10px; border-radius: 999px;
+    }
+    .badge-param { background: #dbeafe; color: #1d4ed8; }
+    .badge-idle { background: #f1f5f9; color: #64748b; }
+    .param-actions { display: flex; gap: 6px; }
+    .param-action-btn {
+      font-size: 11px; padding: 4px 10px; border-radius: 6px;
+      border: 1px solid #e2e8f0; background: #fff; color: #64748b;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .param-action-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+    /* Progress bar */
+    .progress-bar-wrap {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .progress-track { flex: 1; height: 5px; background: #f1f5f9;
+      border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      border-radius: 3px; transition: width 0.4s ease; }
+    .progress-text { font-size: 10.5px; color: #94a3b8; font-weight: 500;
+      white-space: nowrap; }
+
+    /* ── Parameter Section (Accordion) ── */
+    .param-section { border-bottom: 1px solid #f1f5f9; }
+    .param-section-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 20px; cursor: pointer;
+      user-select: none; transition: background 0.15s;
+    }
+    .param-section-header:hover { background: #f8fafc; }
+    .param-section-header .chevron {
+      width: 16px; height: 16px; color: #94a3b8;
+      transition: transform 0.2s ease; flex-shrink: 0;
+    }
+    .param-section-header.expanded .chevron { transform: rotate(90deg); }
+    .param-section-header .sec-icon {
+      width: 22px; height: 22px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .param-section-header .sec-title { font-size: 12px; font-weight: 600; color: #334155; flex: 1; }
+    .param-section-header .sec-count {
+      font-size: 10.5px; color: #94a3b8; font-weight: 500;
+      background: #f1f5f9; padding: 1px 7px; border-radius: 4px;
+    }
+    .param-section-body { padding: 0 20px 14px; display: none; }
+    .param-section-body.expanded { display: block; animation: fadeIn 0.2s ease; }
+
+    /* ── Parameter Row ── */
+    .param-row {
+      display: flex; align-items: flex-start; gap: 14px;
+      padding: 8px 0; min-height: 40px;
+    }
+    .param-row + .param-row { border-top: 1px solid #f8fafc; }
+    .param-label-col {
+      width: 160px; flex-shrink: 0;
+      display: flex; flex-direction: column; gap: 2px;
+      padding-top: 5px;
+    }
+    .param-label {
+      font-size: 12px; font-weight: 500; color: #334155;
+      display: flex; align-items: center; gap: 4px; line-height: 1.4;
+    }
+    .param-required { color: #ef4444; font-size: 11px; }
+    .param-type-tag {
+      font-size: 9.5px; font-weight: 500; padding: 0.5px 5px;
+      border-radius: 3px; display: inline-block; width: fit-content; margin-top: 2px;
+    }
+    .tag-file { background: #fef3c7; color: #b45309; }
+    .tag-enum { background: #ede9fe; color: #7c3aed; }
+    .tag-text { background: #f1f5f9; color: #475569; }
+    .tag-bool { background: #d1fae5; color: #047857; }
+    .tag-num { background: #dbeafe; color: #1d4ed8; }
+    .tag-crs { background: #fce7f3; color: #be185d; }
+
+    .param-input-col { flex: 1; min-width: 0;
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    .param-input {
+      width: 100%; height: 32px; border: 1px solid #e2e8f0;
+      border-radius: 8px; padding: 0 10px; font-size: 12.5px;
+      background: #f8fafc; color: #334155; transition: all 0.15s;
+    }
+    .param-input:focus {
+      outline: none; border-color: #3b82f6; background: #fff;
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.08);
+    }
+    .param-input.filled { border-color: #a7f3d0; background: #f0fdf4; color: #065f46; }
+    .param-input::placeholder { color: #94a3b8; }
+    .param-select {
+      width: 100%; height: 32px; border: 1px solid #e2e8f0;
+      border-radius: 8px; padding: 0 8px; font-size: 12.5px;
+      background: #f8fafc; color: #334155; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .param-select:focus { outline: none; border-color: #3b82f6;
+      background: #fff; box-shadow: 0 0 0 3px rgba(59,130,246,0.08); }
+    .param-textarea {
+      width: 100%; min-height: 64px; border: 1px solid #e2e8f0;
+      border-radius: 8px; padding: 8px 10px; font-size: 12.5px;
+      background: #f8fafc; color: #334155; resize: vertical;
+      font-family: inherit; transition: all 0.15s;
+    }
+    .param-textarea:focus { outline: none; border-color: #3b82f6;
+      background: #fff; box-shadow: 0 0 0 3px rgba(59,130,246,0.08); }
+    .param-file-row { display: flex; gap: 6px; }
+    .param-file-row .param-input { flex: 1; }
+    .param-browse-btn {
+      height: 32px; padding: 0 12px; border: 1px solid #e2e8f0;
+      border-radius: 8px; background: #fff; color: #475569;
+      font-size: 11.5px; font-weight: 500; cursor: pointer;
+      white-space: nowrap; flex-shrink: 0; transition: all 0.15s;
+    }
+    .param-browse-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+    /* Tooltip */
+    .info-tip { display: inline-flex; align-items: center; cursor: help;
+      position: relative; }
+    .info-tip svg { width: 13px; height: 13px; color: #cbd5e1;
+      transition: color 0.15s; }
+    .info-tip:hover svg { color: #3b82f6; }
+    .info-tip .tip-box {
+      position: absolute; left: 100%; top: 50%; transform: translateY(-50%);
+      margin-left: 8px; z-index: 100; width: 260px; padding: 8px 12px;
+      background: #1e293b; color: #e2e8f0; font-size: 11px; line-height: 1.5;
+      border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      opacity: 0; visibility: hidden; transition: all 0.15s;
+      pointer-events: none;
+    }
+    .info-tip .tip-box::before {
+      content: ''; position: absolute; right: 100%; top: 50%; transform: translateY(-50%);
+      border: 5px solid transparent; border-right-color: #1e293b;
+    }
+    .info-tip:hover .tip-box { opacity: 1; visibility: visible; }
+
+    /* Panel footer */
+    .param-col-footer {
+      padding: 12px 20px; border-top: 1px solid #f1f5f9;
+      display: flex; gap: 8px; flex-shrink: 0; background: #fff;
+    }
+    .btn {
+      height: 34px; padding: 0 16px; border-radius: 8px;
+      font-size: 12.5px; font-weight: 600; cursor: pointer;
+      border: none; transition: all 0.15s;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    }
+    .btn-primary { background: #3b82f6; color: #fff; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-secondary { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+    .btn-secondary:hover { background: #e2e8f0; }
+
+    /* ── Template Detail (when no params) ── */
+    .template-detail-card {
+      padding: 16px 20px;
+    }
+    .template-detail-header {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+    }
+    .template-detail-name { font-size: 15px; font-weight: 700; color: #1e293b; }
+    .template-detail-desc { font-size: 12px; color: #64748b; line-height: 1.6; margin-bottom: 12px; }
+    .knowledge-section { margin-bottom: 14px; }
+    .knowledge-title { font-size: 10.5px; font-weight: 600; color: #94a3b8;
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .knowledge-item {
+      font-size: 11.5px; color: #475569; line-height: 1.6;
+      padding: 8px 10px; background: #f8fafc; border-radius: 8px;
+      margin-bottom: 6px;
+    }
+    .knowledge-item strong { color: #1e293b; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+
+<div style="display:flex; flex-direction:column; height:100vh;">
+
+<!-- TopBar -->
+<div class="topbar">
+  <div class="topbar-brand">
+    <div class="topbar-brand-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+        <path d="M2 17l10 5 10-5"/>
+        <path d="M2 12l10 5 10-5"/>
+      </svg>
+    </div>
+    GIS Agent
+  </div>
+  <div style="display:flex; align-items:center; gap:12px; font-size:12px; color:#64748b;">
+    <span style="padding:2px 10px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-weight:600; font-size:10.5px;">就绪</span>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+<!-- ═══════════════════════════════════════════════════════════
+     Column 1: 主交互区（双 TAB）
+     ═══════════════════════════════════════════════════════════ -->
+<div class="main-column">
+
+  <!-- Tab Bar -->
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tab-discovery" onclick="switchTab('discovery')">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      模板识别
+    </button>
+    <button class="tab-btn" id="tab-qa" onclick="switchTab('qa')">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+      </svg>
+      GIS 问答
+      <span class="tab-badge" id="qaBadge">3</span>
+    </button>
+  </div>
+
+  <!-- Workspace bar (shared across tabs) -->
+  <div class="workspace-bar">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+    </svg>
+    <span>工作空间：</span>
+    <span class="path">F:/GIS_Projects/DemoProject</span>
+    <button class="change-btn">切换</button>
+  </div>
+
+  <!-- Tab Content -->
+  <div class="tab-content" id="tabContent">
+
+    <!-- ═══ TAB 1: 模板识别 ═══════════════════════════════════ -->
+    <div id="panel-discovery">
+      <div class="discovery-area">
+
+        <!-- No-history notice -->
+        <div class="no-history-notice">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+          </svg>
+          每次输入都是独立的模板匹配请求，不累积历史会话
+        </div>
+
+        <!-- Search input -->
+        <div class="discover-search-wrap" id="discoverSearchWrap">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="text" id="discoverInput" placeholder="输入关键词搜索模板，或描述需求如“shp转geojson”..."
+            oninput="handleDiscoverInput(this.value)" onkeydown="handleDiscoverKeydown(event)"/>
+          <button class="discover-search-btn" onclick="submitDiscovery()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="discover-hint">
+          <span>💡</span>
+          <span id="discoverHint">输入关键词即时过滤模板列表，输入整句按 Enter 发起 LLM 意图匹配</span>
+        </div>
+
+        <!-- Filter chips -->
+        <div class="filter-chips">
+          <div class="filter-chip active" onclick="setFilter(this,'all')">全部</div>
+          <div class="filter-chip" onclick="setFilter(this,'vector')">🌐 矢量</div>
+          <div class="filter-chip" onclick="setFilter(this,'raster')">🗺️ 栅格</div>
+          <div class="filter-chip" onclick="setFilter(this,'general')">🔧 通用</div>
+          <div class="filter-chip" onclick="setFilter(this,'recent')">🕐 最近使用</div>
+        </div>
+
+        <!-- View A: Template Grid (default) -->
+        <div id="discover-grid">
+          <div class="template-grid">
+            <div class="template-card selected" onclick="selectCard(this)">
+              <span class="cat-badge cat-raster">栅格</span>
+              <div class="template-card-name">栅格重投影</div>
+              <div class="template-card-desc">使用 gdalwarp 对栅格数据进行坐标变换与重采样</div>
+              <div class="template-card-tags">
+                <span class="template-card-tag">gdalwarp</span>
+                <span class="template-card-tag">投影</span>
+              </div>
+            </div>
+            <div class="template-card" onclick="selectCard(this)">
+              <span class="cat-badge cat-vector">矢量</span>
+              <div class="template-card-name">矢量格式转换</div>
+              <div class="template-card-desc">使用 ogr2ogr 在常见矢量格式间转换</div>
+              <div class="template-card-tags">
+                <span class="template-card-tag">ogr2ogr</span>
+                <span class="template-card-tag">SHP</span>
+              </div>
+            </div>
+            <div class="template-card" onclick="selectCard(this)">
+              <span class="cat-badge cat-raster">栅格</span>
+              <div class="template-card-name">栅格裁剪</div>
+              <div class="template-card-desc">使用 gdal_translate 裁剪栅格范围</div>
+              <div class="template-card-tags">
+                <span class="template-card-tag">translate</span>
+              </div>
+            </div>
+            <div class="template-card" onclick="selectCard(this)">
+              <span class="cat-badge cat-vector">矢量</span>
+              <div class="template-card-name">矢量缓冲区</div>
+              <div class="template-card-desc">为矢量要素创建缓冲区</div>
+              <div class="template-card-tags">
+                <span class="template-card-tag">ogr2ogr</span>
+              </div>
+            </div>
+            <div class="template-card" onclick="selectCard(this)">
+              <span class="cat-badge cat-general">通用</span>
+              <div class="template-card-name">数据集信息查询</div>
+              <div class="template-card-desc">使用 gdalinfo/ogrinfo 查看数据集元数据</div>
+              <div class="template-card-tags">
+                <span class="template-card-tag">gdalinfo</span>
+              </div>
+            </div>
+            <div class="template-card" onclick="selectCard(this)">
+              <span class="cat-badge cat-raster">栅格</span>
+              <div class="template-card-name">栅格瓦片生成</div>
+              <div class="template-card-desc">使用 gdal2tiles 生成地图瓦片</div>
+              <div class="template-card-tags">
+                <span class="template-card-tag">gdal2tiles</span>
+                <span class="template-card-tag">XYZ</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- View B: Match Results (after LLM query) -->
+        <div id="discover-results" style="display:none;">
+          <div class="candidate-header">LLM 匹配结果</div>
+          <div class="candidate-list">
+            <div class="candidate-item selected" onclick="selectCandidate(this)">
+              <span class="rank">1</span>
+              <div>
+                <div class="c-name">栅格重投影</div>
+                <div class="c-desc">gdalwarp 坐标变换与重采样 · 置信度 0.94</div>
+              </div>
+              <span class="c-score">94%</span>
+            </div>
+            <div class="candidate-item" onclick="selectCandidate(this)">
+              <span class="rank" style="background:#60a5fa;">2</span>
+              <div>
+                <div class="c-name">栅格裁剪</div>
+                <div class="c-desc">gdal_translate 范围裁剪 · 置信度 0.62</div>
+              </div>
+              <span class="c-score">62%</span>
+            </div>
+            <div class="candidate-item" onclick="selectCandidate(this)">
+              <span class="rank" style="background:#94a3b8;">3</span>
+              <div>
+                <div class="c-name">数据集信息查询</div>
+                <div class="c-desc">gdalinfo 元数据查看 · 置信度 0.31</div>
+              </div>
+              <span class="c-score">31%</span>
+            </div>
+          </div>
+          <div style="margin-top:12px; font-size:11.5px; color:#64748b; background:#f8fafc; padding:10px 12px; border-radius:8px;">
+            💡 <strong>提示：</strong>如果源数据没有坐标系信息，可以使用 <code style="background:#dbeafe; padding:1px 4px; border-radius:3px;">-s_srs</code> 参数指定源坐标系。
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ═══ TAB 2: GIS 问答 ═══════════════════════════════════ -->
+    <div id="panel-qa" style="display:none;">
+      <div class="qa-area">
+
+        <!-- Messages -->
+        <div class="qa-messages" id="qaMessages">
+
+          <!-- Message 1 -->
+          <div class="msg msg-user">什么是重采样？nearest 和 cubic 有什么区别？</div>
+          <div class="msg msg-bot">
+            <strong>重采样（Resampling）</strong>是指在改变栅格数据的像素网格时，计算新像素值的方法。<br><br>
+            <strong>nearest（最近邻）</strong>：取最近像素的值，速度最快但可能产生锯齿，适合分类数据。<br><br>
+            <strong>cubic（三次卷积）</strong>：使用 16 个邻近像素进行插值，结果最平滑，适合连续数据（如 DEM、影像），但计算量最大。
+          </div>
+
+          <!-- Message 2 -->
+          <div class="msg msg-user">当前模板中的 t_srs 参数应该填什么？</div>
+          <div class="msg msg-bot">
+            <strong>t_srs（目标坐标系）</strong>需要填写您希望转换到的坐标系定义。<br><br>
+            常用格式：<br>
+            • <code>EPSG:4326</code> — WGS84 经纬度<br>
+            • <code>EPSG:3857</code> — Web Mercator<br>
+            • <code>"+proj=utm +zone=50 +datum=WGS84"</code> — Proj4 字符串<br><br>
+            如果您不确定目标坐标系，可以告诉我您的数据用途（如 Web 地图、分析、打印），我可以帮您推荐。
+          </div>
+
+          <!-- Message 3 -->
+          <div class="msg msg-tip">
+            📎 当前关联模板：<strong>栅格重投影</strong> — 问答上下文已绑定该模板的知识元数据
+          </div>
+
+        </div>
+
+        <!-- Input area -->
+        <div class="qa-input-area">
+          <div class="qa-input-wrap">
+            <textarea class="qa-input" rows="1" placeholder="询问 GIS 概念、模板参数含义、使用建议..."></textarea>
+            <button class="qa-send-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+            </button>
+          </div>
+          <div class="qa-toolbar">
+            <span class="qa-toolbar-hint">按 Enter 发送，Shift + Enter 换行</span>
+            <button class="qa-clear-btn" onclick="clearQA()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+              </svg>
+              清空会话
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     Column 2: 参数/详情面板 (580px)
+     ═══════════════════════════════════════════════════════════ -->
+<div class="param-column">
+
+  <!-- Header -->
+  <div class="param-col-header">
+    <div class="param-col-header-top">
+      <div class="param-col-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+        </svg>
+        栅格重投影参数
+        <span class="state-badge badge-param">参数填写</span>
+      </div>
+      <div class="param-actions">
+        <button class="param-action-btn" onclick="toggleAll(false)">− 收起</button>
+        <button class="param-action-btn" onclick="toggleAll(true)">+ 展开</button>
+      </div>
+    </div>
+    <div class="progress-bar-wrap">
+      <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:60%;"></div></div>
+      <span class="progress-text">6 / 10 已填写</span>
+    </div>
+  </div>
+
+  <!-- Grouped params -->
+  <div style="flex:1; overflow-y: auto;">
+
+    <!-- Section 1: IO -->
+    <div class="param-section">
+      <div class="param-section-header expanded" onclick="toggleSection(this)">
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        <div class="sec-icon" style="background:#dbeafe;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+        <span class="sec-title">输入输出</span><span class="sec-count">2 必填</span>
+      </div>
+      <div class="param-section-body expanded">
+        <div class="param-row">
+          <div class="param-label-col">
+            <div class="param-label">input <span class="param-required">*</span>
+              <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">输入栅格文件路径，支持 GeoTIFF、IMG、JPEG2000 等格式。</span></span>
+            </div>
+            <span class="param-type-tag tag-file">文件路径</span>
+          </div>
+          <div class="param-input-col">
+            <div class="param-file-row"><input class="param-input filled" value="F:/GIS_Projects/DemoProject/input/dem.tif"/><button class="param-browse-btn">浏览…</button></div>
+            <span style="font-size:10.5px; color:#94a3b8; display:flex; align-items:center; gap:3px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>GeoTIFF 格式已识别</span>
+          </div>
+        </div>
+        <div class="param-row">
+          <div class="param-label-col">
+            <div class="param-label">output <span class="param-required">*</span>
+              <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">输出文件路径，将自动创建目录。</span></span>
+            </div>
+            <span class="param-type-tag tag-file">文件路径</span>
+          </div>
+          <div class="param-input-col">
+            <div class="param-file-row"><input class="param-input" placeholder="选择或输入输出路径…"/><button class="param-browse-btn">浏览…</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 2: CRS -->
+    <div class="param-section">
+      <div class="param-section-header expanded" onclick="toggleSection(this)">
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        <div class="sec-icon" style="background:#fce7f3;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#be185d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg></div>
+        <span class="sec-title">坐标系设置</span><span class="sec-count">2 / 3</span>
+      </div>
+      <div class="param-section-body expanded">
+        <div class="param-row">
+          <div class="param-label-col">
+            <div class="param-label">t_srs <span class="param-required">*</span>
+              <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">目标空间参考系统，使用 EPSG 代码或 WKT 字符串。</span></span>
+            </div>
+            <span class="param-type-tag tag-crs">坐标系</span>
+          </div>
+          <div class="param-input-col"><input class="param-input filled" value="EPSG:4326"/></div>
+        </div>
+        <div class="param-row">
+          <div class="param-label-col">
+            <div class="param-label">s_srs
+              <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">源数据坐标系。如源数据自带投影信息可留空自动识别。</span></span>
+            </div>
+            <span class="param-type-tag tag-crs">坐标系</span>
+          </div>
+          <div class="param-input-col">
+            <input class="param-input" placeholder="自动检测 / EPSG:XXXX"/>
+            <span style="font-size:10.5px; color:#94a3b8; display:flex; align-items:center; gap:3px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>留空则自动从文件读取</span>
+          </div>
+        </div>
+        <div class="param-row">
+          <div class="param-label-col">
+            <div class="param-label">rpc
+              <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">对具有 RPC 元数据的图像使用 RPC 传感器模型进行变换。</span></span>
+            </div>
+            <span class="param-type-tag tag-bool">布尔</span>
+          </div>
+          <div class="param-input-col">
+            <select class="param-select"><option value="">— 默认 —</option><option value="true">是</option><option value="false">否</option></select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 3: Transform (collapsed) -->
+    <div class="param-section">
+      <div class="param-section-header" onclick="toggleSection(this)">
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        <div class="sec-icon" style="background:#ede9fe;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg></div>
+        <span class="sec-title">变换选项</span><span class="sec-count">0 / 5</span>
+      </div>
+      <div class="param-section-body">
+        <div class="param-row">
+          <div class="param-label-col">
+            <div class="param-label">resampling
+              <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">像素重采样算法。nearest 最快但质量最低，cubic 质量最高但最慢。</span></span>
+            </div>
+            <span class="param-type-tag tag-enum">枚举</span>
+          </div>
+          <div class="param-input-col"><select class="param-select"><option value="">— 选择 —</option><option>nearest（最近邻）</option><option>bilinear（双线性）</option><option>cubic（三次卷积）</option><option>lanczos（兰索斯）</option></select></div>
+        </div>
+        <div class="param-row">
+          <div class="param-label-col"><div class="param-label">xres <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">输出像素的 X 方向分辨率。</span></span></div><span class="param-type-tag tag-num">数值</span></div>
+          <div class="param-input-col"><input class="param-input" type="number" step="any" placeholder="自动"/></div>
+        </div>
+        <div class="param-row">
+          <div class="param-label-col"><div class="param-label">yres <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">输出像素的 Y 方向分辨率。</span></span></div><span class="param-type-tag tag-num">数值</span></div>
+          <div class="param-input-col"><input class="param-input" type="number" step="any" placeholder="自动"/></div>
+        </div>
+        <div class="param-row">
+          <div class="param-label-col"><div class="param-label">order <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">用于 GCP 的多项式变换阶数（1-3）。</span></span></div><span class="param-type-tag tag-num">数值</span></div>
+          <div class="param-input-col"><input class="param-input" type="number" step="1" min="1" max="3" placeholder="自动"/></div>
+        </div>
+        <div class="param-row">
+          <div class="param-label-col"><div class="param-label">et <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">GCP 变换的误差阈值（像素）。</span></span></div><span class="param-type-tag tag-num">数值</span></div>
+          <div class="param-input-col"><input class="param-input" type="number" step="any" placeholder="0"/></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 4: Clip (collapsed) -->
+    <div class="param-section">
+      <div class="param-section-header" onclick="toggleSection(this)">
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        <div class="sec-icon" style="background:#fef3c7;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></div>
+        <span class="sec-title">裁剪与范围</span><span class="sec-count">0 / 2</span>
+      </div>
+      <div class="param-section-body">
+        <div class="param-row">
+          <div class="param-label-col"><div class="param-label">te <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">输出数据的地理范围（minX minY maxX maxY）。</span></span></div><span class="param-type-tag tag-text">文本</span></div>
+          <div class="param-input-col"><textarea class="param-textarea" rows="2" placeholder="minX minY maxX maxY"></textarea></div>
+        </div>
+        <div class="param-row">
+          <div class="param-label-col"><div class="param-label">ts <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">输出栅格的像素尺寸（width height）。</span></span></div><span class="param-type-tag tag-text">文本</span></div>
+          <div class="param-input-col"><input class="param-input" placeholder="width height"/></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 5: Advanced (collapsed) -->
+    <div class="param-section">
+      <div class="param-section-header" onclick="toggleSection(this)">
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        <div class="sec-icon" style="background:#f1f5f9;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.17 15 1.65 1.65 0 002.09 14H2a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.17 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.17V4a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div>
+        <span class="sec-title">高级选项</span><span class="sec-count">0 / 3</span>
+      </div>
+      <div class="param-section-body">
+        <div class="param-row">
+          <div class="param-label-col"><div class="param-label">dstalpha <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">为没有 Alpha 通道的波段创建 Alpha 通道。</span></span></div><span class="param-type-tag tag-bool">布尔</span></div>
+          <div class="param-input-col"><select class="param-select"><option value="">— 默认 —</option><option value="true">是</option><option value="false">否</option></select></div>
+        </div>
+        <div class="param-row">
+          <div class="param-label-col"><div class="param-label">overwrite <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">如果输出文件已存在则覆盖。</span></span></div><span class="param-type-tag tag-bool">布尔</span></div>
+          <div class="param-input-col"><select class="param-select"><option value="">— 默认 —</option><option value="true">是</option><option value="false">否</option></select></div>
+        </div>
+        <div class="param-row">
+          <div class="param-label-col"><div class="param-label">multi <span class="info-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="tip-box">使用多线程加速处理（大文件推荐）。</span></span></div><span class="param-type-tag tag-bool">布尔</span></div>
+          <div class="param-input-col"><select class="param-select"><option value="">— 默认 —</option><option value="true">是</option><option value="false">否</option></select></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="param-col-footer">
+    <button class="btn btn-primary">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+      确认参数
+    </button>
+    <button class="btn btn-secondary">取消</button>
+  </div>
+</div>
+
+</div><!-- /main -->
+</div><!-- /app -->
+
+<script>
+// ── Section toggle ──────────────────────────────────────────
+function toggleSection(header) {
+  const body = header.nextElementSibling;
+  const isExpanded = header.classList.contains('expanded');
+  header.classList.toggle('expanded', !isExpanded);
+  body.classList.toggle('expanded', !isExpanded);
+}
+function toggleAll(expand) {
+  document.querySelectorAll('.param-section-header').forEach(h => {
+    h.classList.toggle('expanded', expand);
+    h.nextElementSibling.classList.toggle('expanded', expand);
+  });
+}
+
+// ── TAB switching ───────────────────────────────────────────
+function switchTab(tabName) {
+  // Update tab buttons
+  document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + tabName).classList.add('active');
+
+  // Show/hide panels
+  if (tabName === 'discovery') {
+    document.getElementById('panel-discovery').style.display = 'block';
+    document.getElementById('panel-qa').style.display = 'none';
+  } else {
+    document.getElementById('panel-discovery').style.display = 'none';
+    document.getElementById('panel-qa').style.display = 'block';
+  }
+}
+
+// ── Template card selection ─────────────────────────────────
+function selectCard(card) {
+  document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
+  card.classList.add('selected');
+}
+
+// ── Candidate selection ─────────────────────────────────────
+function selectCandidate(item) {
+  document.querySelectorAll('.candidate-item').forEach(c => c.classList.remove('selected'));
+  item.classList.add('selected');
+}
+
+// ── Filter chips ────────────────────────────────────────────
+function setFilter(chip, filter) {
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+  chip.classList.add('active');
+}
+
+// ── Discovery input behavior ────────────────────────────────
+function handleDiscoverInput(value) {
+  const wrap = document.getElementById('discoverSearchWrap');
+  const hint = document.getElementById('discoverHint');
+
+  if (value.trim().length > 0) {
+    wrap.classList.add('has-text');
+  } else {
+    wrap.classList.remove('has-text');
+  }
+
+  if (value.length > 6 || /[一-鿿]/.test(value)) {
+    hint.textContent = '按 Enter 发起 LLM 意图匹配，为您推荐最合适的模板';
+  } else {
+    hint.textContent = '输入关键词即时过滤模板列表，输入整句按 Enter 发起问答';
+  }
+}
+
+function handleDiscoverKeydown(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    submitDiscovery();
+  }
+}
+
+function submitDiscovery() {
+  const input = document.getElementById('discoverInput');
+  if (!input.value.trim()) return;
+  // Show results view
+  document.getElementById('discover-grid').style.display = 'none';
+  document.getElementById('discover-results').style.display = 'block';
+}
+
+// ── Clear QA session ────────────────────────────────────────
+function clearQA() {
+  const messages = document.getElementById('qaMessages');
+  messages.innerHTML = `
+    <div class="qa-empty">
+      <div class="qa-empty-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+        </svg>
+      </div>
+      <div class="qa-empty-title">GIS 问答助手</div>
+      <div class="qa-empty-desc">询问 GIS 概念、模板参数含义、坐标系知识、使用建议等。支持多轮对话。</div>
+      <div class="qa-suggestions">
+        <div class="qa-suggestion-chip" onclick="fillQA('什么是重采样？')">什么是重采样？</div>
+        <div class="qa-suggestion-chip" onclick="fillQA('EPSG:4326 和 EPSG:3857 有什么区别？')">EPSG:4326 vs 3857</div>
+        <div class="qa-suggestion-chip" onclick="fillQA('当前模板的 t_srs 应该填什么？')">t_srs 怎么填？</div>
+      </div>
+    </div>
+  `;
+  document.getElementById('qaBadge').textContent = '0';
+}
+
+function fillQA(text) {
+  // Switch to QA tab and show a message
+  switchTab('qa');
+  // In real app, this would trigger a message send
+}
+
+// ── Progress animation ──────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  const fill = document.getElementById('progressFill');
+  fill.style.width = '0%';
+  setTimeout(() => { fill.style.width = '60%'; }, 300);
+});
+</script>
+
+</body>
+</html>

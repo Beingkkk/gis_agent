@@ -50,7 +50,7 @@ def analyze_execution_error(
         "你是一名 GDAL 命令行工具的错误诊断专家。\n"
         "分析以下执行错误，结合模板和参数上下文，判断错误根因并给出修复建议。"
     )
-    system_prompt = builder.build_system_prompt(task_context=task_context)
+    system_prompt = builder.build_diagnosis_prompt(task_context=task_context)
 
     user_prompt = (
         f"{diagnosis_context}\n\n"

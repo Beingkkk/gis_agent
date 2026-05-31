@@ -51,7 +51,7 @@ def extract_params(
         f"参数Schema: {schema_json}"
     )
 
-    system_prompt = builder.build_system_prompt(task_context=task_context)
+    system_prompt = builder.build_param_prompt(task_context=task_context)
 
     user_prompt = (
         f"用户输入：{user_input}\n\n"

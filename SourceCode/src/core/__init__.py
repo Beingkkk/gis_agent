@@ -1,11 +1,11 @@
 """GIS Agent core module.
 
 Submodules:
-    workspace: Workspace management, path normalization, Agents.md loading
+    workspace: Workspace management, path normalization
     models: TemplateDef, ParamDef, SessionState, Session data models
 
 Public API:
-    Workspace, AgentsMdContent
+    Workspace
     WorkspaceError, WorkspaceNotFoundError, PathNotFoundError
     initialize(root), get_workspace()
     TemplateDef, ParamDef, SessionState, Session
@@ -18,7 +18,6 @@ from core.processor import SessionProcessor
 from core.registry import TemplateRegistry
 from core.validator import ParamValidator, ValidationResult
 from core.workspace import (
-    AgentsMdContent,
     PathNotFoundError,
     Workspace,
     WorkspaceError,
@@ -28,7 +27,6 @@ from core.workspace import (
 )
 
 __all__ = [
-    "AgentsMdContent",
     "ParamDef",
     "ParamValidator",
     "PathNotFoundError",

@@ -54,35 +54,36 @@
     letter-spacing: 0.5px;
   }
 
-  /* CLI 层 */
-  .layer-cli {
+  .layer-frontend {
+    background: linear-gradient(135deg, #805ad5 0%, #6b46c1 100%);
+    box-shadow: 0 4px 15px rgba(128, 90, 213, 0.3);
+  }
+  .layer-frontend .layer-badge { background: rgba(255,255,255,0.25); }
+
+  .layer-api {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
   }
-  .layer-cli .layer-badge { background: rgba(255,255,255,0.25); }
+  .layer-api .layer-badge { background: rgba(255,255,255,0.25); }
 
-  /* Core 层 */
   .layer-core {
     background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
     box-shadow: 0 4px 15px rgba(17, 153, 142, 0.3);
   }
   .layer-core .layer-badge { background: rgba(255,255,255,0.25); }
 
-  /* App 层 */
-  .layer-app {
+  .layer-llm {
     background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
     box-shadow: 0 4px 15px rgba(240, 147, 251, 0.3);
   }
-  .layer-app .layer-badge { background: rgba(255,255,255,0.25); }
+  .layer-llm .layer-badge { background: rgba(255,255,255,0.25); }
 
-  /* Infra 层 */
   .layer-infra {
     background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
     box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
   }
   .layer-infra .layer-badge { background: rgba(255,255,255,0.25); }
 
-  /* 模块卡片 */
   .modules {
     display: flex;
     flex-wrap: wrap;
@@ -110,9 +111,7 @@
     align-items: center;
     gap: 6px;
   }
-  .module-name .icon {
-    font-size: 16px;
-  }
+  .module-name .icon { font-size: 16px; }
   .module-desc {
     font-size: 12px;
     color: #718096;
@@ -132,16 +131,9 @@
     color: #4a5568;
     font-weight: 500;
   }
-  .tag.data {
-    background: #ebf8ff;
-    color: #3182ce;
-  }
-  .tag.security {
-    background: #fff5f5;
-    color: #c53030;
-  }
+  .tag.data { background: #ebf8ff; color: #3182ce; }
+  .tag.security { background: #fff5f5; color: #c53030; }
 
-  /* 依赖箭头 */
   .arrow-down {
     text-align: center;
     color: #a0aec0;
@@ -156,7 +148,6 @@
     margin-bottom: 12px;
   }
 
-  /* 数据流说明 */
   .dataflow {
     background: #fff;
     border-radius: 12px;
@@ -195,9 +186,7 @@
     font-weight: 700;
     flex-shrink: 0;
   }
-  .flow-content {
-    flex: 1;
-  }
+  .flow-content { flex: 1; }
   .flow-title {
     font-weight: 600;
     font-size: 14px;
@@ -210,7 +199,6 @@
     line-height: 1.6;
   }
 
-  /* 安全边界 */
   .security-box {
     background: #fff;
     border-radius: 12px;
@@ -250,7 +238,6 @@
     line-height: 1.5;
   }
 
-  /* 图例 */
   .legend {
     display: flex;
     flex-wrap: wrap;
@@ -275,160 +262,174 @@
     border-radius: 3px;
   }
 
-  /* 模块交互视图 */
-  .interaction-grid {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 12px;
-    margin-bottom: 24px;
-  }
-  .ig-node {
+  .entry-note {
     background: #fff;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  }
+  .entry-note h3 {
+    font-size: 15px;
+    color: #2d3748;
+    margin-bottom: 12px;
+  }
+  .entry-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 12px;
+  }
+  .entry-card {
+    padding: 14px;
+    background: #f7fafc;
     border-radius: 8px;
-    padding: 10px 12px;
-    border: 2px solid #e2e8f0;
-    text-align: center;
-    transition: transform 0.2s, box-shadow 0.2s;
+    border-left: 3px solid #667eea;
   }
-  .ig-node:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  }
-  .ig-name {
+  .entry-card.electron { border-left-color: #805ad5; }
+  .entry-card.cli { border-left-color: #667eea; }
+  .entry-name {
     font-weight: 700;
-    font-size: 12px;
+    font-size: 13px;
     color: #2d3748;
     margin-bottom: 4px;
-    font-family: "SF Mono", "Consolas", monospace;
   }
-  .ig-desc {
-    font-size: 10px;
+  .entry-desc {
+    font-size: 12px;
     color: #718096;
+    line-height: 1.5;
   }
-  .ig-cli { border-color: #667eea; background: #f7f8ff; }
-  .ig-core { border-color: #11998e; background: #f0fdf9; }
-  .ig-llm { border-color: #f5576c; background: #fff0f3; }
-  .ig-tpl { border-color: #ed8936; background: #fffaf0; }
-  .ig-rag { border-color: #9f7aea; background: #faf5ff; }
-  .ig-cfg { border-color: #4299e1; background: #ebf8ff; }
-  .ig-infra { border-color: #a0aec0; background: #f7fafc; }
 
-  /* 依赖关系表格 */
-  .deps-table {
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  .deps-row {
-    display: grid;
-    grid-template-columns: 1.2fr 1.5fr 2fr;
-    gap: 0;
-    border-bottom: 1px solid #edf2f7;
-  }
-  .deps-row:last-child { border-bottom: none; }
-  .deps-header {
-    background: #f7fafc;
-    font-weight: 700;
-    font-size: 12px;
-    color: #4a5568;
-  }
-  .deps-cell {
-    padding: 10px 14px;
-    font-size: 12px;
-    color: #4a5568;
-    line-height: 1.6;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-  .deps-header .deps-cell { color: #2d3748; }
-  .dep-tag {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 600;
-    font-family: "SF Mono", "Consolas", monospace;
-  }
-  .dep-tag.cli { background: #e0e4ff; color: #4c51bf; }
-  .dep-tag.core { background: #c6f6d5; color: #276749; }
-  .dep-tag.llm { background: #fed7d7; color: #c53030; }
-  .dep-tag.tpl { background: #feebc8; color: #c05621; }
-  .dep-tag.rag { background: #e9d8fd; color: #6b46c1; }
-  .dep-tag.cfg { background: #bee3f8; color: #2c5282; }
-  .dep-tag.infra { background: #e2e8f0; color: #4a5568; }
-
-  /* 响应式 */
   @media (max-width: 768px) {
     .modules { flex-direction: column; }
     .module { min-width: auto; }
     .security-grid { grid-template-columns: 1fr; }
-    .interaction-grid { grid-template-columns: repeat(3, 1fr); }
-    .deps-row { grid-template-columns: 1fr; }
+    .entry-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
 <body>
 <div class="container">
   <h1>GIS Agent 技术架构图</h1>
-  <p class="subtitle">分层架构设计 | plan v1.0.0 + core 落地 | 2026-05-27</p>
+  <p class="subtitle">三 TAB Electron 桌面架构 | plan v2.0 + core v1.0 | 2026-05-31</p>
 
-  <!-- CLI 层 -->
-  <div class="layer layer-cli">
+  <!-- 双入口说明 -->
+  <div class="entry-note">
+    <h3>🔗 双入口设计</h3>
+    <div class="entry-grid">
+      <div class="entry-card electron">
+        <div class="entry-name">🖼️ Electron 桌面应用（主推荐）</div>
+        <div class="entry-desc">React + TypeScript + Vite 渲染器，FastAPI 后端作为子进程运行。支持文件对话框获取绝对路径。三 TAB 架构：Discovery / Q&A / Exec。通过 WebSocket 实现流式 Q&A 和实时执行日志。</div>
+      </div>
+      <div class="entry-card cli">
+        <div class="entry-name">⌨️ CLI 命令行 REPL</div>
+        <div class="entry-desc">命令行交互式 REPL，适用于无 GUI 环境。支持斜杠命令、Y/N 确认、状态机全流程。与桌面应用共享同一套 core / llm / templates 业务逻辑。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Frontend 层 -->
+  <div class="layer layer-frontend">
     <div class="layer-header">
       <span class="layer-badge">Layer 1</span>
-      <span>CLI 层 (cli/) — 用户交互入口</span>
+      <span>Frontend 层 (frontend/) — Electron 桌面应用</span>
     </div>
     <div class="modules">
       <div class="module">
-        <div class="module-name"><span class="icon">&#9654;</span> REPL 主循环</div>
-        <div class="module-desc">Read-Eval-Print Loop，持续读取用户输入，状态分发</div>
+        <div class="module-name"><span class="icon">🔍</span> DiscoveryTab</div>
+        <div class="module-desc">模板识别 TAB：统一输入框 + 本地模板过滤 + 意图匹配。显示候选模板列表或"已选择模板"提示</div>
         <div class="module-meta">
-          <span class="tag">DC-0061</span>
-          <span class="tag">input()</span>
+          <span class="tag">DC-UX-10</span>
+          <span class="tag">POST /intent</span>
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">/</span> 斜杠命令处理器</div>
-        <div class="module-desc">/quit /clear /workspace /templates /status /help</div>
+        <div class="module-name"><span class="icon">💬</span> QATab</div>
+        <div class="module-desc">GIS 问答 TAB：多轮历史聊天 + 流式输出。锁定模板时走模板知识问答，未锁定时走 GIS 专家问答</div>
         <div class="module-meta">
-          <span class="tag">DC-0062</span>
-          <span class="tag">SlashCommandHandler</span>
+          <span class="tag">DC-UX-10</span>
+          <span class="tag">WS /chat</span>
+          <span class="tag">POST /chat</span>
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">&#9889;</span> 脚本执行器</div>
-        <div class="module-desc">subprocess.run() 沙箱执行，cwd 限定工作空间，300s 超时</div>
+        <div class="module-name"><span class="icon">⚡</span> ExecTab</div>
+        <div class="module-desc">脚本执行 TAB：命令预览 / 执行中 / 成功 / 失败 四态、工作空间选择、一键诊断</div>
         <div class="module-meta">
-          <span class="tag security">DC-0063</span>
-          <span class="tag">ScriptExecutor</span>
+          <span class="tag">DC-UX-11</span>
+          <span class="tag">WS /execute</span>
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">&#9874;</span> 启动参数解析</div>
-        <div class="module-desc">--workspace --config --dry-run，argparse 标准库</div>
+        <div class="module-name"><span class="icon">🖼️</span> Electron 主进程</div>
+        <div class="module-desc">无边框窗口、Python 子进程生命周期、IPC 文件对话框、窗口控制按钮</div>
         <div class="module-meta">
-          <span class="tag">DC-0060</span>
-          <span class="tag">CLIArgs</span>
+          <span class="tag">DC-E07</span>
+          <span class="tag">main.ts</span>
         </div>
       </div>
     </div>
   </div>
 
   <div class="arrow-down">&#8595;</div>
-  <div class="dependency-note">CLI 层 &rarr; Core 层 + LLM 层</div>
+  <div class="dependency-note">HTTP + WebSocket → API 层</div>
+
+  <!-- API 层 -->
+  <div class="layer layer-api">
+    <div class="layer-header">
+      <span class="layer-badge">Layer 2</span>
+      <span>API 层 (api/) — FastAPI + WebSocket</span>
+    </div>
+    <div class="modules">
+      <div class="module">
+        <div class="module-name"><span class="icon">🔗</span> 会话路由</div>
+        <div class="module-desc">POST /session, /intent, /chat, /lock, /params, /clear, /workspace, /diagnose。状态机转换与会话管理</div>
+        <div class="module-meta">
+          <span class="tag">DC-UX-01</span>
+          <span class="tag">DC-0098</span>
+          <span class="tag data">SessionManager</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">⚡</span> WebSocket 处理器</div>
+        <div class="module-desc">流式 Q&A (/ws/chat) 和实时执行日志 (/ws/execute)。执行失败设置 ERROR_RECOVERY 状态</div>
+        <div class="module-meta">
+          <span class="tag">DC-UX-04</span>
+          <span class="tag">DC-UX-05</span>
+          <span class="tag">DC-0048</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">📋</span> 模板/管道/生成器</div>
+        <div class="module-desc">模板列表、详情查询、Pipeline 预览与执行、J2 模板生成器</div>
+        <div class="module-meta">
+          <span class="tag">DC-0095</span>
+          <span class="tag">rescan()</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">⚙️</span> 依赖注入</div>
+        <div class="module-desc">进程级单例管理：SessionManager、TemplateRegistry、ParamValidator、TemplateEngine、LLMClient、PromptBuilder</div>
+        <div class="module-meta">
+          <span class="tag">DC-UX-03</span>
+          <span class="tag data">dependencies.py</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down">&#8595;</div>
+  <div class="dependency-note">API 层 → Core 层 + LLM 层</div>
 
   <!-- Core 层 -->
   <div class="layer layer-core">
     <div class="layer-header">
-      <span class="layer-badge">Layer 2</span>
+      <span class="layer-badge">Layer 3</span>
       <span>Core 层 (core/) — 业务逻辑核心</span>
     </div>
     <div class="modules">
       <div class="module">
-        <div class="module-name"><span class="icon">&#9851;</span> 会话状态机</div>
-        <div class="module-desc">5 状态流转：IDLE &rarr; INTENT_CONFIRM &rarr; PARAM_COLLECT &rarr; SCRIPT_PREVIEW &rarr; EXECUTING</div>
+        <div class="module-name"><span class="icon">🔄</span> 会话状态机</div>
+        <div class="module-desc">6 状态流转：IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW → EXECUTING → ERROR_RECOVERY</div>
         <div class="module-meta">
           <span class="tag">DC-0040</span>
           <span class="tag data">SessionState</span>
@@ -436,7 +437,7 @@
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">&#9881;</span> 会话处理器</div>
+        <div class="module-name"><span class="icon">⚙️</span> 会话处理器</div>
         <div class="module-desc">封装状态机逻辑，将用户输入转化为状态转换和响应文本</div>
         <div class="module-meta">
           <span class="tag">DC-0043</span>
@@ -444,24 +445,34 @@
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">&#128451;</span> 模板注册表</div>
-        <div class="module-desc">接收 templates.scanner 扫描结果，内存字典索引，ID &rarr; 参数 Schema &rarr; .j2 路径映射</div>
+        <div class="module-name"><span class="icon">📑</span> 模板注册表</div>
+        <div class="module-desc">接收 templates.scanner 扫描结果，内存字典索引。支持运行时重扫报（rescan）</div>
         <div class="module-meta">
           <span class="tag">DC-0041</span>
+          <span class="tag">DC-0095</span>
           <span class="tag">TemplateRegistry</span>
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">&#9989;</span> 参数校验链</div>
-        <div class="module-desc">类型转换 &rarr; 格式校验 &rarr; must_exist 存在性检查，workspace 不是安全边界</div>
+        <div class="module-name"><span class="icon">🔍</span> 匹配引擎</div>
+        <div class="module-desc">统一的模板匹配评分：keywords=+3, concepts=+2, 基硎元数据=+1。被 API 和 Q&A 上下文选择复用</div>
+        <div class="module-meta">
+          <span class="tag">DC-0094</span>
+          <span class="tag">DC-0098</span>
+          <span class="tag">matching.py</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">✅</span> 参数校验链</div>
+        <div class="module-desc">类型转换 → 格式校验 → 业务规则校验 → must_exist 存在性检查</div>
         <div class="module-meta">
           <span class="tag security">DC-0042</span>
           <span class="tag">ParamValidator</span>
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">&#128193;</span> 工作空间管理</div>
-        <div class="module-desc">路径规范化、Agents.md 加载、输出文件时间戳防覆盖、进程级单例</div>
+        <div class="module-name"><span class="icon">📁</span> 工作空间管理</div>
+        <div class="module-desc">路径规范化、输出文件时间戳防覆盖、进程级单例。默认操作目录，不是安全边界</div>
         <div class="module-meta">
           <span class="tag">DC-0010~0014</span>
           <span class="tag data">Workspace</span>
@@ -471,27 +482,28 @@
   </div>
 
   <div class="arrow-down">&#8595;</div>
-  <div class="dependency-note">Core 层 &rarr; App 层 (LLM)</div>
+  <div class="dependency-note">Core 层 → LLM 层 + Templates 层</div>
 
-  <!-- App 层 -->
-  <div class="layer layer-app">
+  <!-- LLM 层 -->
+  <div class="layer layer-llm">
     <div class="layer-header">
-      <span class="layer-badge">Layer 3</span>
-      <span>App 层 (llm/) — 智能能力层</span>
+      <span class="layer-badge">Layer 4</span>
+      <span>LLM 层 (llm/) — 智能能力封装</span>
     </div>
     <div class="modules">
       <div class="module">
-        <div class="module-name"><span class="icon">&#129302;</span> LLM 客户端</div>
-        <div class="module-desc">anthropic SDK 封装，指数退避重试，Token 预算截断，纯业务接口</div>
+        <div class="module-name"><span class="icon">🤖</span> LLM 客户端</div>
+        <div class="module-desc">anthropic SDK 封装，指数退避重试，Token 预算截断。chat() 用于结构化调用，chat_stream() 用于流式输出</div>
         <div class="module-meta">
           <span class="tag">DC-0030</span>
           <span class="tag">DC-0031</span>
+          <span class="tag">DC-0068</span>
           <span class="tag">LLMClient</span>
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">&#128172;</span> Prompt 构建器</div>
-        <div class="module-desc">动态组装系统提示词：安全约束 + Agents.md + 模板知识上下文 + 任务上下文</div>
+        <div class="module-name"><span class="icon">💬</span> Prompt 构建器</div>
+        <div class="module-desc">5 个独立场景 Prompt：意图识别 / 模板知识问答 / GIS 专家问答 / 参数抽取 / 错误诊断。代码选择场景，LLM 不猜意图</div>
         <div class="module-meta">
           <span class="tag">DC-0032</span>
           <span class="tag">DC-0035</span>
@@ -499,38 +511,38 @@
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">&#129504;</span> 业务接口函数</div>
-        <div class="module-desc">classify_intent() &middot; extract_params() &middot; answer_question() &middot; analyze_execution_error()</div>
+        <div class="module-name"><span class="icon">🧠</span> 业务接口</div>
+        <div class="module-desc">classify_intent() · extract_params() · answer_question() · analyze_execution_error()。5 个独立场景，各有专用 Prompt 和处理逻辑</div>
         <div class="module-meta">
           <span class="tag">DC-0031</span>
           <span class="tag">DC-0036</span>
-          <span class="tag">IntentResult</span>
-          <span class="tag">ParamResult</span>
+          <span class="tag">DC-0069</span>
+          <span class="tag">DC-0071</span>
         </div>
       </div>
     </div>
   </div>
 
   <div class="arrow-down">&#8595;</div>
-  <div class="dependency-note">App 层 &rarr; Infra 层 (外部库 + GDAL CLI)</div>
+  <div class="dependency-note">LLM 层 → Infra 层 (外部库 + GDAL CLI)</div>
 
   <!-- Infra 层 -->
   <div class="layer layer-infra">
     <div class="layer-header">
-      <span class="layer-badge">Layer 4</span>
+      <span class="layer-badge">Layer 5</span>
       <span>Infra 层 — 外部依赖与运行时</span>
     </div>
     <div class="modules">
       <div class="module">
-        <div class="module-name"><span class="icon">&#128268;</span> anthropic SDK</div>
-        <div class="module-desc">Claude API 通信，流式响应，兼容 Kimi API (base_url 可配置)</div>
+        <div class="module-name"><span class="icon">🔗</span> anthropic SDK</div>
+        <div class="module-desc">Claude API 通信，流式响应。兼容 Kimi API (base_url 可配置)</div>
         <div class="module-meta">
           <span class="tag">P5 锁定</span>
           <span class="tag">CODE-3</span>
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">&#128209;</span> Jinja2 模板引擎</div>
+        <div class="module-name"><span class="icon">📑</span> Jinja2 模板引擎</div>
         <div class="module-desc">模板渲染 + 自定义过滤器 (quote / safe_path)，禁止字符串拼接</div>
         <div class="module-meta">
           <span class="tag">P5 锁定</span>
@@ -538,218 +550,60 @@
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">&#127760;</span> GDAL CLI</div>
+        <div class="module-name"><span class="icon">🌐</span> GDAL CLI</div>
         <div class="module-desc">ogr2ogr, gdalwarp, gdal_translate 等命令行工具，Conda 安装</div>
         <div class="module-meta">
           <span class="tag">外部</span>
           <span class="tag">subprocess.run</span>
         </div>
       </div>
-    </div>
-  </div>
-
-  <!-- 模块交互与依赖关系 -->
-  <div class="dataflow">
-    <h2>&#128260; 模块交互与依赖关系</h2>
-    <p style="font-size:12px;color:#718096;margin-bottom:20px;">箭头方向表示"调用/依赖"关系。严格分层：上层可调用下层，禁止反向依赖。</p>
-
-    <div class="interaction-grid">
-      <!-- CLI 入口 -->
-      <div class="ig-node ig-cli" style="grid-column:1;grid-row:1;">
-        <div class="ig-name">cli.main</div>
-        <div class="ig-desc">入口初始化链</div>
-      </div>
-
-      <!-- CLI 内部 -->
-      <div class="ig-node ig-cli" style="grid-column:2;grid-row:1;">
-        <div class="ig-name">cli.repl</div>
-        <div class="ig-desc">REPL 主循环</div>
-      </div>
-      <div class="ig-node ig-cli" style="grid-column:2;grid-row:2;">
-        <div class="ig-name">cli.commands</div>
-        <div class="ig-desc">斜杠命令</div>
-      </div>
-      <div class="ig-node ig-cli" style="grid-column:2;grid-row:3;">
-        <div class="ig-name">cli.executor</div>
-        <div class="ig-desc">脚本执行</div>
-      </div>
-
-      <!-- Core 层 -->
-      <div class="ig-node ig-core" style="grid-column:3;grid-row:1;">
-        <div class="ig-name">core.processor</div>
-        <div class="ig-desc">状态机处理器</div>
-      </div>
-      <div class="ig-node ig-core" style="grid-column:3;grid-row:2;">
-        <div class="ig-name">core.registry</div>
-        <div class="ig-desc">模板注册表</div>
-      </div>
-      <div class="ig-node ig-core" style="grid-column:3;grid-row:3;">
-        <div class="ig-name">core.validator</div>
-        <div class="ig-desc">参数校验链</div>
-      </div>
-      <div class="ig-node ig-core" style="grid-column:4;grid-row:2;">
-        <div class="ig-name">core.workspace</div>
-        <div class="ig-desc">工作空间管理</div>
-      </div>
-      <div class="ig-node ig-core" style="grid-column:4;grid-row:3;">
-        <div class="ig-name">core.models</div>
-        <div class="ig-desc">数据模型</div>
-      </div>
-
-      <!-- LLM 层 -->
-      <div class="ig-node ig-llm" style="grid-column:5;grid-row:1;">
-        <div class="ig-name">llm.intent</div>
-        <div class="ig-desc">意图分类</div>
-      </div>
-      <div class="ig-node ig-llm" style="grid-column:5;grid-row:2;">
-        <div class="ig-name">llm.params</div>
-        <div class="ig-desc">参数抽取</div>
-      </div>
-      <div class="ig-node ig-llm" style="grid-column:5;grid-row:3;">
-        <div class="ig-name">llm.qa</div>
-        <div class="ig-desc">文档问答</div>
-      </div>
-      <div class="ig-node ig-llm" style="grid-column:6;grid-row:1;">
-        <div class="ig-name">llm.client</div>
-        <div class="ig-desc">LLM 客户端</div>
-      </div>
-      <div class="ig-node ig-llm" style="grid-column:6;grid-row:2;">
-        <div class="ig-name">llm.prompts</div>
-        <div class="ig-desc">Prompt 构建器</div>
-      </div>
-
-      <!-- Templates 层 -->
-      <div class="ig-node ig-tpl" style="grid-column:3;grid-row:4;">
-        <div class="ig-name">templates.engine</div>
-        <div class="ig-desc">模板渲染引擎</div>
-      </div>
-      <div class="ig-node ig-tpl" style="grid-column:4;grid-row:4;">
-        <div class="ig-name">templates.scanner</div>
-        <div class="ig-desc">模板扫描器</div>
-      </div>
-
-      <!-- Config 层 -->
-      <div class="ig-node ig-cfg" style="grid-column:6;grid-row:3;">
-        <div class="ig-name">config.loader</div>
-        <div class="ig-desc">配置加载</div>
-      </div>
-
-      <!-- Infra -->
-      <div class="ig-node ig-infra" style="grid-column:6;grid-row:4;">
-        <div class="ig-name">anthropic</div>
-        <div class="ig-desc">SDK</div>
-      </div>
-      <div class="ig-node ig-infra" style="grid-column:5;grid-row:5;">
-        <div class="ig-name">jinja2</div>
-        <div class="ig-desc">模板引擎</div>
-      </div>
-    </div>
-
-    <!-- 依赖关系说明表格 -->
-    <div class="deps-table">
-      <div class="deps-row deps-header">
-        <div class="deps-cell">调用方</div>
-        <div class="deps-cell">被调用方</div>
-        <div class="deps-cell">用途</div>
-      </div>
-      <div class="deps-row">
-        <div class="deps-cell"><span class="dep-tag cli">cli.main</span></div>
-        <div class="deps-cell"><span class="dep-tag core">core.processor</span> <span class="dep-tag core">core.workspace</span></div>
-        <div class="deps-cell">初始化 SessionProcessor 和工作空间</div>
-      </div>
-      <div class="deps-row">
-        <div class="deps-cell"><span class="dep-tag cli">cli.repl</span></div>
-        <div class="deps-cell"><span class="dep-tag core">core.processor</span> <span class="dep-tag cli">cli.executor</span></div>
-        <div class="deps-cell">分发用户输入，执行确认后的脚本</div>
-      </div>
-      <div class="deps-row">
-        <div class="deps-cell"><span class="dep-tag core">core.processor</span></div>
-        <div class="deps-cell"><span class="dep-tag llm">llm.intent</span> <span class="dep-tag llm">llm.params</span> <span class="dep-tag llm">llm.qa</span></div>
-        <div class="deps-cell">意图分类、参数抽取、问答路由</div>
-      </div>
-      <div class="deps-row">
-        <div class="deps-cell"><span class="dep-tag core">core.processor</span></div>
-        <div class="deps-cell"><span class="dep-tag tpl">templates.engine</span> <span class="dep-tag core">core.validator</span></div>
-        <div class="deps-cell">参数校验与模板渲染</div>
-      </div>
-      <div class="deps-row">
-        <div class="deps-cell"><span class="dep-tag llm">llm.intent</span> <span class="dep-tag llm">llm.params</span> <span class="dep-tag llm">llm.qa</span></div>
-        <div class="deps-cell"><span class="dep-tag llm">llm.client</span> <span class="dep-tag llm">llm.prompts</span></div>
-        <div class="deps-cell">LLM API 调用与 Prompt 组装</div>
-      </div>
-      <div class="deps-row">
-        <div class="deps-cell"><span class="dep-tag llm">llm.client</span></div>
-        <div class="deps-cell"><span class="dep-tag cfg">config.loader</span></div>
-        <div class="deps-cell">读取 API 密钥和模型配置</div>
-      </div>
-      <div class="deps-row">
-        <div class="deps-cell"><span class="dep-tag tpl">templates.engine</span></div>
-        <div class="deps-cell"><span class="dep-tag core">core.models</span> <span class="dep-tag core">core.workspace</span></div>
-        <div class="deps-cell">读取模板定义，解析路径</div>
-      </div>
-      <div class="deps-row">
-        <div class="deps-cell"><span class="dep-tag tpl">templates.scanner</span></div>
-        <div class="deps-cell"><span class="dep-tag core">core.models</span></div>
-        <div class="deps-cell">解析 .j2 注释头为 TemplateDef</div>
-      </div>
-      <div class="deps-row">
-        <div class="deps-cell"><span class="dep-tag core">core.validator</span></div>
-        <div class="deps-cell"><span class="dep-tag core">core.workspace</span></div>
-        <div class="deps-cell">must_exist 时校验文件存在性</div>
+      <div class="module">
+        <div class="module-name"><span class="icon">📄</span> 模板扫描器</div>
+        <div class="module-desc">递归扫描 .j2 文件，解析注释头提取 TemplateDef。无 JSON 注册表</div>
+        <div class="module-meta">
+          <span class="tag">DC-0041</span>
+          <span class="tag">scanner.py</span>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- 数据流 -->
+  <!-- 关键交互流 -->
   <div class="dataflow">
-    <h2>&#128260; 典型数据流（成功路径）</h2>
+    <h2>🔀 三 TAB 关键交互流</h2>
     <div class="flow-step">
       <div class="flow-num">1</div>
       <div class="flow-content">
-        <div class="flow-title">用户输入自然语言</div>
-        <div class="flow-detail">CLI 层 REPL 读取 "把 roads.shp 转成 GeoJSON" &rarr; 传递给 SessionProcessor.process()</div>
+        <div class="flow-title">DiscoveryTab 意图匹配</div>
+        <div class="flow-detail">用户输入自然语言 → POST /session/{id}/intent → 两阶段匹配（关键词粗筛 + LLM 精排）→ 高置信度直接 PARAM_COLLECT，低置信度展示候选模板</div>
       </div>
     </div>
     <div class="flow-step">
       <div class="flow-num">2</div>
       <div class="flow-content">
-        <div class="flow-title">意图分类</div>
-        <div class="flow-detail">LLM 层 classify_intent() &rarr; 高置信度(0.95)匹配 shp2geojson 模板 &rarr; 状态: IDLE &rarr; PARAM_COLLECT</div>
+        <div class="flow-title">QATab 知识问答</div>
+        <div class="flow-detail">用户提问 → POST /session/{id}/chat → 代码层分支：locked_template 存在时走模板知识问答，不存在时走 GIS 专家问答 → WS /ws/chat 流式返回</div>
       </div>
     </div>
     <div class="flow-step">
       <div class="flow-num">3</div>
       <div class="flow-content">
-        <div class="flow-title">参数收集与校验</div>
-        <div class="flow-detail">多轮对话中 extract_params() 提取参数 &rarr; ParamValidator 链校验 (路径安全/格式/EPSG) &rarr; 追问缺失字段</div>
+        <div class="flow-title">ExecTab 脚本执行</div>
+        <div class="flow-detail">用户确认 → WS /ws/execute 实时日志 → 成功返回 IDLE / 失败进入 ERROR_RECOVERY → 一键诊断导航到 QATab</div>
       </div>
     </div>
     <div class="flow-step">
       <div class="flow-num">4</div>
       <div class="flow-content">
-        <div class="flow-title">脚本渲染与安全校验</div>
-        <div class="flow-detail">TemplateEngine.render() &rarr; Jinja2 + quote/safe_path 过滤器 &rarr; ScriptSecurityChecker 二次正则检查</div>
-      </div>
-    </div>
-    <div class="flow-step">
-      <div class="flow-num">5</div>
-      <div class="flow-content">
-        <div class="flow-title">脚本展示与用户确认</div>
-        <div class="flow-detail">状态: SCRIPT_PREVIEW &rarr; 展示完整脚本 &rarr; 严格 Y/N 确认 (dry-run 模式跳过执行)</div>
-      </div>
-    </div>
-    <div class="flow-step">
-      <div class="flow-num">6</div>
-      <div class="flow-content">
-        <div class="flow-title">沙箱执行</div>
-        <div class="flow-detail">ScriptExecutor.execute() &rarr; subprocess.run(cwd=workspace.root, timeout=300) &rarr; 返回 ExecutionResult</div>
+        <div class="flow-title">ExecTab 工作空间切换</div>
+        <div class="flow-detail">用户点击浏览选择目录 → POST /session/{id}/workspace → 保留当前会话状态，仅更新默认 cwd 和输出基准目录 → ParamValidator 和 TemplateEngine 重新创建</div>
       </div>
     </div>
   </div>
 
   <!-- 安全红线 -->
   <div class="security-box">
-    <h2>&#128683; 安全红线 (Security Principles)</h2>
+    <h2>🚫 安全红线 (Security Principles)</h2>
     <div class="security-grid">
       <div class="security-item">
         <div class="p-id">P1 — 模板化命令，杜绝幻觉</div>
@@ -757,31 +611,31 @@
       </div>
       <div class="security-item">
         <div class="p-id">P2 — 先展后行</div>
-        <div class="p-desc">任何脚本必须向用户完整展示内容，获得明确的 Y/N 确认后才可执行。不可跳过确认环节。</div>
+        <div class="p-desc">任何脚本必须向用户完整展示内容，获得明确确认后才可执行。WebSocket 执行过程实时可见。</div>
       </div>
       <div class="security-item">
         <div class="p-id">P3 — 最小权限</div>
-        <div class="p-desc">默认输出到工作空间，输出文件自动加时间戳防覆盖。路径经规范化后使用。workspace v2.0 是记忆锚点，不是安全边界。</div>
+        <div class="p-desc">默认输出到工作空间，输出文件自动加时间戳防覆盖。路径经规范化后使用。workspace 是默认操作目录，不是安全边界。绝对路径直接放行。</div>
       </div>
       <div class="security-item">
         <div class="p-id">P4 — 模板知识唯一</div>
-        <div class="p-desc">用法指导类知识仅来源于 J2 模板元数据，基础概念类回答由 LLM 参数知识提供，禁止调用外部 API。</div>
+        <div class="p-desc">用法指导类知识仅来源于 J2 模板元数据，基硎概念类回答由 LLM 参数知识提供，禁止调用外部 API。</div>
       </div>
       <div class="security-item">
         <div class="p-id">P5 — 最小依赖</div>
-        <div class="p-desc">生产依赖仅锁定 anthropic、jinja2 两个库。零额外运行时依赖，降低供应链攻击面。</div>
+        <div class="p-desc">生产依赖仅锁定 anthropic、jinja2 两个库。FastAPI / uvicorn 为 UI 可选 dev 依赖。降低供应链攻击面。</div>
       </div>
     </div>
   </div>
 
   <!-- 图例 -->
   <div class="legend">
-    <div class="legend-item"><div class="legend-dot" style="background:#667eea"></div>CLI 层</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#805ad5"></div>Frontend 层</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#667eea"></div>API 层</div>
     <div class="legend-item"><div class="legend-dot" style="background:#11998e"></div>Core 层</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#f5576c"></div>App 层</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f5576c"></div>LLM 层</div>
     <div class="legend-item"><div class="legend-dot" style="background:#4facfe"></div>Infra 层</div>
     <div class="legend-item"><div class="legend-dot" style="background:#c53030"></div>安全相关</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#3182ce"></div>数据模型</div>
     <div class="legend-item">&#8595; 向下依赖</div>
   </div>
 </div>

@@ -114,6 +114,7 @@ class Session:
     params: Dict[str, str] = field(default_factory=dict)
     candidates: List[TemplateDef] = field(default_factory=list)
     error_context: Optional[ExecutionErrorContext] = None
+    user_script: Optional[str] = None
 
     def with_state(self, state: SessionState) -> "Session":
         """返回状态变更后的新 Session。"""
@@ -124,6 +125,7 @@ class Session:
             params=self.params,
             candidates=self.candidates,
             error_context=self.error_context,
+            user_script=self.user_script,
         )
 
     def with_template(self, template: Optional[TemplateDef]) -> "Session":
@@ -135,6 +137,7 @@ class Session:
             params=self.params,
             candidates=self.candidates,
             error_context=self.error_context,
+            user_script=self.user_script,
         )
 
     def with_param(self, name: str, value: str) -> "Session":
@@ -148,6 +151,7 @@ class Session:
             params=new_params,
             candidates=self.candidates,
             error_context=self.error_context,
+            user_script=self.user_script,
         )
 
     def with_history(self, message: "Message") -> "Session":
@@ -161,6 +165,7 @@ class Session:
             params=self.params,
             candidates=self.candidates,
             error_context=self.error_context,
+            user_script=self.user_script,
         )
 
     def with_candidates(self, candidates: List[TemplateDef]) -> "Session":
@@ -172,6 +177,7 @@ class Session:
             params=self.params,
             candidates=list(candidates),
             error_context=self.error_context,
+            user_script=self.user_script,
         )
 
     def with_error(self, error_context: Optional[ExecutionErrorContext]) -> "Session":
@@ -187,6 +193,23 @@ class Session:
             params=self.params,
             candidates=self.candidates,
             error_context=error_context,
+            user_script=self.user_script,
+        )
+
+    def with_user_script(self, user_script: Optional[str]) -> "Session":
+        """设置用户编辑后的脚本（覆盖模板渲染结果）。
+
+        Design:
+            DC-UX-11 (命令编辑)
+        """
+        return Session(
+            state=self.state,
+            history=self.history,
+            template=self.template,
+            params=self.params,
+            candidates=self.candidates,
+            error_context=self.error_context,
+            user_script=user_script,
         )
 
     def clear_error(self) -> "Session":
@@ -202,6 +225,7 @@ class Session:
             params=self.params,
             candidates=self.candidates,
             error_context=None,
+            user_script=self.user_script,
         )
 
     def clear_history(self) -> "Session":
@@ -217,4 +241,21 @@ class Session:
             params=self.params,
             candidates=self.candidates,
             error_context=self.error_context,
+            user_script=self.user_script,
+        )
+
+    def clear_user_script(self) -> "Session":
+        """清除用户编辑的脚本（如返回修改参数时）。
+
+        Design:
+            DC-UX-11
+        """
+        return Session(
+            state=self.state,
+            history=self.history,
+            template=self.template,
+            params=self.params,
+            candidates=self.candidates,
+            error_context=self.error_context,
+            user_script=None,
         )

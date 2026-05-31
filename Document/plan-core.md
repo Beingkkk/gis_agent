@@ -149,23 +149,6 @@ def scan_templates(template_dir: Path) -> List[TemplateDef]:
 - 关键词粗筛得分 ≥ 8（约命中 2-3 个 keywords）时直接 PARAM_COLLECT，无需 LLM
 - 否则进入 LLM 精排；精排结果按 confidence 分三级处理（见 DC-0098）
 
-### DC-0045: Agents.md 支持程序追加写入
-
-**决策**: `Workspace` 模块新增 `save_agents_md()` 方法，支持将结构化内容追加写入工作空间的 `Agents.md`。文件不存在时自动创建并写入文件头。
-
-**理由**:
-- `/init` 命令需要程序级写入能力（plan-cli DC-0067）
-- 追加模式保护用户手动编辑的现有内容
-- 文件头统一标识，便于人工阅读和版本管理
-- 写入失败时抛 `WorkspaceError`，由调用方（CLI）转换为友好提示
-
-**边界处理**:
-| 场景 | 行为 |
-|------|------|
-| 文件不存在 | 创建新文件，写入 `# GIS Agent 项目配置\n\n` + 内容 |
-| 文件已存在 | 追加到末尾，前置换行分隔 |
-| 写入失败（权限/磁盘满） | 抛 `WorkspaceError`，不静默吞没 |
-
 ### DC-0048: 新增 ERROR_RECOVERY 状态用于执行失败后的上下文保留
 
 **决策**: 在 `SessionState` 中新增 `ERROR_RECOVERY` 状态。脚本执行失败后进入该状态，保留 `template` 和 `params` 上下文，不直接返回 `IDLE`。
@@ -878,7 +861,6 @@ CLI 层执行脚本
 | 无效状态处理 | 传入未知状态时抛 ValueError |
 | **参数前置提示** | 进入 PARAM_COLLECT 时响应包含参数名称、必填/可选标识、默认值、描述 |
 | **空匹配处理** | LLM 返回空 template_id 时进入 INTENT_CONFIRM，响应包含用户原输入和候选列表 |
-| **Agents.md 追加写入** | `Workspace.save_agents_md()` 文件不存在时自动创建并写入头，存在时追加，失败时抛 WorkspaceError |
 | **错误恢复：首次进入触发诊断** | ERROR_RECOVERY 且 diagnosis=None 时调用 analyze_execution_error，结果显示选项菜单 |
 | **错误恢复：确认修正** | 用户选"1" + can_auto_fix=True → 应用 fixed_params → SCRIPT_PREVIEW |
 | **错误恢复：手动修改** | 用户选"2" → PARAM_COLLECT，error_context 清除，保留 template + params |
@@ -911,7 +893,6 @@ CLI 层执行脚本
 | P2 | DC-0040 | SCRIPT_PREVIEW 状态 | 先展后行 |
 | CODE-2 | DC-0042 | `validate_file_path` | 路径规范化 + must_exist 校验 |
 | CODE-3 | — | 仅依赖 llm/ 层 | LLM 调用不外泄 |
-| F11 | DC-0045 | `Workspace.save_agents_md()` | Agents.md 程序级持久化写入 |
 | F10 | DC-0048, DC-0049 | `SessionProcessor._handle_error_recovery()` | 执行失败后保留上下文，LLM 诊断 + 用户选择修复路径 |
 
 ---
@@ -924,7 +905,6 @@ CLI 层执行脚本
 | v1.0.6 | 2026-05-30 | 新增 DC-0095：`TemplateRegistry` 支持运行时重扫描（`rescan()`），`api/dependencies.py` 新增 `refresh_registry()`；§3.2 更新 `TemplateRegistry` 接口定义；支持 J2 模板生成器保存后热加载（plan-j2-generate DC-0093） |
 | v1.0.5 | 2026-05-29 | 新增 DC-0070：`SessionProcessor` 新增 `output_fn` 可选参数和 `set_output_fn()` 后置设置方法；Q&A 路由将 callback 透传至 `answer_question(on_chunk=...)`；§3.4 更新 `SessionProcessor` 接口定义 |
 | v1.0.4 | 2026-05-28 | 新增 DC-0048/DC-0049：执行失败后进入 `ERROR_RECOVERY` 状态，保留 template + params 上下文；`_handle_error_recovery()` 统一处理 LLM 诊断和用户选择修复路径；新增 `ExecutionErrorContext` 数据模型 |
-| v1.0.3 | 2026-05-28 | 新增 DC-0045：`Workspace.save_agents_md()` 支持程序追加写入 Agents.md，供 `/init` 斜杠命令使用（plan-cli DC-0067） |
 | v1.0.2 | 2026-05-28 | 空匹配（无精确对应模板）不再直接拒绝，改为进入 INTENT_CONFIRM 展示候选列表，附带友好说明 |
 | v1.0.1 | 2026-05-28 | 进入 PARAM_COLLECT 时增加参数前置提示（参数名、必填/可选、默认值、描述），提升参数收集阶段 UX |
 | v1.0.0 | 2026-05-26 | 初版，定义状态机、模板注册表、参数校验链、会话上下文 |

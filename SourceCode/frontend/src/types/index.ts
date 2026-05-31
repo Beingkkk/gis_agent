@@ -6,6 +6,19 @@ export type SessionState =
   | 'EXECUTING'
   | 'ERROR_RECOVERY'
 
+/** 三 TAB 标识（DC-UX-10 ~ DC-UX-13） */
+export type TabId = 'discovery' | 'qa' | 'exec'
+
+/** 脚本执行结果（用于 ExecTab 四态判断，DC-UX-11） */
+export interface ExecResult {
+  success: boolean
+  returncode: number
+  stdout: string
+  stderr: string
+  duration_ms: number
+  output_path?: string
+}
+
 export interface CandidateTemplate {
   id: string
   name: string
@@ -26,6 +39,7 @@ export interface SessionSnapshot {
   error_context: ErrorContext | null
   history: ChatMessage[]
   workspace: string
+  user_script: string | null
 }
 
 export interface TimelineStep {
@@ -35,7 +49,7 @@ export interface TimelineStep {
 }
 
 export interface ChatMessage {
-  role: 'user' | 'agent'
+  role: 'user' | 'assistant'
   content: string
   type?: 'text' | 'cards' | 'script' | 'timeline' | 'error'
   meta?: Record<string, unknown>

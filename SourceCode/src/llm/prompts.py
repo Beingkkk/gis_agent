@@ -5,33 +5,73 @@ Design: DC-0032, DC-0035, ADR-0001
 
 from typing import Optional
 
-# Fixed safety constraints — never truncated
-_FIXED_CONSTRAINTS = """你是 GIS Agent，一个专业的地理信息系统数据处理助手。
+# ── 1. 意图识别 Prompt ──────────────────────────────────────────────────────
+# 用于 classify_intent：从候选模板中选择最匹配的一个
+_INTENT_SYSTEM = """你是 GIS Agent 的意图识别模块。
 
-【核心规则】
-1. 你只能从预定义的模板中选择，绝不直接生成 GDAL 命令字符串。
-2. 所有脚本必须在执行前向用户展示完整内容，获得明确确认（Y/N）后方可执行。
-3. 用法指导类知识仅来源于提供的模板元数据，禁止编造模板中未定义的参数或命令。
-4. 基础概念类问题可使用你的参数知识回答。
-5. 禁止执行任何未经用户确认的脚本或文件操作。
+你的唯一任务：从候选模板列表中选出最匹配用户请求的一个模板，并给出置信度。
 
-【命令生成规则】
-- 你仅负责：识别用户意图 → 选择对应模板 → 提取参数
-- 实际 GDAL 命令由 Jinja2 模板渲染生成，不是你自由编写
-- 如果用户请求没有匹配的模板，如实告知，不提供猜测性命令
+【规则】
+1. 只能从提供的候选模板中选择（按 template_id），禁止编造列表外的模板ID。
+2. 即使不完全匹配，也返回最接近的模板，用 confidence 反映匹配程度。
+3. 禁止直接生成 GDAL 命令字符串。
+4. 输出严格 JSON，不要 Markdown 代码块。"""
 
-【问答规则】
-- 若提供了模板元数据：仅基于该元数据回答用法问题，不扩展未提及的参数
-- 若未提供模板元数据（基础概念问题）：使用你的参数知识回答
-- 用户连续提问时，如果新问题与之前的问题明显是不同主题（如问完"shp是什么"又问"tif是什么"），只回答新问题，不要重复之前的内容；如果是对之前问题的追问或延伸（如问完"shp是什么"又问"shp能转成什么"），自然地承接上文
-"""
+# ── 2. 模板知识问答 Prompt ──────────────────────────────────────────────────
+# 用于 answer_question（用户已锁定模板）：基于模板上下文回答用法问题
+_TEMPLATE_QA_SYSTEM = """你是 GIS Agent 的模板问答助手。
+
+你的任务：基于下方提供的模板上下文，回答用户关于该模板用法的问题。
+
+【规则】
+1. 所有回答必须基于提供的模板上下文。
+2. 禁止编造模板中未定义的参数或命令。
+3. 可结合模板内容给出具体示例和参数填写建议。
+4. 对于基础概念类问题，可补充通用 GIS 知识作为背景说明。
+5. 用户连续提问时，不同主题只答新问题；追问或延伸则承接上文。"""
+
+# ── 3. GIS 专家问答 Prompt ──────────────────────────────────────────────────
+# 用于 answer_question（无锁定模板）：纯 GIS 知识问答
+_GIS_EXPERT_SYSTEM = """你是 GIS 领域的专家助手。
+
+你的任务：使用你的参数知识回答用户的 GIS 相关问题。
+
+【规则】
+1. 可自由引用通用 GIS 知识、GDAL 工具用法、数据格式标准和最佳实践。
+2. 禁止编造具体模板的参数或命令（因为你当前没有模板上下文）。
+3. 提供准确、实用的技术建议。
+4. 用户连续提问时，不同主题只答新问题；追问或延伸则承接上文。"""
+
+# ── 4. 参数提取 Prompt ──────────────────────────────────────────────────────
+# 用于 extract_params：从用户输入中提取参数值
+_PARAM_SYSTEM = """你是 GIS Agent 的参数提取模块。
+
+你的任务：从用户输入中提取模板参数值，识别缺失的必填参数并生成追问问题。
+
+【规则】
+1. 仅提取已定义的参数字段，不编造新参数。
+2. 区分必填和可选参数——必填缺失时必须追问，可选缺失时可忽略。
+3. 输出严格 JSON，不要 Markdown 代码块。"""
+
+# ── 5. 错误诊断 Prompt ──────────────────────────────────────────────────────
+# 用于 analyze_execution_error：分析执行错误
+_DIAGNOSIS_SYSTEM = """你是 GDAL 命令行工具的错误诊断专家。
+
+你的任务：分析 GDAL 脚本执行错误，结合模板和参数上下文，判断错误根因并给出修复建议。
+
+【规则】
+1. 结合提供的模板信息、参数值、渲染后的脚本和错误输出进行分析。
+2. can_auto_fix 判定：
+   - true：仅涉及参数值修改（如路径、坐标系、格式）即可修复。
+   - false：需要用户手动解决系统级问题（如权限、GDAL 版本、数据损坏）。
+3. confidence < 0.5 时，can_auto_fix 必须设为 false。
+4. 输出严格 JSON，不要 Markdown 代码块。"""
 
 
 def _format_template_context(template_context: str) -> str:
     """Format template knowledge context section."""
     return f"""
 【模板知识上下文】
-以下是与用户问题相关的模板元数据，请仅基于这些信息回答用法指导类问题：
 {template_context}
 """
 
@@ -39,57 +79,105 @@ def _format_template_context(template_context: str) -> str:
 def _format_task_context(task_context: str) -> str:
     """Format task context section."""
     return f"""
-【当前任务状态】
+【当前任务上下文】
 {task_context}
 """
 
 
-def _format_agents_md(agents_md: str) -> str:
-    """Format Agents.md section."""
-    return f"""
-【项目配置 (Agents.md)】
-{agents_md}
-"""
-
-
 class PromptBuilder:
-    """System prompt builder.
+    """System prompt builder for LLM calls.
 
-    Assembles fixed constraints, Agents.md, and template knowledge context.
+    Provides scenario-specific system prompts so the LLM never has to
+    guess the user's intent — the calling code selects the prompt.
 
     Design:
         DC-0032, DC-0035, ADR-0001
     """
 
-    def __init__(self, agents_md: Optional[str] = None) -> None:
-        """Args:
-        agents_md: Full text of workspace Agents.md, or None.
-        """
-        self._agents_md = agents_md
+    def __init__(self) -> None:
+        """Initialize prompt builder."""
 
-    def build_system_prompt(
-        self,
-        template_context: Optional[str] = None,
-        task_context: Optional[str] = None,
-    ) -> str:
-        """Assemble system prompt.
+    def _assemble(self, base: str, extra: Optional[str] = None) -> str:
+        """Assemble final prompt from base + optional extra."""
+        parts: list[str] = [base]
+        if extra is not None and extra.strip():
+            parts.append(extra)
+        return "\n".join(parts)
+
+    # ── Scenario 1: Intent classification ─────────────────────────────────
+
+    def build_intent_prompt(self, task_context: str) -> str:
+        """Build system prompt for intent classification.
 
         Args:
-            template_context: Template metadata context (Q&A scene).
-            task_context: Current task state description (param extraction).
+            task_context: Candidate template list and selection rules.
 
         Returns:
-            Complete system prompt string.
+            System prompt for classify_intent().
         """
-        parts: list[str] = [_FIXED_CONSTRAINTS]
+        return self._assemble(
+            _INTENT_SYSTEM,
+            _format_task_context(task_context),
+        )
 
-        if self._agents_md is not None:
-            parts.append(_format_agents_md(self._agents_md))
+    # ── Scenario 2: Template-knowledge Q&A ────────────────────────────────
 
-        if template_context is not None and template_context.strip():
-            parts.append(_format_template_context(template_context))
+    def build_template_qa_prompt(self, template_context: str) -> str:
+        """Build system prompt for template-knowledge Q&A.
 
-        if task_context is not None:
-            parts.append(_format_task_context(task_context))
+        Used when the user has a locked template and asks usage questions.
 
-        return "\n".join(parts)
+        Args:
+            template_context: Full template metadata (params, concepts, etc.).
+
+        Returns:
+            System prompt for answer_question() with locked_template set.
+        """
+        return self._assemble(
+            _TEMPLATE_QA_SYSTEM,
+            _format_template_context(template_context),
+        )
+
+    # ── Scenario 3: GIS-expert Q&A ────────────────────────────────────────
+
+    def build_gis_expert_prompt(self) -> str:
+        """Build system prompt for GIS-expert Q&A.
+
+        Used when the user asks a general GIS question with no template locked.
+
+        Returns:
+            System prompt for answer_question() with no template context.
+        """
+        return self._assemble(_GIS_EXPERT_SYSTEM)
+
+    # ── Scenario 4: Parameter extraction ──────────────────────────────────
+
+    def build_param_prompt(self, task_context: str) -> str:
+        """Build system prompt for parameter extraction.
+
+        Args:
+            task_context: Template ID, current params, and param schema.
+
+        Returns:
+            System prompt for extract_params().
+        """
+        return self._assemble(
+            _PARAM_SYSTEM,
+            _format_task_context(task_context),
+        )
+
+    # ── Scenario 5: Error diagnosis ───────────────────────────────────────
+
+    def build_diagnosis_prompt(self, task_context: str) -> str:
+        """Build system prompt for execution error diagnosis.
+
+        Args:
+            task_context: Error diagnosis task description.
+
+        Returns:
+            System prompt for analyze_execution_error().
+        """
+        return self._assemble(
+            _DIAGNOSIS_SYSTEM,
+            _format_task_context(task_context),
+        )

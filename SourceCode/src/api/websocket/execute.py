@@ -59,18 +59,25 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
 
     await websocket.accept()
 
-    # Render script from template + params
-    engine = get_template_engine()
-    try:
-        rendered = engine.render(session.template, session.params)
-    except Exception as exc:
-        logger.exception("Script render error: %s", exc)
-        await websocket.send_json({"type": "done", "success": False, "error": str(exc)})
-        return
+    # Determine script to execute: user-edited script takes priority (DC-UX-11)
+    script_content: str = ""
+    if session.user_script:
+        script_content = session.user_script
+    else:
+        engine = get_template_engine()
+        try:
+            rendered = engine.render(session.template, session.params)
+            script_content = rendered.content
+        except Exception as exc:
+            logger.exception("Script render error: %s", exc)
+            await websocket.send_json(
+                {"type": "done", "success": False, "error": str(exc)}
+            )
+            return
 
     # Write script to temp file in workspace
     workspace = get_workspace()
-    script_path = _write_script_file(rendered, workspace)
+    script_path = _write_script_content(script_content, workspace)
 
     # Execute with streaming
     try:
@@ -221,20 +228,20 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
             pass
 
 
-def _write_script_file(rendered: Any, workspace: Any) -> Path:
-    """Write rendered script content to a temp file in workspace.
+def _write_script_content(script_content: str, workspace: Any) -> Path:
+    """Write script content to a temp file in workspace.
 
     Args:
-        rendered: Rendered script object with ``content`` and ``platform``.
+        script_content: The script text to write.
         workspace: Workspace instance.
 
     Returns:
         Path to the written script file.
     """
-    ext = ".bat" if rendered.platform.name == "WINDOWS" else ".sh"
+    ext = ".bat"  # Windows only for now
     timestamp = str(int(time.time()))
     filename = f"script_{timestamp}{ext}"
     script_path = Path(workspace.root) / filename
-    script_path.write_text(rendered.content, encoding="utf-8")
+    script_path.write_text(script_content, encoding="utf-8")
     logger.debug("Script written to %s", script_path)
     return script_path

@@ -57,7 +57,7 @@ def classify_intent(
         f"可用模板：\n{templates_str}\n"
         f"请仅从以上模板中选择（按ID），禁止选择列表之外的模板。"
     )
-    system_prompt = builder.build_system_prompt(task_context=task_context)
+    system_prompt = builder.build_intent_prompt(task_context=task_context)
 
     user_prompt = (
         "用户输入：%(input)s\n\n"

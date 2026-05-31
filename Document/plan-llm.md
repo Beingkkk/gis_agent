@@ -27,7 +27,6 @@
 | F2 | 意图识别与分类：将自然语言映射到预定义模板 |
 | F3 | 参数抽取与追问：从输入中提取文件路径、坐标参考、选项等 |
 | F8 | 会话内记忆：单次对话中保留上下文 |
-| F11 | Agents.md 内容注入系统提示词 |
 | P1 | LLM 仅负责选择模板 ID 并填充参数，不直接生成 GDAL 命令 |
 
 ---
@@ -54,16 +53,27 @@
 
 ### DC-0032: Prompt 模板以内联常量形式组织
 
-**决策**: 系统提示词（System Prompt）和各场景的 Prompt 模板以 Python 模块级常量字符串定义，不放在外部文件中。
+**决策**: 系统提示词（System Prompt）以 Python 模块级常量字符串定义，不放在外部文件中。每个 LLM 调用场景拥有独立的系统 Prompt 常量，通过 `PromptBuilder` 的专属方法组装。
 
 **理由**:
 - Prompt 与代码逻辑紧密耦合，变更需同步修改
 - 避免运行时文件 IO 和路径管理
 - 模块级常量可被静态分析、类型检查、IDE 自动补全
+- **场景隔离**：每个场景拥有独立 Prompt，LLM 无需在单个 Prompt 中同时承担"意图识别""问答""诊断"等多个角色
+
+**当前拆分**：
+| 常量名 | 用途 | 调用方法 |
+|--------|------|---------|
+| `_INTENT_SYSTEM` | 意图识别：从候选模板中选择最匹配项 | `build_intent_prompt()` |
+| `_TEMPLATE_QA_SYSTEM` | 模板知识问答：基于模板上下文回答用法问题 | `build_template_qa_prompt()` |
+| `_GIS_EXPERT_SYSTEM` | GIS 专家问答：用 LLM 参数知识回答通用问题 | `build_gis_expert_prompt()` |
+| `_PARAM_SYSTEM` | 参数提取：从用户输入中提取参数值 | `build_param_prompt()` |
+| `_DIAGNOSIS_SYSTEM` | 错误诊断：分析执行错误并给出修复建议 | `build_diagnosis_prompt()` |
 
 **替代方案**:
 - 外部 `.txt` / `.md` 文件：运行时读取，适合非技术人员编辑。但我们的 Prompt 含代码逻辑和格式化指令，非技术人员无需修改。
 - Jinja2 模板：过度设计，Prompt 结构简单，字符串格式化足够。
+- 单一通用 Prompt（已否决）：让 LLM 同时承担多个角色的判断职责，容易导致场景混淆。
 
 ### DC-0033: Token 预算采用硬上限 + 上下文截断
 
@@ -134,15 +144,24 @@
 | GDAL 缺失功能 | "driver not compiled" | False | 需用户升级/重装 GDAL |
 | 数据损坏 | "corrupt data" | False | 需用户检查源数据 |
 
-### DC-0035: 系统提示词动态组装
+### DC-0035: 系统提示词由代码选择场景，LLM 不猜意图
 
-**决策**: 每次请求的系统提示词由固定约束 + Agents.md 内容 + 当前模板知识上下文动态拼接。
+**决策**: 系统提示词不再使用单一通用 Prompt 让 LLM 猜测用户意图，而是由调用代码根据明确场景选择对应的专用 Prompt。每个场景的 Prompt 只包含该场景所需的规则和上下文。
 
-**组成顺序**:
-1. **固定安全约束**（不可省略）：P1 模板化命令规则、P2 先展后行规则
-2. **Agents.md 内容**（若有）：项目级长期记忆
-3. **模板知识上下文**（问答场景）：匹配模板的 `@concept`、`@note`、`@common_error` 元数据
-4. **当前任务上下文**（参数抽取场景）：已确认的参数和待问字段
+**场景与 Prompt 映射**:
+
+| 场景 | 代码判断依据 | 使用的 Prompt | LLM 职责 |
+|------|------------|-------------|---------|
+| 意图识别 | 用户在 DiscoveryTab 输入 | `build_intent_prompt()` | 从候选模板中选择最匹配项 |
+| 模板知识问答 | `locked_template is not None` | `build_template_qa_prompt()` | 基于模板上下文回答用法问题 |
+| GIS 专家问答 | `locked_template is None` | `build_gis_expert_prompt()` | 用参数知识回答通用 GIS 问题 |
+| 参数提取 | 进入 PARAM_COLLECT 状态 | `build_param_prompt()` | 从输入中提取参数值 |
+| 错误诊断 | 进入 ERROR_RECOVERY 状态 | `build_diagnosis_prompt()` | 分析错误根因并给出修复建议 |
+
+**Prompt 组装顺序**（各场景统一）:
+1. **场景专用系统约束**（不可省略）：该场景的固定规则
+2. **上下文信息**（若有）：模板知识 / 任务状态 / 诊断上下文
+**历史**: 旧设计使用单一 `_FIXED_CONSTRAINTS` Prompt，内含"若提供模板上下文则...若未提供则..."的规则，让 LLM 自行判断场景。实践证明这种方式导致 LLM 在边界情况下混淆角色（如用户问"这个模板的参数怎么填"但无模板上下文时，LLM 可能错误地尝试搜索模板）。
 
 ### DC-0068: LLMClient 新增流式输出接口 `chat_stream()`
 
@@ -298,30 +317,47 @@ class LLMClient:
 class PromptBuilder:
     """系统提示词构建器。
 
-    负责将固定约束、Agents.md、模板知识上下文组装为系统提示词。
+    提供场景专用的系统提示词组装方法。调用代码根据明确场景选择对应方法，
+    LLM 无需猜测用户意图。
 
     Design:
         DC-0032, DC-0035
     """
 
-    def __init__(self, agents_md: Optional[str] = None) -> None:
-        """Args:
-            agents_md: 工作空间 Agents.md 全文，无则为 None。
-        """
+    def __init__(self) -> None:
 
-    def build_system_prompt(
-        self,
-        template_context: Optional[str] = None,
-        task_context: Optional[str] = None,
-    ) -> str:
-        """组装系统提示词。
+    def build_intent_prompt(self, task_context: str) -> str:
+        """意图识别场景：从候选模板中选择最匹配项。
 
         Args:
-            template_context: 模板元数据上下文（问答场景）。
-            task_context: 当前任务状态描述（参数抽取场景）。
+            task_context: 候选模板列表和选择规则。
+        """
 
-        Returns:
-            完整的系统提示词字符串。
+    def build_template_qa_prompt(self, template_context: str) -> str:
+        """模板知识问答场景：基于模板上下文回答用法问题。
+
+        Args:
+            template_context: 完整模板元数据（参数定义、概念、注意事项等）。
+        """
+
+    def build_gis_expert_prompt(self) -> str:
+        """GIS 专家问答场景：无模板上下文，用 LLM 参数知识回答。
+
+        用户未锁定模板时，在 QATab 中提出的通用 GIS 问题走此 Prompt。
+        """
+
+    def build_param_prompt(self, task_context: str) -> str:
+        """参数提取场景：从用户输入中提取参数值。
+
+        Args:
+            task_context: 当前模板 ID、已收集参数、参数 Schema。
+        """
+
+    def build_diagnosis_prompt(self, task_context: str) -> str:
+        """错误诊断场景：分析执行错误并给出修复建议。
+
+        Args:
+            task_context: 诊断任务描述（模板信息 + 执行结果摘要）。
         """
 ```
 
@@ -398,33 +434,39 @@ def extract_params(
 
 def answer_question(
     user_input: str,
-    template_infos: List[TemplateInfo],
+    templates: List[TemplateDef],
     history: List[Message],
     client: LLMClient,
     builder: PromptBuilder,
     on_chunk: Optional[Callable[[str], None]] = None,
+    locked_template: Optional[TemplateDef] = None,
+    current_params: Optional[Dict[str, str]] = None,
 ) -> str:
-    """基于模板元数据生成问答回答。
+    """基于模板元数据或 LLM 参数知识生成问答回答。
 
-    基础概念类问题直接由 LLM 参数知识回答；
-    用法指导类问题基于匹配模板的元数据生成回答。
+    **代码层面分支**（非 Prompt 层面）：
+    - `locked_template is not None` → 模板知识问答：传入完整的参数定义、
+      当前值、概念、注意事项、常见错误作为上下文，LLM 基于这些信息回答。
+    - `locked_template is None` → GIS 专家问答：不传入任何模板上下文，
+      LLM 使用自身参数知识自由回答。
 
     当 *on_chunk* 不为 None 时，通过流式 API 逐块输出，同时累积完整文本返回。
 
     Args:
         user_input: 用户问题。
-        template_infos: 匹配到的模板元数据列表（含 id、name、description、
-            concept、note、common_error 等）。
+        templates: 补充模板列表（仅用于模板知识问答场景，作为相关参考）。
         history: 对话历史。
         client: LLM 客户端。
         builder: Prompt 构建器。
         on_chunk: 可选的逐块输出回调（用于流式输出）。
+        locked_template: 当前锁定的模板（若有），决定走模板知识问答还是 GIS 专家问答。
+        current_params: 当前已收集的参数值（用于模板知识问答时展示当前填写状态）。
 
     Returns:
         自然语言回答（完整文本）。
 
     Design:
-        F1, P4, DC-0069
+        F1, P4, DC-0069, DC-0071
     """
 
 
@@ -496,9 +538,9 @@ class LLMResponseError(LLMError):
     ▼
 classify_intent()
     │
-    ├──→ PromptBuilder.build_system_prompt()
-    │       ├── 固定约束："你只能从以下模板中选择..."
-    │       └── Agents.md（若有）
+    ├──→ PromptBuilder.build_intent_prompt()
+    │       ├── 意图识别系统约束："你是 GIS Agent 的意图识别模块...
+    │       │   你的唯一任务：从候选模板列表中选出最匹配用户请求的一个模板"
     │
     ├──→ 构造 user prompt：
     │       "可用模板：[shp2geojson, merge_shp, clip_raster, ...]
@@ -529,7 +571,7 @@ classify_intent()
     ▼
 extract_params()
     │
-    ├──→ PromptBuilder.build_system_prompt(task_context=当前状态)
+    ├──→ PromptBuilder.build_param_prompt(task_context=当前状态)
     │       └── 任务上下文："当前模板：shp2geojson，已收集参数：..."
     │
     ├──→ 构造 user prompt：
@@ -550,31 +592,44 @@ extract_params()
 ### 4.3 文档问答流程
 
 ```
-用户输入："ogr2ogr 能输出哪些格式？"
+用户输入："这个模板的参数分别怎么填？"
     │
     ▼
-模板匹配（基于 intent 相似度或关键词匹配）
+answer_question()
     │
-    ├──→ 匹配到相关模板 → 提取模板元数据
-    │       └── id, name, description, @concept, @note, @common_error
+    ├──→ 代码层面分支（非 Prompt 层面）：
+    │       │
+    │       ├──→ locked_template is not None
+    │       │       │
+    │       │       ├──→ 组装完整模板上下文：
+    │       │       │       参数定义（名称、类型、必填、描述、默认值、可选值）
+    │       │       │       当前已填写的参数值
+    │       │       │       尚未填写的参数列表
+    │       │       │       相关概念（@concept）
+    │       │       │       注意事项（@note）
+    │       │       │       常见错误（@common_error）
+    │       │       │       相关模板参考（top-3 补充上下文）
+    │       │       │
+    │       │       ├──→ PromptBuilder.build_template_qa_prompt(template_context)
+    │       │       │       "你是 GIS Agent 的模板问答助手。基于下方提供的模板上下文，
+    │       │       │        回答用户关于该模板用法的问题。"
+    │       │       │
+    │       │       └──→ LLMClient.chat(temperature=0.3)
+    │       │
+    │       └──→ locked_template is None
+    │               │
+    │               ├──→ 不传入任何模板上下文
+    │               │
+    │               ├──→ PromptBuilder.build_gis_expert_prompt()
+    │               │       "你是 GIS 领域的专家助手。使用你的参数知识回答用户的
+    │               │        GIS 相关问题。"
+    │               │
+    │               └──→ LLMClient.chat(temperature=0.3)
     │
-    └──→ 未匹配到模板 → 标记为"概念性问题"（走 LLM 参数知识）
-            │
-            ▼
-    answer_question()
-            │
-            ├──→ PromptBuilder.build_system_prompt(template_context=模板元数据)
-            │       ├── 固定约束："基于以下模板元数据回答用法问题；
-            │       │              若为基础概念，使用你的参数知识回答；
-            │       │              不要编造模板中未定义的参数"
-            │       └── 模板上下文："模板: shp2geojson\n描述: ...\n概念: ..."
-            │
-            ├──→ 构造 user prompt：用户原始问题
-            │
-            ├──→ LLMClient.chat(temperature=0.3)
-            │
-            └──→ 返回自然语言回答（不经过 JSON 解析）
+    └──→ 返回自然语言回答（不经过 JSON 解析）
 ```
+
+**关键原则**：场景判断在代码层面完成，LLM 不负责判断"这是用法问题还是概念问题"。代码根据 `locked_template` 是否存在，直接选择对应的专用 Prompt，消除 LLM 的场景误判。
 
 ### 4.4 错误诊断流程
 
@@ -584,8 +639,8 @@ extract_params()
   ▼
 analyze_execution_error()
   │
-  ├──→ PromptBuilder.build_system_prompt()
-  │       └── 固定约束："你是一名 GDAL 命令行工具的错误诊断专家..."
+  ├──→ PromptBuilder.build_diagnosis_prompt()
+  │       └── 诊断系统约束："你是一名 GDAL 命令行工具的错误诊断专家..."
   │
   ├──→ 构造 user prompt：
   │       "模板：shp2geojson（Shapefile 转 GeoJSON）
@@ -648,7 +703,6 @@ analyze_execution_error()
 |------|------|------|
 | `config` | `get_config()` | 读取 LLM 连接参数 |
 | `core` | `TemplateDef`（模板元数据） | 文档问答时获取模板知识上下文 |
-| `workspace` | `Workspace.load_agents_md()` | 获取 Agents.md 内容 |
 
 ### 5.2 向下暴露
 
@@ -699,7 +753,6 @@ analyze_execution_error()
 
 - 端到端意图分类：模拟 API 响应 → 验证返回 IntentResult
 - 端到端参数抽取：模拟多轮对话 → 验证参数渐进收集
-- Agents.md 注入：验证系统提示词包含 Agents.md 内容
 
 ### 7.3 Mock 策略
 
@@ -718,7 +771,6 @@ analyze_execution_error()
 | F3 | DC-0031, DC-0032 | `extract_params()` | 参数抽取与追问 |
 | F8 | DC-0033 | Token 截断逻辑 | 会话记忆上下文管理 |
 | F10 | DC-0036 | `analyze_execution_error()` | 执行错误 LLM 诊断 + 结构化修复建议 |
-| F11 | DC-0035 | `PromptBuilder` | Agents.md 注入系统提示词 |
 | P1 | DC-0032 | 系统提示词固定约束 | 模板化命令规则 |
 | P4 | DC-0035 | `answer_question()` 模板上下文 | 基于模板元数据回答用法问题 |
 | CODE-3 | DC-0031 | `LLMClient` 封装 | anthropic SDK 不外泄 |
@@ -730,7 +782,7 @@ analyze_execution_error()
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
-| v1.3.1 | 2026-05-30 | 更新 `TemplateInfo`：新增 `keywords` 字段，用于两阶段匹配（DC-0098）时向 LLM 提供语义上下文；更新 `classify_intent` 签名和 prompt，支持候选池语义精排；§4.1 更新意图分类流程以描述候选池机制 |
+| v1.4.0 | 2026-05-31 | **系统 Prompt 场景拆分**：更新 DC-0032（5 个独立 Prompt 常量）、DC-0035（代码选择场景，LLM 不猜意图）；新增 DC-0071；PromptBuilder 从单一 `build_system_prompt()` 拆分为 5 个专用方法；`answer_question()` 签名更新（新增 `locked_template`、`current_params`）；§3.3/§3.4/§4.1/§4.2/§4.3/§4.4 全部更新为新的 PromptBuilder 调用方式 |
 | v1.3.0 | 2026-05-29 | 新增 DC-0068/DC-0069：LLMClient 新增 `chat_stream()` 流式接口；`answer_question()` 新增 `on_chunk` 回调参数；§3.2 更新 LLMClient 接口、§3.4 更新 `answer_question` 签名、§7 新增流式测试 |
 | v1.2.0 | 2026-05-28 | 新增 DC-0036：`analyze_execution_error()` 接口，将 ExecutionResult + template + params 传给 LLM，返回结构化 `ErrorDiagnosis`；新增 §3.1 `ErrorDiagnosis`、§3.4 `analyze_execution_error()`、§4.4 错误诊断流程、§7.1 测试策略、§8 需求追溯 |
 | v1.1.1 | 2026-05-28 | `classify_intent` Prompt 改进：不再要求 LLM 留空 template_id，而是始终返回最接近的模板并用 confidence 反映匹配程度；§4.1 数据流更新 |

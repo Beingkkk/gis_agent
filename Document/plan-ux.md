@@ -261,6 +261,11 @@ interface DataLink {
 - 所有输入走 `process_intent()`，**仅做意图匹配，不做问答**
 - 不再通过关键词（如"什么""怎么"）判断是否为问答请求
 - 用户有纯问答需求时，需切换到 GIS 问答 TAB
+- 意图匹配过程中显示加载提示（"正在分析您的需求..."）
+- 匹配完成后根据结果给出状态反馈：
+  - **高置信度匹配**（`PARAM_COLLECT`）：轻量绿色提示"✓ 已确认模板，请填写参数"
+  - **候选模式**（`INTENT_CONFIRM`）：展示候选模板列表供用户选择
+  - **未匹配**（`INTENT_CONFIRM` 无候选）：黄色提示"未找到匹配的模板，请尝试其他描述或手动选择"
 
 **QATab（GIS 问答）约束**：
 - 所有输入走 `chat_question()`，**始终视为问答请求，不做意图匹配**
@@ -529,26 +534,29 @@ interface TemplateDetail extends TemplateDef {
               │             │
               ▼             ▼
        快速路径（关键词高分）  需精排
-   （关键词高分）             │
+   （关键词高分 ≥ 8）         │
               │             │
               ▼             ▼
         PARAM_COLLECT    LLM 精排（classify_intent）
    （直达参数填写）      │
+   ↳ 前端提示：已确认模板  │
             ├──→ confidence ≥ 0.85
             │       │
             │       ▼
             │   PARAM_COLLECT（自动选中）
+            │       ↳ 前端提示：✓ 已确认模板，请填写参数
             │
             ├──→ 0.50 ≤ confidence < 0.85
             │       │
             │       ▼
             │   INTENT_CONFIRM（top-1 推荐 + 备选）
+            │       ↳ 前端展示候选卡片列表
             │
             └──→ confidence < 0.50
                     │
                     ▼
                 INTENT_CONFIRM（top-3 候选）
-                    │
+                    │   ↳ 前端展示候选卡片列表
                     │
                     │
                     └─→ 用户点击确认
@@ -774,6 +782,7 @@ UX 方案**不删除**现有 CLI 代码。`cli/` 目录保持完整，与 `api/`
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.9.0 | 2026-05-31 | **DiscoveryTab 意图匹配状态反馈**：§2 新增三种匹配结果的前端状态提示（识别中/已确认/未匹配）；§4.1 流程图补充前端反馈标注；移除冗余的 MatchedBanner 横幅，改为轻量状态条 |
 | v1.8.0 | 2026-05-31 | **切换工作空间保留会话状态**：`POST /session/{id}/workspace` 不再清空会话，仅变更默认 cwd 和输出基准目录；template、params、history、error_context 等全部保留；§3.1 `update_session_workspace` docstring 更新 |
 | v1.7.0 | 2026-05-31 | **API 分离 + Prompt 场景拆分**：§3.1 新增 `POST /session/{id}/chat` endpoint（Q&A 专用）；更新 DC-UX-10 为三 TAB 分离（模板识别 / GIS 问答 / 脚本执行），明确各 TAB 的后端 API 和行为约束；移除 `process_intent` 中的 `is_question` 判断逻辑；§4.1 流程图移除"探索性问题 → Q&A 文本回复"分支 |
 | v1.6.0 | 2026-05-31 | **架构升级：三 TAB 设计**。新增 DC-UX-10（双 TAB 分离：模板识别 / GIS 问答）、DC-UX-11（脚本执行 TAB：四态命令预览/执行/成功/失败）、DC-UX-12（一键诊断：执行错误自动问答）、DC-UX-13（两栏+三TAB布局，面板扩宽至 580px）；更新 DC-UX-02 状态映射表；重绘 §4.1 单任务流程图；更新 §5 组件结构 |

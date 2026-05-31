@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
+import TopBar from '../components/TopBar'
 import { generateTemplate, validateTemplate, saveTemplate } from '../api/generator'
 import type { GeneratedTemplate, ParamDef } from '../types'
 
@@ -230,15 +231,7 @@ export default function GeneratorPage() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-50">
-      <header className="h-14 border-b border-gray-200 bg-white px-4 flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-gray-800">J2 模板生成器</h1>
-        <Link
-          to="/"
-          className="text-sm text-primary-600 hover:text-primary-700"
-        >
-          返回主应用
-        </Link>
-      </header>
+      <TopBar title="J2 模板生成器" />
 
       {/* Step indicator */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">

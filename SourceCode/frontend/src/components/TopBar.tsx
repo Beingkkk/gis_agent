@@ -1,75 +1,231 @@
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import type { SessionState } from '../types'
 
+// Extend CSSProperties for Electron frameless window drag regions
+declare module 'react' {
+  interface CSSProperties {
+    WebkitAppRegion?: 'drag' | 'no-drag'
+  }
+}
+import {
+  minimizeWindow,
+  maximizeWindow,
+  closeWindow,
+  isWindowMaximized,
+  onWindowStateChange,
+} from '../electron-api'
+
 interface TopBarProps {
-  state: SessionState
-  workspace?: string
+  state?: SessionState
+  title?: string
 }
 
 function stateLabel(state: SessionState): { text: string; color: string } {
   switch (state) {
     case 'IDLE':
-      return { text: '就绪', color: 'bg-gray-100 text-gray-600' }
+      return { text: '就绪', color: 'bg-slate-100 text-slate-600' }
     case 'INTENT_CONFIRM':
-      return { text: '意图确认', color: 'bg-yellow-100 text-yellow-700' }
+      return { text: '意图确认', color: 'bg-amber-100 text-amber-700' }
     case 'PARAM_COLLECT':
       return { text: '参数填写', color: 'bg-blue-100 text-blue-700' }
     case 'SCRIPT_PREVIEW':
-      return { text: '脚本预览', color: 'bg-purple-100 text-purple-700' }
+      return { text: '脚本预览', color: 'bg-violet-100 text-violet-700' }
     case 'EXECUTING':
-      return { text: '执行中', color: 'bg-green-100 text-green-700' }
+      return { text: '执行中', color: 'bg-emerald-100 text-emerald-700' }
     case 'ERROR_RECOVERY':
       return { text: '错误恢复', color: 'bg-red-100 text-red-700' }
   }
 }
 
-export default function TopBar({ state, workspace }: TopBarProps) {
-  const label = stateLabel(state)
+/* ─── Window Control Buttons ───────────────────────────────── */
+
+function WindowControls() {
+  const [maximized, setMaximized] = useState(false)
+
+  // Query initial state
+  useEffect(() => {
+    isWindowMaximized().then(setMaximized).catch(() => {})
+  }, [])
+
+  // Subscribe to real-time state changes from main process
+  useEffect(() => {
+    const unsubscribe = onWindowStateChange((st) => {
+      setMaximized(st.isMaximized)
+    })
+    return unsubscribe
+  }, [])
+
+  const handleMaximize = useCallback(async () => {
+    await maximizeWindow()
+  }, [])
 
   return (
-    <header className="h-12 flex-shrink-0 border-b border-gray-200 bg-white px-4 flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <span className="text-lg font-bold text-primary-700">GIS Agent</span>
-        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${label.color}`}>
-          {label.text}
-        </span>
-      </div>
-      <div className="flex items-center gap-3">
-        {workspace && (
-          <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 border border-blue-100"
-            title={workspace}
+    <div className="flex items-center h-full" style={{ WebkitAppRegion: 'no-drag' }}>
+      {/* Minimize */}
+      <button
+        onClick={() => minimizeWindow()}
+        className="group relative h-full w-11 flex items-center justify-center text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors duration-150"
+        title="最小化"
+      >
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 12 12"
+          className="text-gray-500 group-hover:text-gray-700 transition-colors"
+        >
+          <rect x="1" y="5.5" width="10" height="1" rx="0.5" fill="currentColor" />
+        </svg>
+      </button>
+
+      {/* Maximize / Restore */}
+      <button
+        onClick={handleMaximize}
+        className="group relative h-full w-11 flex items-center justify-center text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors duration-150"
+        title={maximized ? '还原' : '最大化'}
+      >
+        {maximized ? (
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 12 12"
+            className="text-gray-500 group-hover:text-gray-700 transition-colors"
           >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
+            <path
+              d="M3 4.5V3a1 1 0 011-1h5a1 1 0 011 1v5a1 1 0 01-1 1H8"
               stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-blue-500 flex-shrink-0"
-            >
-              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
-            </svg>
-            <span className="text-[11px] font-medium text-blue-700 max-w-[200px] truncate">
-              {workspace}
-            </span>
-          </div>
+              strokeWidth="1"
+              fill="none"
+            />
+            <rect
+              x="1.5"
+              y="4.5"
+              width="6"
+              height="6"
+              rx="1"
+              stroke="currentColor"
+              strokeWidth="1"
+              fill="none"
+            />
+          </svg>
+        ) : (
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 12 12"
+            className="text-gray-500 group-hover:text-gray-700 transition-colors"
+          >
+            <rect
+              x="1.5"
+              y="1.5"
+              width="9"
+              height="9"
+              rx="1"
+              stroke="currentColor"
+              strokeWidth="1"
+              fill="none"
+            />
+          </svg>
         )}
+      </button>
+
+      {/* Close */}
+      <button
+        onClick={() => closeWindow()}
+        className="group relative h-full w-11 flex items-center justify-center text-gray-500 hover:bg-red-500 hover:text-white active:bg-red-600 transition-colors duration-150"
+        title="关闭"
+      >
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 12 12"
+          className="text-gray-500 group-hover:text-white transition-colors"
+        >
+          <path
+            d="M2 2l8 8M10 2L2 10"
+            stroke="currentColor"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+          />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
+/* ─── Main TopBar Component ────────────────────────────────── */
+
+export default function TopBar({ state, title }: TopBarProps) {
+  const label = state ? stateLabel(state) : null
+  const isElectron = !!window.electron
+
+  const handleDoubleClick = useCallback(() => {
+    if (!isElectron) return
+    maximizeWindow().catch(() => {})
+  }, [isElectron])
+
+  return (
+    <header
+      className="h-[38px] flex-shrink-0 border-b border-gray-200/80 bg-gradient-to-r from-white via-white to-slate-50/60 flex items-center select-none shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
+      style={{ WebkitAppRegion: 'drag' }}
+    >
+      {/* ── Left: App branding ── */}
+      <div
+        className="flex items-center gap-2.5 px-4 h-full flex-shrink-0"
+        style={{ WebkitAppRegion: 'no-drag' }}
+      >
+        <div className="w-[18px] h-[18px] rounded-[5px] flex items-center justify-center flex-shrink-0"
+          style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' }}
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M2 12l10 5 10-5" />
+          </svg>
+        </div>
+        <span className="text-[13px] font-bold text-slate-700 tracking-tight">GIS Agent</span>
+      </div>
+
+      {/* ── Center: Draggable region (state badge only) ── */}
+      <div
+        className="flex-1 flex items-center justify-center gap-2.5 h-full min-w-0 px-3"
+        style={{ WebkitAppRegion: 'drag' }}
+        onDoubleClick={handleDoubleClick}
+      >
+        {title ? (
+          <span className="text-[13px] font-semibold text-slate-600 truncate">{title}</span>
+        ) : (
+          label && (
+            <span
+              className={`rounded-full px-2.5 py-[2px] text-[10px] font-semibold flex-shrink-0 ${label.color}`}
+            >
+              {label.text}
+            </span>
+          )
+        )}
+      </div>
+
+      {/* ── Right: Nav links + Window controls ── */}
+      <div
+        className="flex items-center gap-0.5 h-full flex-shrink-0 pl-2"
+        style={{ WebkitAppRegion: 'no-drag' }}
+      >
         <Link
           to="/pipeline"
-          className="text-xs text-primary-600 hover:text-primary-700"
+          className="text-[11px] font-medium text-slate-500 hover:text-blue-600 px-2.5 py-1 rounded-md hover:bg-slate-50 transition-all duration-150"
         >
           Pipeline
         </Link>
         <Link
           to="/generator"
-          className="text-xs text-primary-600 hover:text-primary-700"
+          className="text-[11px] font-medium text-slate-500 hover:text-blue-600 px-2.5 py-1 rounded-md hover:bg-slate-50 transition-all duration-150"
         >
           模板生成器
         </Link>
+
+        <div className="w-px h-4 bg-gray-200 mx-1.5" />
+
+        {isElectron && <WindowControls />}
       </div>
     </header>
   )

@@ -28,8 +28,8 @@ export default function Layout({
           {children}
         </main>
 
-        {/* Right: Detail panel */}
-        <aside className="w-[360px] flex-shrink-0 border-l border-slate-200 bg-white flex flex-col overflow-hidden">
+        {/* Right: Detail panel (DC-UX-08: expanded from 360px to 520px) */}
+        <aside className="w-[520px] flex-shrink-0 border-l border-slate-200 bg-white flex flex-col overflow-hidden">
           {rightPanel}
         </aside>
       </div>

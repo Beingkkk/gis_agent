@@ -1,5 +1,19 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+export interface WindowState {
+  isMaximized: boolean
+}
+
+export type WindowStateListener = (state: WindowState) => void
+
+export interface WindowControlAPI {
+  minimize(): Promise<void>
+  maximize(): Promise<void>
+  close(): Promise<void>
+  isMaximized(): Promise<boolean>
+  onWindowStateChange(callback: WindowStateListener): () => void
+}
+
 export interface ElectronAPI {
   selectFile(options?: {
     title?: string
@@ -11,6 +25,7 @@ export interface ElectronAPI {
     defaultPath?: string
   }): Promise<string | null>
   getApiBaseUrl(): Promise<string | null>
+  windowControl: WindowControlAPI
 }
 
 contextBridge.exposeInMainWorld('electron', {
@@ -28,5 +43,27 @@ contextBridge.exposeInMainWorld('electron', {
 
   getApiBaseUrl: async (): Promise<string | null> => {
     return ipcRenderer.invoke('app:getApiBaseUrl')
+  },
+
+  windowControl: {
+    minimize: async (): Promise<void> => {
+      return ipcRenderer.invoke('window:minimize')
+    },
+    maximize: async (): Promise<void> => {
+      return ipcRenderer.invoke('window:maximize')
+    },
+    close: async (): Promise<void> => {
+      return ipcRenderer.invoke('window:close')
+    },
+    isMaximized: async (): Promise<boolean> => {
+      return ipcRenderer.invoke('window:isMaximized')
+    },
+    onWindowStateChange: (callback: WindowStateListener): (() => void) => {
+      const handler = (_: unknown, state: WindowState) => callback(state)
+      ipcRenderer.on('window:state-change', handler)
+      return () => {
+        ipcRenderer.removeListener('window:state-change', handler)
+      }
+    },
   },
 } as ElectronAPI)

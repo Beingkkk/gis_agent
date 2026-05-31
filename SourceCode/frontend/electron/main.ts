@@ -57,6 +57,8 @@ function createMainWindow(): void {
     minWidth: 1000,
     minHeight: 600,
     title: 'GIS Agent',
+    frame: false,
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -82,6 +84,20 @@ function createMainWindow(): void {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   }
+
+  // Forward window state changes to renderer for maximize button sync
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window:state-change', { isMaximized: true })
+  })
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window:state-change', { isMaximized: false })
+  })
+  // Also notify on resize (e.g. Aero Snap on Windows triggers neither maximize nor unmaximize directly)
+  mainWindow.on('resize', () => {
+    mainWindow?.webContents.send('window:state-change', {
+      isMaximized: mainWindow?.isMaximized() ?? false,
+    })
+  })
 
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -266,6 +282,27 @@ function registerIpcHandlers(): void {
 
   // Expose backend URL so renderer can construct absolute API URLs
   ipcMain.handle('app:getApiBaseUrl', () => BACKEND_URL)
+
+  // Window control handlers (DC-E07)
+  ipcMain.handle('window:minimize', () => {
+    mainWindow?.minimize()
+  })
+
+  ipcMain.handle('window:maximize', () => {
+    if (mainWindow?.isMaximized()) {
+      mainWindow.unmaximize()
+    } else {
+      mainWindow?.maximize()
+    }
+  })
+
+  ipcMain.handle('window:close', () => {
+    mainWindow?.close()
+  })
+
+  ipcMain.handle('window:isMaximized', () => {
+    return mainWindow?.isMaximized() ?? false
+  })
 }
 
 // ─── App Lifecycle ───────────────────────────────────────────

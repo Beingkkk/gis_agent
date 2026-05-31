@@ -77,19 +77,19 @@ export default function ChatArea({
         </div>
         <div className="flex items-center gap-2">
           {/* Workspace path — label + browse button */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 text-xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-1.5 text-xs min-w-0">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400 flex-shrink-0">
                 <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
               </svg>
-              <span className="font-mono text-slate-600 max-w-[200px] truncate" title={workspace || '未设置'}>
+              <span className="font-mono text-slate-600 text-xs" title={workspace || '未设置'}>
                 {workspace || '未设置'}
               </span>
             </div>
             <button
               type="button"
               onClick={handleBrowseClick}
-              className="h-7 px-2.5 rounded-md bg-white text-slate-500 text-[11px] hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-colors border border-slate-200 font-medium"
+              className="h-7 px-2.5 rounded-md bg-white text-slate-500 text-[11px] hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-colors border border-slate-200 font-medium flex-shrink-0"
             >
               浏览
             </button>

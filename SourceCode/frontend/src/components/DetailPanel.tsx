@@ -53,8 +53,8 @@ export default function DetailPanel({
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-[18px] py-4">
+        {/* Content: ParamForm manages its own scroll and padding (DC-UX-08) */}
+        <div className="flex-1 overflow-hidden">
           <ParamForm
             params={templateDetail.params}
             values={paramValues}

@@ -104,6 +104,7 @@ The J2 template generator (`scripts/generate/`) is a **development-time only** b
 - After WebSocket execution completes, frontend calls `GET /session/{id}` to refresh the updated state.
 - Routing uses `HashRouter` (not `BrowserRouter`) because Electron loads from `file://` protocol.
 - API base URL is resolved via IPC (`getApiBaseUrl()`) returning an absolute URL like `http://localhost:18000`; the frontend never relies on relative `/api` paths in production.
+- Window is frameless (`frame: false`, `titleBarStyle: 'hidden'`) with a custom `TopBar` component providing title, navigation, and window control buttons (minimize/maximize/close) via IPC (`windowControl` API, DC-E07).
 
 ### GeneratorPage (J2 Template Wizard)
 
@@ -289,9 +290,10 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `src/core/processor.py` | CLI state machine dispatcher; `_handle_error_recovery()` is the CLI-side diagnosis driver |
 | `src/core/matching.py` | Unified template matching scoring (keywords=+3, concepts=+2, id/name/desc/notes=+1) |
 | `src/llm/diagnosis.py` | `analyze_execution_error()` — LLM error diagnosis returning structured `ErrorDiagnosis` |
-| `frontend/electron/main.ts` | Electron main process: window management, Python child process, IPC handlers |
-| `frontend/electron/preload.ts` | `contextBridge` preload script exposing safe IPC APIs |
-| `frontend/src/electron-api.ts` | Renderer-side IPC wrappers: `getApiBaseUrl()`, `selectFile()`, `selectDirectory()` |
+| `frontend/electron/main.ts` | Electron main process: frameless window, Python child process, IPC handlers (file dialogs + window controls) |
+| `frontend/electron/preload.ts` | `contextBridge` preload script exposing `selectFile`, `selectDirectory`, `getApiBaseUrl`, `windowControl` |
+| `frontend/src/electron-api.ts` | Renderer-side IPC wrappers including `WindowControlAPI` (minimize/maximize/close) |
+| `frontend/src/components/TopBar.tsx` | Custom title bar with draggable region and window control buttons (DC-E07) |
 | `frontend/src/api/client.ts` | Axios instance with dynamic absolute baseURL via IPC |
 | `frontend/src/main.tsx` | Entry point using `HashRouter` (required for `file://` protocol) |
 | `frontend/src/pages/MainPage.tsx` | Main UI orchestrator: session lifecycle, WebSocket execution, state refresh |

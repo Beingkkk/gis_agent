@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Layout from '../components/Layout'
+import TopBar from '../components/TopBar'
 import ChatArea from '../components/ChatArea'
 import TemplateCardList from '../components/TemplateCardList'
 import DetailPanel from '../components/DetailPanel'
@@ -303,33 +304,36 @@ export default function MainPage() {
   }
 
   return (
-    <Layout
-      leftPanel={
-        <TemplateCardList
-          templates={templates}
-          selectedId={selectedTemplate?.id || null}
-          onSelect={handleSelectTemplate}
-        />
-      }
-      rightPanel={
-        <DetailPanel
-          state={state}
-          templateDetail={selectedTemplate}
-          paramValues={taskContext?.params || {}}
-          workspace={workspace}
-          scriptPreview={scriptPreview}
-          errorContext={errorContext}
-          onLockTemplate={(id) =>
-            sessionId && lockTemplate(sessionId, id).then(setSession)
+    <div className="h-screen flex flex-col">
+      <TopBar state={state} />
+      <div className="flex-1 overflow-hidden">
+        <Layout
+          leftPanel={
+            <TemplateCardList
+              templates={templates}
+              selectedId={selectedTemplate?.id || null}
+              onSelect={handleSelectTemplate}
+            />
           }
-          onSubmitParams={handleSubmitParams}
-          onExecute={handleExecute}
-          onEditParams={handleEditParams}
-          onCancel={handleCancel}
-        />
-      }
-    >
-      <ChatArea
+          rightPanel={
+            <DetailPanel
+              state={state}
+              templateDetail={selectedTemplate}
+              paramValues={taskContext?.params || {}}
+              workspace={workspace}
+              scriptPreview={scriptPreview}
+              errorContext={errorContext}
+              onLockTemplate={(id) =>
+                sessionId && lockTemplate(sessionId, id).then(setSession)
+              }
+              onSubmitParams={handleSubmitParams}
+              onExecute={handleExecute}
+              onEditParams={handleEditParams}
+              onCancel={handleCancel}
+            />
+          }
+        >
+          <ChatArea
         messages={[
           ...messages,
           ...(isExecuting || execLog.length > 0
@@ -386,5 +390,7 @@ export default function MainPage() {
         </p>
       </div>
     </Layout>
+      </div>
+    </div>
   )
 }

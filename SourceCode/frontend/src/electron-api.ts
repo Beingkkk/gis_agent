@@ -1,11 +1,25 @@
 /**
  * Electron IPC API 封装。
  *
- * 提供文件/目录选择对话框与后端地址的统一入口。
+ * 提供文件/目录选择对话框、后端地址与窗口控制的统一入口。
  * 仅在 Electron 渲染进程中可用（通过 preload 注入）。
  *
- * Design: DC-E02, DC-E04
+ * Design: DC-E02, DC-E04, DC-E07
  */
+
+export interface WindowState {
+  isMaximized: boolean
+}
+
+export type WindowStateListener = (state: WindowState) => void
+
+export interface WindowControlAPI {
+  minimize(): Promise<void>
+  maximize(): Promise<void>
+  close(): Promise<void>
+  isMaximized(): Promise<boolean>
+  onWindowStateChange(callback: WindowStateListener): () => void
+}
 
 export interface ElectronAPI {
   /** Async getter for backend base URL (IPC call to main process) */
@@ -19,6 +33,7 @@ export interface ElectronAPI {
     title?: string
     defaultPath?: string
   }): Promise<string | null>
+  windowControl: WindowControlAPI
 }
 
 declare global {
@@ -70,4 +85,50 @@ export async function getApiBaseUrl(): Promise<string | null> {
     return window.electron.getApiBaseUrl()
   }
   return null
+}
+
+// ─── Window Control (DC-E07) ─────────────────────────────────
+
+/**
+ * 最小化窗口。
+ */
+export async function minimizeWindow(): Promise<void> {
+  await window.electron?.windowControl?.minimize()
+}
+
+/**
+ * 最大化或还原窗口。
+ */
+export async function maximizeWindow(): Promise<void> {
+  await window.electron?.windowControl?.maximize()
+}
+
+/**
+ * 关闭窗口。
+ */
+export async function closeWindow(): Promise<void> {
+  await window.electron?.windowControl?.close()
+}
+
+/**
+ * 查询窗口是否已最大化。
+ */
+export async function isWindowMaximized(): Promise<boolean> {
+  return (await window.electron?.windowControl?.isMaximized()) ?? false
+}
+
+/**
+ * 注册窗口状态变化监听器。
+ *
+ * 主进程在窗口最大化/还原/resize 时主动推送状态，
+ * 确保前端最大化按钮图标与窗口实际状态实时同步。
+ *
+ * @param callback - 状态变化回调
+ * @returns 取消监听的函数
+ */
+export function onWindowStateChange(callback: WindowStateListener): () => void {
+  if (window.electron?.windowControl?.onWindowStateChange) {
+    return window.electron.windowControl.onWindowStateChange(callback)
+  }
+  return () => {}
 }

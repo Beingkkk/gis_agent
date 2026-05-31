@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.1.0 |
+| 版本 | v1.2.0 |
 | 状态 | 设计基线 |
 | 作者 | - |
 | 日期 | 2026-05-31 |
@@ -205,6 +205,86 @@ GIS-Agent-Setup.exe
 - 目标用户为 GIS 开发者，具备 conda 安装能力
 - 源码分发便于用户自定义模板和配置
 
+### DC-E06: 工作空间路径控件自适应宽度
+
+**决策**: `TopBar` 中的工作空间路径显示区域由固定 `max-w-[200px]` 改为自适应宽度，优先显示完整路径。采用 `min-w-0 flex-1` + `truncate` 组合，让路径在可用空间内尽可能展示，超出时尾部截断并保留 `title` tooltip。
+
+**改造点**:
+
+| 文件 | 原实现 | 新实现 |
+|------|--------|--------|
+| `TopBar.tsx` | `max-w-[200px] truncate` 固定宽度 | `min-w-0 flex-1 truncate` 弹性自适应 |
+
+**理由**:
+- 路径信息是用户定位工作上下文的关键，固定宽度在宽屏下浪费空间且难以辨识
+- Flex 布局下配合 `min-w-0` 可正确触发 `truncate`，同时允许伸展
+
+### DC-E07: 无边框窗口 + 自定义标题栏
+
+**决策**: Electron 窗口设置 `frame: false` 移除原生标题栏和边框，由前端 React 组件渲染自定义标题栏，包含应用标识、拖动区域、三个窗口控制按钮（最小化、最大化/还原、关闭）。
+
+**架构**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  [拖动区域] GIS Agent      ─ □ ✕   ← 自定义标题栏 (React)    │  ← 32px height
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│                        React UI 内容区                       │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**窗口创建配置**:
+
+```typescript
+// main.ts
+mainWindow = new BrowserWindow({
+  width: 1400,
+  height: 900,
+  frame: false,           // ← 移除原生标题栏
+  titleBarStyle: 'hidden', // macOS 兼容
+  // ...
+})
+```
+
+**新增 IPC 接口**:
+
+```typescript
+// preload.ts 暴露
+interface ElectronAPI {
+  // ... existing APIs
+  windowControl: {
+    minimize(): Promise<void>;
+    maximize(): Promise<void>;
+    close(): Promise<void>;
+    isMaximized(): Promise<boolean>;
+  }
+}
+```
+
+**标题栏实现要点**:
+- 左侧：应用 Logo + 名称（不参与拖动时作为文本展示）
+- 中部：`-webkit-app-region: drag` 拖动区域，占满剩余空间
+- 右侧：窗口控制按钮（最小化 `_`、最大化/还原 `□`、关闭 `✕`）
+- 按钮区域设置 `-webkit-app-region: no-drag` 确保按钮可点击
+- 标题栏高度 38px，兼顾视觉舒适度与点击易用性
+
+**交互细节**:
+- **双击最大化/还原**：双击中部拖动区域触发窗口最大化或还原
+- **窗口状态实时同步**：主进程监听 `BrowserWindow` 的 `maximize` / `unmaximize` / `resize` 事件，通过 `webContents.send('window:state-change', { isMaximized })` 主动推送给渲染进程，确保最大化/还原按钮图标始终与窗口实际状态一致
+- **工作空间路径点击复制**：点击工作空间路径区域，将完整路径写入剪贴板并给出视觉反馈
+- **按钮 hover 动画**：最小化/最大化按钮 hover 时背景色渐变，关闭按钮 hover 时变为红色并反白图标
+
+**状态栏去除**:
+- Electron 默认不显示状态栏，无需额外配置
+- 前端原 `TopBar` 中状态徽章保留，作为应用内部状态指示
+
+**理由**:
+- 统一跨平台视觉体验（Windows/macOS/Linux 原生标题栏样式差异大）
+- 为后续主题切换（深色/浅色）提供一致性基础
+- `frame: false` 是 Electron 跨平台自定义标题栏的标准方案
+
 ---
 
 ## 3. 接口定义
@@ -219,6 +299,7 @@ export interface ElectronAPI {
   selectFile(options?: SelectFileOptions): Promise<string | null>;
   selectDirectory(options?: SelectDirectoryOptions): Promise<string | null>;
   getApiBaseUrl(): Promise<string | null>;
+  windowControl: WindowControlAPI;
 }
 
 interface SelectFileOptions {
@@ -232,6 +313,13 @@ interface SelectDirectoryOptions {
   defaultPath?: string;
 }
 
+interface WindowControlAPI {
+  minimize(): Promise<void>;
+  maximize(): Promise<void>;
+  close(): Promise<void>;
+  isMaximized(): Promise<boolean>;
+}
+
 contextBridge.exposeInMainWorld('electron', {
   selectFile: async (options?: SelectFileOptions): Promise<string | null> => {
     return ipcRenderer.invoke('dialog:selectFile', options);
@@ -243,6 +331,21 @@ contextBridge.exposeInMainWorld('electron', {
 
   getApiBaseUrl: async (): Promise<string | null> => {
     return ipcRenderer.invoke('app:getApiBaseUrl');
+  },
+
+  windowControl: {
+    minimize: async (): Promise<void> => {
+      return ipcRenderer.invoke('window:minimize');
+    },
+    maximize: async (): Promise<void> => {
+      return ipcRenderer.invoke('window:maximize');
+    },
+    close: async (): Promise<void> => {
+      return ipcRenderer.invoke('window:close');
+    },
+    isMaximized: async (): Promise<boolean> => {
+      return ipcRenderer.invoke('window:isMaximized');
+    },
   },
 } as ElectronAPI);
 ```
@@ -271,6 +374,27 @@ ipcMain.handle('dialog:selectDirectory', async (_, options) => {
 
 ipcMain.handle('app:getApiBaseUrl', () => {
   return `http://localhost:${getBackendPort()}`;
+});
+
+// Window control handlers (DC-E07)
+ipcMain.handle('window:minimize', () => {
+  mainWindow?.minimize();
+});
+
+ipcMain.handle('window:maximize', () => {
+  if (mainWindow?.isMaximized()) {
+    mainWindow.unmaximize();
+  } else {
+    mainWindow?.maximize();
+  }
+});
+
+ipcMain.handle('window:close', () => {
+  mainWindow?.close();
+});
+
+ipcMain.handle('window:isMaximized', () => {
+  return mainWindow?.isMaximized() ?? false;
 });
 ```
 
@@ -493,6 +617,8 @@ function createPythonManager(): PythonProcessManager {
 | UX-1 | DC-E02, DC-E04 | `ParamForm.tsx` | 参数表单浏览按钮调用原生对话框 |
 | P3 | DC-E01 | `electron/main.ts:startPythonManager()` | 工作空间路径由后端 Workspace 规范化 |
 | P5 | DC-E05 | — | 不引入后端生产依赖，Electron 仅构建依赖 |
+| UX-2 | DC-E06 | `TopBar.tsx` | 工作空间路径自适应宽度显示 |
+| UX-3 | DC-E07 | `electron/main.ts`, `TopBar.tsx` | 无边框窗口 + 自定义标题栏 + 窗口控制按钮 |
 
 ---
 
@@ -500,5 +626,6 @@ function createPythonManager(): PythonProcessManager {
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.2.0 | 2026-05-31 | 新增 DC-E06（工作空间路径自适应）、DC-E07（无边框窗口 + 自定义标题栏 + 窗口控制按钮） |
 | v1.1.0 | 2026-05-31 | 废弃浏览器 UI 回退；移除 `isElectron` 字段；新增 `getApiBaseUrl` IPC；后端端口改为从 config.json 动态读取；路由改为 HashRouter |
 | v1.0.0 | 2026-05-31 | 初版，定义 Electron 壳 + 独立 Python 后端方案 |

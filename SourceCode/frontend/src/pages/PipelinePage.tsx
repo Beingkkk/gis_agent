@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import TopBar from '../components/TopBar'
 import type { PipelineStep, DataLink, TemplateDef, ParamDef } from '../types'
 import { previewPipeline, executePipeline } from '../api/pipeline'
 import { listTemplates, getTemplate } from '../api/templates'
@@ -114,15 +114,7 @@ export default function PipelinePage() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-50">
-      <header className="h-14 border-b border-gray-200 bg-white px-4 flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-gray-800">Pipeline 编排</h1>
-        <Link
-          to="/"
-          className="text-sm text-primary-600 hover:text-primary-700"
-        >
-          返回主应用
-        </Link>
-      </header>
+      <TopBar title="Pipeline 编排" />
 
       <main className="flex-1 flex overflow-hidden">
         {/* Steps panel */}

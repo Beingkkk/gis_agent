@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { selectFile, selectDirectory } from '../electron-api'
 import type { ParamDef } from '../types'
 
@@ -9,6 +9,460 @@ interface ParamFormProps {
   onSubmit: (values: Record<string, string>) => void
   onCancel: () => void
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 分组规则（方案 B：前端启发式推断，不修改模板系统）
+// ═══════════════════════════════════════════════════════════════════════════
+
+const GROUP_RULES: { name: string; keywords: string[] }[] = [
+  {
+    name: '输入输出',
+    keywords: [
+      'input', 'output', 'of', 'format', 'input_layer', 'output_layer',
+      'output_dir', 'source', 'dest', 'in', 'out',
+    ],
+  },
+  {
+    name: '坐标系设置',
+    keywords: ['s_srs', 't_srs', 'srs', 'crs', 'rpc', 'geoloc', 's_srs', 'a_srs'],
+  },
+  {
+    name: '变换选项',
+    keywords: [
+      'resampling', 'xres', 'yres', 'order', 'et', 'te', 'ts', 'tr', 'tap',
+      'wo', 'ot', 'scale', 'outsize',
+    ],
+  },
+  {
+    name: '裁剪与范围',
+    keywords: [
+      'cutline', 'crop_to_cutline', 'projwin', 'srcwin', 'extent',
+      'clip', 'bbox',
+    ],
+  },
+  {
+    name: '高级选项',
+    keywords: [
+      'overwrite', 'quiet', 'multi', 'dstalpha', 'update', 'append',
+      'upsert', 'skip_errors', 'processes', 'nodata', 'mask',
+      'creation_option', 'layer_creation_option',
+    ],
+  },
+]
+
+const FALLBACK_GROUP = '其他选项'
+
+/** 按参数名推断所属分组 */
+function inferParamGroup(paramName: string): string {
+  const lower = paramName.toLowerCase()
+  for (const rule of GROUP_RULES) {
+    if (rule.keywords.some((k) => lower === k || lower.includes(k))) {
+      return rule.name
+    }
+  }
+  return FALLBACK_GROUP
+}
+
+/** 将参数列表按分组聚合，保持原始顺序 */
+function groupParams(params: ParamDef[]): Map<string, ParamDef[]> {
+  const map = new Map<string, ParamDef[]>()
+  for (const p of params) {
+    const group = inferParamGroup(p.name)
+    if (!map.has(group)) map.set(group, [])
+    map.get(group)!.push(p)
+  }
+  return map
+}
+
+/** 分组排序：有必填参数的组排前面，"其他选项"排最后 */
+function sortGroups(
+  grouped: Map<string, ParamDef[]>,
+): [string, ParamDef[]][] {
+  const entries = Array.from(grouped.entries())
+  return entries.sort((a, b) => {
+    const aHasReq = a[1].some((p) => p.required)
+    const bHasReq = b[1].some((p) => p.required)
+    if (aHasReq && !bHasReq) return -1
+    if (!aHasReq && bHasReq) return 1
+    if (a[0] === FALLBACK_GROUP) return 1
+    if (b[0] === FALLBACK_GROUP) return -1
+    return 0
+  })
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 子组件
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** 彩色类型标签 */
+function TypeTag({ type }: { type: string }) {
+  const config = useMemo(() => {
+    switch (type) {
+      case 'file_path':
+      case 'folder_path':
+        return { cls: 'bg-amber-50 text-amber-700', label: '文件' }
+      case 'enum':
+      case 'format':
+        return { cls: 'bg-violet-50 text-violet-700', label: '枚举' }
+      case 'crs':
+        return { cls: 'bg-pink-50 text-pink-700', label: '坐标系' }
+      case 'boolean':
+        return { cls: 'bg-emerald-50 text-emerald-700', label: '布尔' }
+      case 'integer':
+      case 'float':
+        return { cls: 'bg-blue-50 text-blue-700', label: '数值' }
+      case 'text':
+        return { cls: 'bg-slate-100 text-slate-600', label: '文本' }
+      default:
+        return { cls: 'bg-slate-100 text-slate-600', label: type }
+    }
+  }, [type])
+
+  return (
+    <span
+      className={`inline-block text-[9.5px] font-medium px-[5px] py-[1px] rounded ${config.cls}`}
+    >
+      {config.label}
+    </span>
+  )
+}
+
+/** 描述 Tooltip（hover 在 ? 图标上显示） */
+function InfoTooltip({ description }: { description: string }) {
+  if (!description) return null
+  return (
+    <span className="group relative inline-flex items-center cursor-help">
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="text-slate-300 group-hover:text-blue-400 transition-colors"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="16" x2="12" y2="12" />
+        <line x1="12" y1="8" x2="12.01" y2="8" />
+      </svg>
+      <span className="absolute left-full top-1/2 -translate-y-1/2 ml-2 z-50
+        w-[240px] px-3 py-2 rounded-lg bg-slate-800 text-slate-200
+        text-[11px] leading-relaxed shadow-lg
+        opacity-0 invisible group-hover:opacity-100 group-hover:visible
+        transition-all duration-150 pointer-events-none"
+      >
+        {description}
+        <span className="absolute right-full top-1/2 -translate-y-1/2
+          border-[5px] border-transparent border-r-slate-800" />
+      </span>
+    </span>
+  )
+}
+
+/** 进度条 */
+function ProgressBar({
+  filled,
+  total,
+}: {
+  filled: number
+  total: number
+}) {
+  const pct = total > 0 ? Math.round((filled / total) * 100) : 100
+  return (
+    <div className="flex items-center gap-2.5">
+      <div className="flex-1 h-[5px] bg-slate-100 rounded-full overflow-hidden">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-blue-500 to-blue-400
+            transition-all duration-500 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="text-[10.5px] text-slate-400 font-medium whitespace-nowrap">
+        {filled} / {total} 已填写
+      </span>
+    </div>
+  )
+}
+
+/** 单行参数渲染（水平布局：label 左 / input 右） */
+function ParamRow({
+  param,
+  value,
+  onChange,
+  onBrowse,
+}: {
+  param: ParamDef
+  value: string
+  onChange: (name: string, v: string) => void
+  onBrowse: (name: string, isDir: boolean) => void
+}) {
+  const isFilled = value !== ''
+  const inputBase = `w-full h-8 border rounded-lg px-2.5 text-[12.5px]
+    transition-all focus:outline-none focus:ring-[3px] focus:ring-blue-500/8`
+  const inputFilled = `border-emerald-200 bg-emerald-50/60 text-emerald-800`
+  const inputEmpty = `border-slate-200 bg-[#f8fafc] focus:border-blue-500 focus:bg-white`
+  const inputCls = `${inputBase} ${isFilled ? inputFilled : inputEmpty}`
+
+  const renderInput = () => {
+    const common = {
+      value: value || '',
+      className: inputCls,
+    }
+
+    switch (param.type) {
+      case 'boolean':
+        return (
+          <select
+            {...common}
+            onChange={(e) => onChange(param.name, e.target.value)}
+          >
+            <option value="">— 默认 —</option>
+            <option value="true">是</option>
+            <option value="false">否</option>
+          </select>
+        )
+
+      case 'enum':
+      case 'format':
+        return (
+          <select
+            {...common}
+            onChange={(e) => onChange(param.name, e.target.value)}
+          >
+            <option value="">— 选择 —</option>
+            {param.options?.map((opt) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        )
+
+      case 'text':
+        return (
+          <textarea
+            {...common}
+            rows={2}
+            placeholder={param.description}
+            onChange={(e) => onChange(param.name, e.target.value)}
+            className={`${inputCls} py-1.5 resize-y font-sans`}
+          />
+        )
+
+      case 'integer':
+        return (
+          <input
+            type="number"
+            step="1"
+            {...common}
+            placeholder={param.description || '整数'}
+            onChange={(e) => onChange(param.name, e.target.value)}
+          />
+        )
+
+      case 'float':
+        return (
+          <input
+            type="number"
+            step="any"
+            {...common}
+            placeholder={param.description || '数值'}
+            onChange={(e) => onChange(param.name, e.target.value)}
+          />
+        )
+
+      case 'file_path':
+      case 'folder_path':
+        return (
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              {...common}
+              placeholder={param.description || '选择路径…'}
+              onChange={(e) => onChange(param.name, e.target.value)}
+              className={`${inputCls} flex-1`}
+            />
+            <button
+              type="button"
+              onClick={() => onBrowse(param.name, param.type === 'folder_path')}
+              className="h-8 px-2.5 border border-slate-200 rounded-lg
+                text-[11px] font-medium text-slate-500 bg-white
+                hover:bg-slate-50 hover:border-slate-300 transition-all
+                whitespace-nowrap flex-shrink-0"
+            >
+              浏览…
+            </button>
+          </div>
+        )
+
+      default:
+        return (
+          <input
+            type="text"
+            {...common}
+            placeholder={param.description}
+            onChange={(e) => onChange(param.name, e.target.value)}
+          />
+        )
+    }
+  }
+
+  return (
+    <div className="flex items-start gap-3 py-[7px] min-h-[40px]">
+      {/* Label column */}
+      <div className="w-[140px] flex-shrink-0 flex flex-col gap-[2px] pt-[5px]">
+        <div className="flex items-center gap-1 text-[12px] font-medium text-slate-700"
+        >
+          <span className="truncate" title={param.name}>{param.name}</span>
+          {param.required && (
+            <span className="text-red-400 text-[11px]">*</span>
+          )}
+          <InfoTooltip description={param.description} />
+        </div>
+        <TypeTag type={param.type} />
+      </div>
+
+      {/* Input column */}
+      <div className="flex-1 min-w-0 flex flex-col gap-[2px]">
+        {renderInput()}
+        {param.default && !isFilled && (
+          <span className="text-[10.5px] text-slate-400 flex items-center gap-1"
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5"
+              strokeLinecap="round" strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+            默认: {param.default}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 可折叠参数分组 */
+function ParamSection({
+  title,
+  params,
+  values,
+  onChange,
+  onBrowse,
+  onToggleExpand,
+  expanded,
+}: {
+  title: string
+  params: ParamDef[]
+  values: Record<string, string>
+  onChange: (name: string, v: string) => void
+  onBrowse: (name: string, isDir: boolean) => void
+  onToggleExpand: () => void
+  expanded: boolean
+}) {
+  const filledCount = params.filter(
+    (p) => values[p.name] !== undefined && values[p.name] !== '',
+  ).length
+
+  const sectionIcons: Record<string, string> = {
+    '输入输出': 'M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12',
+    '坐标系设置': 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
+    '变换选项': 'M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15',
+    '裁剪与范围': 'M4 4h16v16H4zM4 12h16M12 4v16',
+    '高级选项': 'M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4',
+  }
+
+  const sectionColors: Record<string, string> = {
+    '输入输出': 'bg-blue-50 text-blue-600',
+    '坐标系设置': 'bg-pink-50 text-pink-600',
+    '变换选项': 'bg-violet-50 text-violet-600',
+    '裁剪与范围': 'bg-amber-50 text-amber-600',
+    '高级选项': 'bg-slate-100 text-slate-500',
+  }
+
+  const iconPath = sectionIcons[title] || 'M4 6h16M4 12h16M4 18h16'
+  const colorCls = sectionColors[title] || 'bg-slate-100 text-slate-500'
+
+  return (
+    <div className="border-b border-slate-100 last:border-b-0"
+    >
+      {/* Section header */}
+      <button
+        type="button"
+        onClick={onToggleExpand}
+        className="w-full flex items-center gap-2 px-5 py-2.5
+          hover:bg-slate-50 transition-colors text-left"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`text-slate-400 flex-shrink-0 transition-transform duration-200
+            ${expanded ? 'rotate-90' : ''}`}
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+
+        <div className={`w-5 h-5 rounded-md flex items-center justify-center
+          flex-shrink-0 ${colorCls}`}
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2.5"
+            strokeLinecap="round" strokeLinejoin="round"
+          >
+            <path d={iconPath} />
+          </svg>
+        </div>
+
+        <span className="text-[12px] font-semibold text-slate-700 flex-1"
+        >
+          {title}
+        </span>
+
+        <span className="text-[10.5px] text-slate-400 font-medium
+          bg-slate-50 px-[7px] py-[1px] rounded"
+        >
+          {filledCount} / {params.length}
+        </span>
+      </button>
+
+      {/* Section body */}
+      <div
+        className={`overflow-hidden transition-all duration-200
+          ${expanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}
+      >
+        <div className="px-5 pb-3"
+        >
+          {params.map((param, idx) => (
+            <div key={param.name}
+            >
+              <ParamRow
+                param={param}
+                value={values[param.name] ?? ''}
+                onChange={onChange}
+                onBrowse={onBrowse}
+              />
+              {idx < params.length - 1 && (
+                <div className="border-t border-slate-50" />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 主组件
+// ═══════════════════════════════════════════════════════════════════════════
 
 export default function ParamForm({
   params,
@@ -25,216 +479,153 @@ export default function ParamForm({
     return v
   })
 
-  const handleChange = (name: string, value: string) => {
+  const [expandedSections, setExpandedSections] = useState<
+    Set<string>
+  >(() => {
+    // 默认展开含必填参数的分组
+    const grouped = groupParams(params)
+    const expanded = new Set<string>()
+    for (const [groupName, groupParams_] of grouped) {
+      if (groupParams_.some((p) => p.required)) {
+        expanded.add(groupName)
+      }
+    }
+    return expanded
+  })
+
+  const handleChange = useCallback((name: string, value: string) => {
     setValues((prev) => ({ ...prev, [name]: value }))
-  }
+  }, [])
+
+  const handleBrowse = useCallback(
+    async (paramName: string, isDir: boolean) => {
+      const path = isDir
+        ? await selectDirectory({ defaultPath: workspace || undefined })
+        : await selectFile({ defaultPath: workspace || undefined })
+      if (path) {
+        handleChange(paramName, path)
+      }
+    },
+    [workspace, handleChange],
+  )
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     onSubmit(values)
   }
 
-  const handleBrowseClick = async (paramName: string, isDir: boolean) => {
-    const path = isDir
-      ? await selectDirectory({ defaultPath: workspace || undefined })
-      : await selectFile({ defaultPath: workspace || undefined })
-    if (path) {
-      handleChange(paramName, path)
-    }
-  }
-
-  // Calculate fill status
-  const { filledCount, totalRequired } = useMemo(() => {
-    const required = params.filter((p) => p.required)
-    const filled = required.filter((p) => {
-      const v = values[p.name]
-      return v !== undefined && v !== ''
+  const toggleSection = useCallback((name: string) => {
+    setExpandedSections((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) {
+        next.delete(name)
+      } else {
+        next.add(name)
+      }
+      return next
     })
-    return { filledCount: filled.length, totalRequired: required.length }
+  }, [])
+
+  const expandAll = useCallback(() => {
+    const grouped = groupParams(params)
+    setExpandedSections(new Set(grouped.keys()))
+  }, [params])
+
+  const collapseAll = useCallback(() => {
+    setExpandedSections(new Set())
+  }, [])
+
+  // 计算进度
+  const { filledCount, totalCount } = useMemo(() => {
+    const filled = params.filter(
+      (p) => values[p.name] !== undefined && values[p.name] !== '',
+    ).length
+    return { filledCount: filled, totalCount: params.length }
   }, [params, values])
 
-  const allOptional = totalRequired === 0
+  // 分组并排序
+  const sortedGroups = useMemo(() => {
+    const grouped = groupParams(params)
+    return sortGroups(grouped)
+  }, [params])
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Fill status bar */}
-      {!allOptional && (
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex gap-1.5 flex-wrap">
-            {params.map((p) => {
-              const isFilled = p.required
-                ? values[p.name] !== undefined && values[p.name] !== ''
-                : true
-              return (
-                <span
-                  key={p.name}
-                  className="flex items-center gap-1 text-[11px] text-slate-500"
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      isFilled ? 'bg-emerald-500' : 'bg-amber-400'
-                    }`}
-                  />
-                  {p.name}
-                </span>
-              )
-            })}
-          </div>
-          <span className="text-[11px] text-emerald-600 font-semibold flex-shrink-0 ml-2">
-            {filledCount}/{totalRequired} 已填写
+    <form onSubmit={handleSubmit} className="flex flex-col h-full"
+    >
+      {/* Header: title + expand/collapse + progress */}
+      <div className="px-5 pt-4 pb-3 border-b border-slate-100 flex-shrink-0"
+      >
+        <div className="flex items-center justify-between mb-2.5"
+        >
+          <span className="text-[13px] font-bold text-slate-800"
+          >
+            参数设置
           </span>
-        </div>
-      )}
-
-      {params.map((param) => {
-        const isFilled =
-          values[param.name] !== undefined && values[param.name] !== ''
-        const isRequired = param.required
-
-        return (
-          <div key={param.name}>
-            <label className="flex items-center gap-1.5 text-[12.5px] font-medium text-slate-900 mb-1.5">
-              {param.name}
-              {isRequired && (
-                <span className="text-red-500 text-[10px] font-semibold">
-                  * 必填
-                </span>
-              )}
-              <span className="text-[10px] text-slate-400 bg-slate-50 px-1.5 py-[1px] rounded ml-auto font-normal">
-                {param.type}
-              </span>
-            </label>
-            <p className="text-[11.5px] text-slate-400 mb-1.5 leading-relaxed">
-              {param.description}
-            </p>
-
-            {param.type === 'boolean' ? (
-              <select
-                value={values[param.name] || ''}
-                onChange={(e) => handleChange(param.name, e.target.value)}
-                className="w-full h-9 border border-slate-200 rounded-lg px-3 text-[13px] bg-[#f8fafc] focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-[3px] focus:ring-blue-500/8 transition-all"
-              >
-                <option value="">-- 选择 --</option>
-                <option value="true">是</option>
-                <option value="false">否</option>
-              </select>
-            ) : param.type === 'enum' || param.type === 'format' ? (
-              <select
-                value={values[param.name] || ''}
-                onChange={(e) => handleChange(param.name, e.target.value)}
-                className="w-full h-9 border border-slate-200 rounded-lg px-3 text-[13px] bg-[#f8fafc] focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-[3px] focus:ring-blue-500/8 transition-all"
-              >
-                <option value="">-- 选择 --</option>
-                {param.options?.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </select>
-            ) : param.type === 'text' ? (
-              <textarea
-                value={values[param.name] || ''}
-                onChange={(e) => handleChange(param.name, e.target.value)}
-                placeholder={param.description}
-                rows={4}
-                className={`w-full border rounded-lg px-3 py-2 text-[13px] focus:outline-none focus:ring-[3px] focus:ring-blue-500/8 transition-all resize-y ${
-                  isFilled
-                    ? 'border-emerald-200 bg-emerald-50/50 text-emerald-800'
-                    : 'border-slate-200 bg-[#f8fafc] focus:border-blue-500 focus:bg-white'
-                }`}
-              />
-            ) : param.type === 'integer' ? (
-              <input
-                type="number"
-                step="1"
-                value={values[param.name] || ''}
-                onChange={(e) => handleChange(param.name, e.target.value)}
-                placeholder={param.description}
-                className={`w-full h-9 border rounded-lg px-3 text-[13px] focus:outline-none focus:ring-[3px] focus:ring-blue-500/8 transition-all ${
-                  isFilled
-                    ? 'border-emerald-200 bg-emerald-50/50 text-emerald-800'
-                    : 'border-slate-200 bg-[#f8fafc] focus:border-blue-500 focus:bg-white'
-                }`}
-              />
-            ) : param.type === 'float' ? (
-              <input
-                type="number"
-                step="any"
-                value={values[param.name] || ''}
-                onChange={(e) => handleChange(param.name, e.target.value)}
-                placeholder={param.description}
-                className={`w-full h-9 border rounded-lg px-3 text-[13px] focus:outline-none focus:ring-[3px] focus:ring-blue-500/8 transition-all ${
-                  isFilled
-                    ? 'border-emerald-200 bg-emerald-50/50 text-emerald-800'
-                    : 'border-slate-200 bg-[#f8fafc] focus:border-blue-500 focus:bg-white'
-                }`}
-              />
-            ) : (
-              <div className="relative">
-                <input
-                  type="text"
-                  value={values[param.name] || ''}
-                  onChange={(e) => handleChange(param.name, e.target.value)}
-                  placeholder={param.description}
-                  className={`w-full h-9 border rounded-lg px-3 text-[13px] focus:outline-none focus:ring-[3px] focus:ring-blue-500/8 transition-all ${
-                    isFilled
-                      ? 'border-emerald-200 bg-emerald-50/50 text-emerald-800'
-                      : 'border-slate-200 bg-[#f8fafc] focus:border-blue-500 focus:bg-white'
-                  }`}
-                />
-                {(param.type === 'file_path' || param.type === 'folder_path') && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleBrowseClick(
-                        param.name,
-                        param.type === 'folder_path',
-                      )
-                    }
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 bg-white border border-slate-200 rounded-md px-2 py-[3px] text-[10.5px] text-slate-400 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-all"
-                  >
-                    浏览
-                  </button>
-                )}
-              </div>
-            )}
-
-            {param.default && (
-              <p className="text-[11px] text-slate-400 mt-1">
-                默认: {param.default}
-              </p>
-            )}
+          <div className="flex gap-1"
+          >
+            <button
+              type="button"
+              onClick={collapseAll}
+              className="text-[11px] px-2 py-[3px] rounded-md border border-slate-200
+                text-slate-500 hover:bg-slate-50 transition-all"
+            >
+              − 收起
+            </button>
+            <button
+              type="button"
+              onClick={expandAll}
+              className="text-[11px] px-2 py-[3px] rounded-md border border-slate-200
+                text-slate-500 hover:bg-slate-50 transition-all"
+            >
+              + 展开
+            </button>
           </div>
-        )
-      })}
+        </div>
+        <ProgressBar filled={filledCount} total={totalCount} />
+      </div>
 
-      <div className="flex gap-2 pt-2">
+      {/* Grouped params */}
+      <div className="flex-1 overflow-y-auto"
+      >
+        {sortedGroups.map(([groupName, groupParams_]) => (
+          <ParamSection
+            key={groupName}
+            title={groupName}
+            params={groupParams_}
+            values={values}
+            onChange={handleChange}
+            onBrowse={handleBrowse}
+            onToggleExpand={() => toggleSection(groupName)}
+            expanded={expandedSections.has(groupName)}
+          />
+        ))}
+      </div>
+
+      {/* Footer actions */}
+      <div className="px-5 py-3 border-t border-slate-100 flex-shrink-0
+        flex gap-2"
+      >
         <button
           type="submit"
-          className="flex-1 h-10 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-all shadow-[0_1px_4px_rgba(37,99,235,0.2)] flex items-center justify-center gap-1.5"
+          className="flex-1 h-9 rounded-lg bg-blue-600 text-white
+            text-[12.5px] font-semibold hover:bg-blue-700 transition-all
+            shadow-[0_1px_3px_rgba(37,99,235,0.2)]
+            flex items-center justify-center gap-1.5"
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2.5"
+            strokeLinecap="round" strokeLinejoin="round"
           >
-            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="16" y1="13" x2="8" y2="13" />
-            <line x1="16" y1="17" x2="8" y2="17" />
-            <polyline points="10 9 9 9 8 9" />
+            <polyline points="20 6 9 17 4 12" />
           </svg>
-          生成脚本
+          确认参数
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="h-10 rounded-xl border border-slate-200 px-4 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-all"
+          className="h-9 rounded-lg border border-slate-200 px-4
+            text-[12.5px] font-medium text-slate-600
+            hover:bg-slate-50 transition-all"
         >
           取消
         </button>

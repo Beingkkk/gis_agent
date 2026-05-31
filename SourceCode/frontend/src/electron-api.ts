@@ -9,6 +9,10 @@
 
 export interface ElectronAPI {
   isElectron: boolean
+  /** Backend base URL (e.g. http://localhost:18000), only available in Electron */
+  apiBaseUrl: string | null
+  /** Async getter for backend base URL (IPC call to main process) */
+  getApiBaseUrl(): Promise<string | null>
   selectFile(options?: {
     title?: string
     defaultPath?: string
@@ -62,6 +66,19 @@ export async function selectDirectory(options?: {
 }): Promise<string | null> {
   if (window.electron) {
     return window.electron.selectDirectory(options)
+  }
+  return null
+}
+
+/**
+ * 获取后端 API 基础地址。
+ *
+ * 仅在 Electron 环境下有效，返回如 http://localhost:18000。
+ * 浏览器环境下返回 null（由调用方使用相对路径 /api）。
+ */
+export async function getApiBaseUrl(): Promise<string | null> {
+  if (window.electron?.getApiBaseUrl) {
+    return window.electron.getApiBaseUrl()
   }
   return null
 }

@@ -248,8 +248,11 @@ SourceCode/data/templates-old/
 # Frontend
 SourceCode/frontend/node_modules/
 SourceCode/frontend/dist/
+SourceCode/frontend/dist-electron/
 SourceCode/frontend/.vite/
 SourceCode/frontend/package-lock.json
 SourceCode/frontend/pnpm-lock.yaml
 SourceCode/frontend/yarn.lock
 SourceCode/frontend/.env
+SourceCode/frontend/vite.config.js
+SourceCode/frontend/tsconfig.node.tsbuildinfo

@@ -5,7 +5,7 @@ import path from 'path'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const apiPort = Number(env.VITE_API_PORT || 8000)
+  const apiPort = Number(env.VITE_API_PORT || 18000)
 
   return {
     plugins: [react()],

@@ -2,6 +2,10 @@
 
 基于自然语言的 GDAL 数据处理助手。接受中文需求描述，生成安全可审查的批处理脚本，经确认后执行。
 
+提供两种交互界面：
+- **Electron 桌面应用**（推荐）：原生文件对话框、绝对路径支持、一键启动
+- **命令行**（CLI）：REPL 交互、轻量无依赖
+
 ## 核心能力
 
 | 能力 | 说明 |
@@ -31,9 +35,9 @@ conda install -c conda-forge gdal -y
 ogr2ogr --version
 ```
 
-### 3. 安装 Node.js（浏览器 UI 需要）
+### 3. 安装 Node.js（Electron 桌面应用需要）
 
-如果使用浏览器界面，需要 Node.js 18+：
+Electron 桌面应用需要 Node.js 18+：
 
 ```bash
 # 进入前端目录
@@ -74,7 +78,7 @@ cp config/config.json.template config/config.json
 | `llm.model_name` | 模型名称 | `claude-sonnet-4-6` |
 | `workspace.default_path` | 默认工作空间 | `.` |
 | `api.host` | API 服务绑定地址 | `0.0.0.0` |
-| `api.port` | API 服务端口 | `8000` |
+| `api.port` | API 服务端口 | `18000` |
 
 **环境变量覆盖**：敏感字段和常用配置支持通过环境变量覆盖，避免密钥入仓。
 
@@ -83,11 +87,16 @@ cp config/config.json.template config/config.json
 export GISAGENT_LLM_AUTH_KEY="sk-your-key"
 export GISAGENT_LLM_BASE_URL="https://api.example.com"
 
-# API 端口（开发时若 8000 被占用）
-export GISAGENT_API_PORT=9000
+# API 端口（开发时若 18000 被占用）
+export GISAGENT_API_PORT=19000
+
+# 前端代理目标端口（开发时与 API 端口保持一致）
+export VITE_API_PORT=19000
 ```
 
 变量命名规则：`GISAGENT_` + 配置路径（大写，`_` 连接），优先级高于配置文件。
+
+**Electron 模式**：Electron 启动 Python 后端时会自动注入 `ELECTRON_MODE=1`，后端据此放宽 CORS 限制以允许 `file://` 协议访问。无需手动设置。
 
 ### 6. 工作空间配置（可选）
 
@@ -108,13 +117,33 @@ export GISAGENT_API_PORT=9000
 
 ## 启动
 
-GIS Agent 提供两种交互方式：命令行（CLI）和浏览器界面（Browser UI）。两者共享同一套 core/llm/templates 业务逻辑。
+GIS Agent 提供三种交互方式：Electron 桌面应用（推荐）、命令行（CLI）、浏览器界面（Browser UI）。三者共享同一套 core/llm/templates 业务逻辑。
 
-### 浏览器界面（推荐）
+### Electron 桌面应用（推荐）
 
-基于 React + FastAPI 的图形界面，支持模板卡片浏览、参数表单、流式对话、脚本预览与执行。
+基于 Electron + React + FastAPI 的桌面应用。Python 后端作为子进程由 Electron 自动管理，前端通过 IPC 调用原生文件对话框，支持返回绝对路径。
 
-**开发模式（前后端分离）**：
+**开发模式**（热重载 + DevTools）：
+
+```bash
+cd SourceCode/frontend
+npm run electron:dev
+```
+
+`concurrently` 会同时启动 Vite dev server 和 Electron；Electron 自动等待 Vite 就绪后加载窗口。
+
+**生产构建**：
+
+```bash
+cd SourceCode/frontend
+npm run electron:build
+```
+
+> **端口配置**：若默认端口冲突，修改 `config/config.json` 中的 `api.port`，同时同步 `frontend/vite.config.ts` 中的 `VITE_API_PORT`。
+
+### 浏览器界面（可选）
+
+前后端分离的浏览器模式，适用于开发调试或不需要原生文件对话框的场景。
 
 ```bash
 # 终端 1：启动后端 API
@@ -127,20 +156,6 @@ npm run dev
 ```
 
 打开浏览器访问 `http://localhost:5173`。
-
-**生产模式**：
-
-```bash
-cd SourceCode/frontend
-npm run build    # 输出到 dist/
-
-cd ..
-python start_api.py    # FastAPI 自动托管前端静态文件
-```
-
-打开浏览器访问 `http://localhost:8000`（端口取决于 `config.json` 配置）。
-
-> **端口配置**：若默认端口冲突，修改 `config/config.json` 中的 `api.port`，同时同步 `frontend/.env` 中的 `VITE_API_PORT`。
 
 ### 命令行入口
 
@@ -208,12 +223,17 @@ gis-agent/
 │   │   ├── llm/           # LLM 层：意图分类、参数抽取、错误诊断
 │   │   ├── templates/     # 模板引擎：Jinja2 渲染、扫描器、安全校验
 │   │   └── config/        # 配置加载
-│   ├── frontend/          # 浏览器 UI 前端（React + TypeScript + Vite）
+│   ├── frontend/          # 前端（React + TypeScript + Vite + Electron）
+│   │   ├── electron/      # Electron 主进程与预加载脚本
+│   │   │   ├── main.ts    # 主进程：窗口管理 + Python 子进程 + IPC
+│   │   │   ├── preload.ts # 预加载脚本：contextBridge 暴露 API
+│   │   │   └── tsconfig.json
 │   │   ├── src/
 │   │   │   ├── api/       # HTTP 客户端封装
 │   │   │   ├── components/# React 组件
 │   │   │   ├── hooks/     # Zustand 状态管理 + WebSocket
 │   │   │   ├── pages/     # 页面路由（主应用 / 生成器 / Pipeline）
+│   │   │   ├── electron-api.ts  # IPC API 封装（文件对话框等）
 │   │   │   └── types/     # TypeScript 类型定义
 │   │   ├── package.json
 │   │   └── vite.config.ts

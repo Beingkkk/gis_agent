@@ -93,9 +93,19 @@ def create_app() -> FastAPI:
     """
     app = FastAPI(title="GIS Agent API")
 
+    import os
+
+    # Electron loads frontend from file:// or custom protocol in production,
+    # so allow all origins when running under Electron (ELECTRON_MODE=1).
+    # Dev browser mode still only allows Vite dev server.
+    if os.environ.get("ELECTRON_MODE") == "1":
+        allow_origins = ["*"]
+    else:
+        allow_origins = ["http://localhost:5173"]
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173"],
+        allow_origins=allow_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

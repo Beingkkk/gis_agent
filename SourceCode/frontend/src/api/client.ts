@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { isElectron, getApiBaseUrl } from '../electron-api'
 
 export const apiClient = axios.create({
   baseURL: '/api',
@@ -7,6 +8,17 @@ export const apiClient = axios.create({
   },
   timeout: 30000,
 })
+
+// Electron: resolve absolute backend URL and switch axios to it.
+// The IPC call is async — until it resolves, relative /api URLs rely on
+// Vite dev proxy (dev) or will fail (production from file://).
+if (isElectron()) {
+  getApiBaseUrl().then((url) => {
+    if (url) {
+      apiClient.defaults.baseURL = `${url}/api`
+    }
+  })
+}
 
 apiClient.interceptors.response.use(
   (response) => response,

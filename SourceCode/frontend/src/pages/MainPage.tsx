@@ -16,6 +16,7 @@ import {
   diagnoseSession,
 } from '../api/session'
 import { listTemplates, getTemplate } from '../api/templates'
+import { getApiBaseUrl } from '../electron-api'
 import type { TemplateDef, TemplateDetail } from '../types'
 
 export default function MainPage() {
@@ -177,14 +178,22 @@ export default function MainPage() {
   }
 
   // Execute script via WebSocket
-  const handleExecute = () => {
+  const handleExecute = async () => {
     if (!sessionId || !scriptPreview) return
     setIsExecuting(true)
     setExecLog([])
 
-    // Use relative path so Vite proxy (dev) or FastAPI (prod) handles routing
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/ws/execute/${sessionId}`
+    // Build WebSocket URL: Electron needs absolute backend URL;
+    // browser dev uses Vite proxy via window.location.
+    let wsUrl: string
+    const backendUrl = await getApiBaseUrl()
+    if (backendUrl) {
+      const wsBase = backendUrl.replace(/^http/, 'ws')
+      wsUrl = `${wsBase}/ws/execute/${sessionId}`
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      wsUrl = `${protocol}//${window.location.host}/ws/execute/${sessionId}`
+    }
 
     connectExec(wsUrl, {
       onMessage: (data) => {

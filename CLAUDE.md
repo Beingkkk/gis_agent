@@ -39,10 +39,10 @@ Strict layered architecture. Upper layers may call lower layers; **reverse depen
 
 ```
 Frontend (frontend/)    → React + TypeScript + Vite + Electron desktop app
-API layer (api/)        → FastAPI REST + WebSocket adapters
+API layer (api/)        → FastAPI REST + WebSocket adapters (Python child process)
 CLI layer (cli/)        → REPL, slash commands, script execution
-Core layer (core/)      → workspace, template registry, param validator, session processor
-App layer (llm/)        → LLM interaction, intent classification, template-knowledge Q&A
+Core layer (core/)      → workspace, template registry, param validator, session processor, matching engine
+App layer (llm/)        → LLM interaction, intent classification, template-knowledge Q&A, error diagnosis
 Infra layer             → anthropic SDK, jinja2, GDAL CLI
 Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker
 ```
@@ -72,7 +72,7 @@ Use `codegraph_search` to find specific functions. The following are design patt
 `SessionState` has 6 states: `IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW → EXECUTING → ERROR_RECOVERY`.
 
 - **CLI**: `SessionProcessor` (in `core/processor.py`) drives the full state machine single-threaded. `_handle_error_recovery()` performs LLM diagnosis and parses user text choices ("1"/"2"/"3").
-- **Desktop UI**: The API routes (`api/routes/session.py`) handle state transitions via REST. `EXECUTING` is special — the `websocket/execute.py` handler runs the script asynchronously, then updates the session state: success → `IDLE` (clear history + error, per DC-0067); failure → `ERROR_RECOVERY` with `ExecutionErrorContext` (DC-0048). The frontend then calls `POST /session/{id}/diagnose` to trigger lazy LLM diagnosis (plan-core DC-0049).
+- **Desktop UI**: The API routes (`api/routes/session.py`) handle state transitions via REST. `EXECUTING` is special — the `websocket/execute.py` handler runs the script asynchronously, then updates the session state: success → `IDLE` (clears history and error context); failure → `ERROR_RECOVERY` with `ExecutionErrorContext` (DC-0048). The frontend then calls `POST /session/{id}/diagnose` to trigger lazy LLM diagnosis (plan-core DC-0049).
 
 ### Two-Stage Intent Matching (DC-0098)
 
@@ -295,7 +295,7 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `Document/plan-ux.md` | WebSocket streaming (DC-UX-04/05), state→UI mapping, Pipeline/Generator UX |
 | `Document/plan-electron.md` | Electron shell architecture, IPC design, Python process lifecycle |
 | `src/api/routes/session.py` | Two-stage intent matching API (DC-0098) + `POST /chat` for Q&A + `POST /diagnose` for lazy error diagnosis |
-| `src/api/websocket/execute.py` | Execution breakpoint: success→IDLE / failure→ERROR_RECOVERY (DC-0048/DC-0067) |
+| `src/api/websocket/execute.py` | Execution breakpoint: success→IDLE / failure→ERROR_RECOVERY (DC-0048) |
 | `src/core/processor.py` | CLI state machine dispatcher; `_handle_error_recovery()` is the CLI-side diagnosis driver |
 | `src/core/matching.py` | Unified template matching scoring (keywords=+3, concepts=+2, id/name/desc/notes=+1) |
 | `src/llm/prompts.py` | PromptBuilder with 5 scenario-specific system prompts (DC-0071): intent / template-qa / gis-expert / param / diagnosis |
@@ -309,8 +309,11 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `frontend/src/main.tsx` | Entry point using `HashRouter` (required for `file://` protocol) |
 | `frontend/src/pages/MainPage.tsx` | Main UI orchestrator: three-TAB lifecycle, WebSocket execution, state refresh |
 | `frontend/src/components/DiscoveryTab.tsx` | Template discovery TAB: unified input box (local filter + intent send), card grid, candidate mode |
-| `frontend/src/components/QATab.tsx` | GIS Q&A TAB: chat stream, locked-template badge, workspace display |
-| `frontend/src/components/ExecTab.tsx` | Script execution TAB: command preview / executing / success / failure states |
+| `frontend/src/components/QATab.tsx` | GIS Q&A TAB: chat stream, locked-template badge. Workspace selector removed (moved to ExecTab) |
+| `frontend/src/components/ExecTab.tsx` | Script execution TAB: command preview / executing / success / failure states + workspace selector |
+| `frontend/src/components/TabBar.tsx` | TAB switcher bar (Discovery / Q&A / Exec) with message count badge |
+| `frontend/src/components/CmdEditor.tsx` | Monaco-style script editor with Jinja2 syntax highlighting, live validation |
+| `frontend/src/components/ExecStatusPanel.tsx` | Execution result panel (success/failure) with one-click diagnose button |
 | `frontend/src/components/DetailPanel.tsx` | Right-panel state renderer: ParamForm / ScriptPreview / ERROR_RECOVERY diagnosis |
 | `frontend/src/pages/GeneratorPage.tsx` | Five-step J2 wizard: Monaco-style editor, inline Jinja2 highlight, live re-validation |
 | `src/templates/scanner.py` | `.j2` file scanner — parses comment headers into `TemplateDef` at startup |
@@ -354,5 +357,6 @@ After adding a template, restart the application to pick it up (templates are sc
 - `Document/Resource/` is gitignored; do not commit its contents.
 - `SourceCode/model/embedding/` contains large model files (deprecated per ADR-0001, no longer used at runtime); should not be committed.
 - `SourceCode/config/config.json` is gitignored; never commit credentials.
+- `SourceCode/docs/README-UI.md` is outdated (browser UI mode was removed); Electron is the sole graphical entry point.
 - The Electron desktop app (`frontend/`) and CLI (`cli/`) are parallel entry points sharing `core/llm/templates`. Changes to business logic affect both UIs.
-- Workspace switching (`POST /session/{id}/workspace`) recreates `ParamValidator` and `TemplateEngine` singletons because they hold `Workspace` references. The core `Workspace` singleton is updated via `change_workspace()`.
+- Workspace switching (`POST /session/{id}/workspace`) recreates `ParamValidator` and `TemplateEngine` singletons because they hold `Workspace` references. The core `Workspace` singleton is updated via `change_workspace()`. Switching workspace **does not clear** session state (template, params, history, error_context are preserved).

@@ -139,7 +139,7 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
 
         # Update session state based on execution result
         if returncode == 0:
-            # Success → IDLE (execution breakpoint: full reset per DC-0067)
+            # Success → IDLE (execution breakpoint: full reset)
             new_session = (
                 session.with_state(SessionState.IDLE)
                 .clear_history()

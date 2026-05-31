@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GIS Agent (`gis-agent`) is a natural-language assistant for GIS data processing using GDAL tools. It accepts Chinese requests, maps them to predefined Jinja2 templates, generates batch scripts, and executes them only after explicit user confirmation.
 
-The project provides **two UIs**: a command-line REPL (`cli/`) and a browser-based React UI (`frontend/` + `api/`). Both share the same `core/llm/templates` business logic.
+The project provides **two UIs**: an Electron desktop application (`frontend/` + `api/`) and a command-line REPL (`cli/`). Both share the same `core/llm/templates` business logic. The browser-based UI has been removed; Electron is the sole graphical entry point.
 
 The project strictly follows Specification-Driven Design: no code without a preceding design document.
 
@@ -38,7 +38,7 @@ Document/constitution.md  →  Document/spec.md  →  Document/plan-*.md  →  S
 Strict layered architecture. Upper layers may call lower layers; **reverse dependencies are prohibited**.
 
 ```
-Frontend (frontend/)    → React + TypeScript + Vite browser UI
+Frontend (frontend/)    → React + TypeScript + Vite + Electron desktop app
 API layer (api/)        → FastAPI REST + WebSocket adapters
 CLI layer (cli/)        → REPL, slash commands, script execution
 Core layer (core/)      → workspace, template registry, param validator, session processor
@@ -72,7 +72,7 @@ Use `codegraph_search` to find specific functions. The following are design patt
 `SessionState` has 6 states: `IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW → EXECUTING → ERROR_RECOVERY`.
 
 - **CLI**: `SessionProcessor` (in `core/processor.py`) drives the full state machine single-threaded. `_handle_error_recovery()` performs LLM diagnosis and parses user text choices ("1"/"2"/"3").
-- **Web UI**: The API routes (`api/routes/session.py`) handle state transitions via REST. `EXECUTING` is special — the `websocket/execute.py` handler runs the script asynchronously, then updates the session state: success → `IDLE` (clear history + error, per DC-0067); failure → `ERROR_RECOVERY` with `ExecutionErrorContext` (DC-0048). The frontend then calls `POST /session/{id}/diagnose` to trigger lazy LLM diagnosis (plan-core DC-0049).
+- **Desktop UI**: The API routes (`api/routes/session.py`) handle state transitions via REST. `EXECUTING` is special — the `websocket/execute.py` handler runs the script asynchronously, then updates the session state: success → `IDLE` (clear history + error, per DC-0067); failure → `ERROR_RECOVERY` with `ExecutionErrorContext` (DC-0048). The frontend then calls `POST /session/{id}/diagnose` to trigger lazy LLM diagnosis (plan-core DC-0049).
 
 ### Two-Stage Intent Matching (DC-0098)
 
@@ -83,9 +83,9 @@ Use `codegraph_search` to find specific functions. The following are design patt
 
 The same `score_template_match()` scoring is reused by Q&A context selection (`llm/qa.py`).
 
-### ERROR_RECOVERY in the Browser UI
+### ERROR_RECOVERY in the Desktop UI
 
-Unlike the CLI where `SessionProcessor._handle_error_recovery()` drives the entire recovery loop, the Web UI splits it across three pieces:
+Unlike the CLI where `SessionProcessor._handle_error_recovery()` drives the entire recovery loop, the desktop UI splits it across three pieces:
 1. **Backend websocket**: `websocket/execute.py` sets `ERROR_RECOVERY` + basic `ExecutionErrorContext` (stdout/stderr/returncode/duration_ms, diagnosis=None).
 2. **Backend diagnose endpoint**: `POST /session/{id}/diagnose` lazily triggers `llm.diagnosis.analyze_execution_error()`, populates `error_context.diagnosis` (cause, suggestion, fixed_params, confidence, can_auto_fix), and caches the result.
 3. **Frontend DetailPanel**: `ERROR_RECOVERY` state renders a diagnosis panel (loading spinner → diagnosis result → repair options: re-execute / edit params / abandon).
@@ -102,10 +102,12 @@ The J2 template generator (`scripts/generate/`) is a **development-time only** b
 - Every API call returns a `SessionSnapshot`; the frontend replaces its state wholesale (DC-UX-03).
 - HTTP for state transitions (intent/lock/params/clear/workspace). WebSocket for LLM streaming Q&A (`/ws/chat/{id}`) and real-time execution logs (`/ws/execute/{id}`).
 - After WebSocket execution completes, frontend calls `GET /session/{id}` to refresh the updated state.
+- Routing uses `HashRouter` (not `BrowserRouter`) because Electron loads from `file://` protocol.
+- API base URL is resolved via IPC (`getApiBaseUrl()`) returning an absolute URL like `http://localhost:18000`; the frontend never relies on relative `/api` paths in production.
 
 ### GeneratorPage (J2 Template Wizard)
 
-Five-step wizard at `/generator`: Document input → Config → Preview → Review → Save. Step 3 features a Monaco-style code editor (dark theme, line numbers, Tab indentation), inline Jinja2 syntax highlighting, and live re-validation. Step 5 shows a hot-reload confirmation (backend calls `refresh_registry()` on save, new template is immediately available without restart).
+Five-step wizard at `/#/generator`: Document input → Config → Preview → Review → Save. Step 3 features a Monaco-style code editor (dark theme, line numbers, Tab indentation), inline Jinja2 syntax highlighting, and live re-validation. Step 5 shows a hot-reload confirmation (backend calls `refresh_registry()` on save, new template is immediately available without restart).
 
 ## CodeGraph
 
@@ -181,7 +183,7 @@ python scripts/test_e2e_qa.py
 
 **pytest working directory constraint**: Test paths `tests/unit/` are resolved relative to `SourceCode/`. Running `pytest` outside `SourceCode/` fails because it cannot find the test files. Always execute test commands from within `SourceCode/`.
 
-### Frontend
+### Frontend (Electron)
 
 ```bash
 cd SourceCode/frontend
@@ -189,40 +191,38 @@ cd SourceCode/frontend
 # Install dependencies (first time)
 npm install
 
-# Start dev server
-npm run dev
+# Development: Vite dev server + Electron (concurrently)
+npm run electron:dev
 
-# Build for production
-npm run build
+# Production build (Vite + electron-builder)
+npm run electron:build
+```
 
-# Preview production build
-npm run preview
+**Type checking**:
+
+```bash
+cd SourceCode/frontend
+
+# Electron main process
+./node_modules/.bin/tsc -p electron/tsconfig.json --noEmit
+
+# Frontend renderer
+./node_modules/.bin/tsc --noEmit -p tsconfig.json
 ```
 
 ### Running the Application
 
-**Browser UI (development — separate terminals)**:
-```bash
-# Terminal 1: backend API
-cd SourceCode
-python start_api.py
+**Electron desktop app (development)**:
 
-# Terminal 2: frontend dev server
-cd SourceCode/frontend
-npm run dev
-# Open http://localhost:5173
-```
-
-**Browser UI (production)**:
 ```bash
 cd SourceCode/frontend
-npm run build
-cd ..
-python start_api.py
-# Open http://localhost:8000 (port from config.json)
+npm run electron:dev
 ```
+
+`concurrently` starts both the Vite dev server and Electron. The Electron main process polls `http://localhost:5173` and loads the window once the dev server is ready.
 
 **CLI**:
+
 ```bash
 cd SourceCode
 python start_cli.py
@@ -283,11 +283,17 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `Document/spec.md` | All requirements trace back here (F1-F11, P1-P5, UX-1~3) |
 | `Document/plan-core.md` | ERROR_RECOVERY design (DC-0048/DC-0049), matching engine (DC-0094), two-stage matching (DC-0098) |
 | `Document/plan-ux.md` | WebSocket streaming (DC-UX-04/05), state→UI mapping, Pipeline/Generator UX |
+| `Document/plan-electron.md` | Electron shell architecture, IPC design, Python process lifecycle |
 | `src/api/routes/session.py` | Two-stage intent matching API (DC-0098) + `POST /diagnose` for lazy error diagnosis |
 | `src/api/websocket/execute.py` | Execution breakpoint: success→IDLE / failure→ERROR_RECOVERY (DC-0048/DC-0067) |
 | `src/core/processor.py` | CLI state machine dispatcher; `_handle_error_recovery()` is the CLI-side diagnosis driver |
 | `src/core/matching.py` | Unified template matching scoring (keywords=+3, concepts=+2, id/name/desc/notes=+1) |
 | `src/llm/diagnosis.py` | `analyze_execution_error()` — LLM error diagnosis returning structured `ErrorDiagnosis` |
+| `frontend/electron/main.ts` | Electron main process: window management, Python child process, IPC handlers |
+| `frontend/electron/preload.ts` | `contextBridge` preload script exposing safe IPC APIs |
+| `frontend/src/electron-api.ts` | Renderer-side IPC wrappers: `getApiBaseUrl()`, `selectFile()`, `selectDirectory()` |
+| `frontend/src/api/client.ts` | Axios instance with dynamic absolute baseURL via IPC |
+| `frontend/src/main.tsx` | Entry point using `HashRouter` (required for `file://` protocol) |
 | `frontend/src/pages/MainPage.tsx` | Main UI orchestrator: session lifecycle, WebSocket execution, state refresh |
 | `frontend/src/components/DetailPanel.tsx` | Right-panel state renderer: ParamForm / ScriptPreview / ERROR_RECOVERY diagnosis |
 | `frontend/src/components/TemplateCardList.tsx` | Left sidebar with client-side search (name/id/description/keywords, DC-0096) |
@@ -322,7 +328,7 @@ New GDAL workflows are added by creating a `.j2` file in `SourceCode/data/templa
 - Never use `+` or f-string style concatenation inside templates
 - Post-render security check (`ScriptSecurityChecker`) validates for dangerous patterns
 
-After adding a template, restart the CLI to pick it up (templates are scanned at startup).
+After adding a template, restart the application to pick it up (templates are scanned at startup).
 
 ## When Working on This Repo
 
@@ -332,5 +338,5 @@ After adding a template, restart the CLI to pick it up (templates are scanned at
 - `Document/Resource/` is gitignored; do not commit its contents.
 - `SourceCode/model/embedding/` contains large model files (deprecated per ADR-0001, no longer used at runtime); should not be committed.
 - `SourceCode/config/config.json` is gitignored; never commit credentials.
-- The browser UI (`frontend/`) and CLI (`cli/`) are parallel entry points sharing `core/llm/templates`. Changes to business logic affect both UIs.
+- The Electron desktop app (`frontend/`) and CLI (`cli/`) are parallel entry points sharing `core/llm/templates`. Changes to business logic affect both UIs.
 - Workspace switching (`POST /session/{id}/workspace`) recreates `ParamValidator` and `TemplateEngine` singletons because they hold `Workspace` references. The core `Workspace` singleton is updated via `change_workspace()`.

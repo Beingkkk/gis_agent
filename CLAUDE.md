@@ -147,8 +147,11 @@ GDAL is installed via Conda. Python dependencies are minimal and fixed.
 **Conda environment**: `gis-agent` at `C:\Users\PC\.conda\envs\gis-agent` (Python 3.11.15).
 
 ```bash
-# Verify GDAL
+# Verify GDAL (bash shell)
 ogr2ogr --version
+
+# Verify GDAL (Python backend — may differ from bash PATH)
+"/c/Users/PC/.conda/envs/gis-agent/python" -c "import shutil; print(shutil.which('ogr2ogr'))"
 ```
 
 **Important**: In the bash shell used by Claude Code, `conda activate` does not work. Always invoke the environment's Python directly by full path:
@@ -158,6 +161,8 @@ ogr2ogr --version
 ```
 
 **Production dependencies** (locked): `anthropic`, `jinja2` — no others without explicit approval per constitution.md P5.
+
+**GDAL execution environment**: `config.json` supports a `gdal_bin` field (e.g. `"C:/Applications/PostgreSQL/18/bin"`). When executing scripts, this path is prepended to the subprocess `PATH`. The Electron-spawned Python backend inherits the Electron process's `PATH`, which may differ from the bash shell's `PATH`. Use the `/health` endpoint or `shutil.which('ogr2ogr')` to verify the backend can actually locate GDAL binaries.
 
 ## Commands
 
@@ -310,13 +315,23 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `frontend/src/pages/MainPage.tsx` | Main UI orchestrator: three-TAB lifecycle, WebSocket execution, state refresh |
 | `frontend/src/components/DiscoveryTab.tsx` | Template discovery TAB: unified input box (local filter + intent send), card grid, candidate mode |
 | `frontend/src/components/QATab.tsx` | GIS Q&A TAB: chat stream, locked-template badge. Workspace selector removed (moved to ExecTab) |
-| `frontend/src/components/ExecTab.tsx` | Script execution TAB: command preview / executing / success / failure states + workspace selector |
+| `frontend/src/components/ExecTab.tsx` | Script execution TAB: command preview / executing / success / failure states + workspace selector + `gdal_bin` badge |
+| `frontend/src/components/paramGroups.ts` | Shared parameter grouping rules (input/output, CRS, transform, clip, advanced) used by ParamForm and DetailPanel |
+| `frontend/src/api/health.ts` | Health API client — fetches `gdal_bin` path from backend at init |
 | `frontend/src/components/TabBar.tsx` | TAB switcher bar (Discovery / Q&A / Exec) with message count badge |
 | `frontend/src/components/CmdEditor.tsx` | Monaco-style script editor with Jinja2 syntax highlighting, live validation |
 | `frontend/src/components/ExecStatusPanel.tsx` | Execution result panel (success/failure) with one-click diagnose button |
-| `frontend/src/components/DetailPanel.tsx` | Right-panel state renderer: ParamForm / ScriptPreview / ERROR_RECOVERY diagnosis |
+| `frontend/src/components/DetailPanel.tsx` | Right-panel state renderer: `PARAM_COLLECT` → ParamForm (grouped); `SCRIPT_PREVIEW` → collapsible ParamForm only (script preview lives in ExecTab CmdEditor); `IDLE` (post-success) → read-only ParamForm showing grouped param values; `ERROR_RECOVERY` → diagnosis panel |
 | `frontend/src/pages/GeneratorPage.tsx` | Five-step J2 wizard: Monaco-style editor, inline Jinja2 highlight, live re-validation |
 | `src/templates/scanner.py` | `.j2` file scanner — parses comment headers into `TemplateDef` at startup |
+
+### ParamForm readOnly Mode
+
+`ParamForm` supports `readOnly?: boolean`:
+- Inputs are disabled, browse buttons hidden
+- Footer actions (confirm/cancel) hidden
+- Title changes from "参数设置" to "参数值"
+- Used by DetailPanel in `IDLE` (post-execution summary) and inside `SCRIPT_PREVIEW` (adjust params)
 
 ## Adding New Templates
 

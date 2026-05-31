@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { TemplateDef } from '../types'
 
 interface TemplateCardListProps {
@@ -98,6 +99,7 @@ export default function TemplateCardList({
   selectedId,
   onSelect,
 }: TemplateCardListProps) {
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [activeTag, setActiveTag] = useState('all')
 
@@ -360,7 +362,7 @@ export default function TemplateCardList({
         <button
           className="w-full h-9 border border-dashed border-slate-200 rounded-lg bg-slate-50 text-slate-500 text-[13px] font-medium flex items-center justify-center gap-1.5 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-all"
           onClick={() => {
-            window.location.href = '/generator'
+            navigate('/generator')
           }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

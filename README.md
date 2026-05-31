@@ -117,7 +117,7 @@ export VITE_API_PORT=19000
 
 ## 启动
 
-GIS Agent 提供三种交互方式：Electron 桌面应用（推荐）、命令行（CLI）、浏览器界面（Browser UI）。三者共享同一套 core/llm/templates 业务逻辑。
+GIS Agent 提供两种交互方式：Electron 桌面应用（推荐）和命令行（CLI）。两者共享同一套 core/llm/templates 业务逻辑。
 
 ### Electron 桌面应用（推荐）
 
@@ -140,22 +140,6 @@ npm run electron:build
 ```
 
 > **端口配置**：若默认端口冲突，修改 `config/config.json` 中的 `api.port`，同时同步 `frontend/vite.config.ts` 中的 `VITE_API_PORT`。
-
-### 浏览器界面（可选）
-
-前后端分离的浏览器模式，适用于开发调试或不需要原生文件对话框的场景。
-
-```bash
-# 终端 1：启动后端 API
-cd SourceCode
-python start_api.py
-
-# 终端 2：启动前端 dev server
-cd SourceCode/frontend
-npm run dev
-```
-
-打开浏览器访问 `http://localhost:5173`。
 
 ### 命令行入口
 
@@ -217,7 +201,7 @@ gis-agent/
 ├── Document/               # 设计文档（spec/constitution/plan/ADR）
 ├── SourceCode/
 │   ├── src/
-│   │   ├── api/           # API 层：FastAPI + WebSocket 适配（浏览器 UI 后端）
+│   │   ├── api/           # API 层：FastAPI + WebSocket 适配（Electron 后端）
 │   │   ├── cli/           # CLI 层：REPL、命令解析、脚本执行
 │   │   ├── core/          # 核心层：状态机、模板注册表、参数校验
 │   │   ├── llm/           # LLM 层：意图分类、参数抽取、错误诊断
@@ -241,7 +225,7 @@ gis-agent/
 │   ├── data/
 │   │   └── templates/     # .j2 模板文件（vector/raster/general）
 │   ├── config/            # 运行时配置（config.json）
-│   ├── start_api.py       # 浏览器 UI 启动脚本
+│   ├── start_api.py       # API 服务启动脚本（由 Electron 内部调用）
 │   ├── start_cli.py       # CLI 启动脚本
 │   └── pyproject.toml
 └── README.md

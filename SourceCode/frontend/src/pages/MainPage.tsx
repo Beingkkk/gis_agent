@@ -183,17 +183,15 @@ export default function MainPage() {
     setIsExecuting(true)
     setExecLog([])
 
-    // Build WebSocket URL: Electron needs absolute backend URL;
-    // browser dev uses Vite proxy via window.location.
-    let wsUrl: string
+    // Build absolute WebSocket URL via IPC (required for Electron file://)
     const backendUrl = await getApiBaseUrl()
-    if (backendUrl) {
-      const wsBase = backendUrl.replace(/^http/, 'ws')
-      wsUrl = `${wsBase}/ws/execute/${sessionId}`
-    } else {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      wsUrl = `${protocol}//${window.location.host}/ws/execute/${sessionId}`
+    if (!backendUrl) {
+      setExecLog((prev) => [...prev, '❌ 无法获取后端地址'])
+      setIsExecuting(false)
+      return
     }
+    const wsBase = backendUrl.replace(/^http/, 'ws')
+    const wsUrl = `${wsBase}/ws/execute/${sessionId}`
 
     connectExec(wsUrl, {
       onMessage: (data) => {

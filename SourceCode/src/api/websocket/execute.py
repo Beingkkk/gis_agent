@@ -9,6 +9,7 @@ Design:
 
 import asyncio
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from api.dependencies import (
     get_template_engine,
     get_workspace,
 )
+from core.exec_env import ShellExecutor
 from core.models import ExecutionErrorContext, SessionState
 
 logger = logging.getLogger(__name__)
@@ -75,34 +77,46 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
             )
             return
 
-    # Write script to temp file in workspace
+    # Resolve execution environment
+    # ━━━ DC-0104: use session.exec_env if configured, else fallback ━━━
     workspace = get_workspace()
-    script_path = _write_script_content(script_content, workspace)
+    exec_env = session.exec_env
+    if exec_env is not None:
+        # User-configured environment (conda / custom shell)
+        executor = ShellExecutor(exec_env)
+        logger.info(
+            "Using configured exec env (shell=%s, gdal=%s)",
+            exec_env.shell.value,
+            exec_env.gdal_available,
+        )
+    else:
+        # Fallback: system default — use current os.environ, hardcoded cmd
+        # (preserves backward compatibility for sessions without env config)
+        from core.exec_env import ExecEnvironment, ShellType
 
-    # Build environment: prepend gdal_bin to PATH if configured
-    env: Optional[dict[str, str]] = None
+        fallback_env = ExecEnvironment(
+            env_vars=dict(os.environ),
+            shell=ShellType.CMD,
+            shell_executable=Path("cmd"),
+            gdal_available=False,
+        )
+        executor = ShellExecutor(fallback_env)
+        logger.debug("Using fallback exec env (system default, cmd)")
+
+    # Write script to temp file in workspace
     try:
-        from config.loader import get_config
-        gdal_bin = get_config().gdal_bin
-        if gdal_bin:
-            env = dict(os.environ)
-            sep = os.pathsep  # ';' on Windows
-            env["PATH"] = f"{gdal_bin}{sep}{env.get('PATH', '')}"
-            logger.info("Prepending gdal_bin to PATH: %s", gdal_bin)
-    except Exception:
-        pass
+        commands = script_content.strip().splitlines()
+        script_path = executor.write_script(commands, Path(workspace.root))
+    except Exception as exc:
+        logger.exception("Script write error: %s", exc)
+        await websocket.send_json(
+            {"type": "done", "success": False, "error": f"Script write failed: {exc}"}
+        )
+        return
 
     # Execute with streaming
     try:
-        process = await asyncio.create_subprocess_exec(
-            "cmd",
-            "/c",
-            str(script_path),
-            cwd=str(workspace.root),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
+        process = await executor.execute(script_path, Path(workspace.root))
     except Exception as exc:
         logger.exception("Failed to start subprocess: %s", exc)
         await websocket.send_json({"type": "done", "success": False, "error": str(exc)})
@@ -240,22 +254,3 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
             )
         except Exception:
             pass
-
-
-def _write_script_content(script_content: str, workspace: Any) -> Path:
-    """Write script content to a temp file in workspace.
-
-    Args:
-        script_content: The script text to write.
-        workspace: Workspace instance.
-
-    Returns:
-        Path to the written script file.
-    """
-    ext = ".bat"  # Windows only for now
-    timestamp = str(int(time.time()))
-    filename = f"script_{timestamp}{ext}"
-    script_path = Path(workspace.root) / filename
-    script_path.write_text(script_content, encoding="utf-8")
-    logger.debug("Script written to %s", script_path)
-    return script_path

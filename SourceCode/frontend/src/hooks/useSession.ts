@@ -7,6 +7,7 @@ import type {
   TemplateDef,
   ErrorContext,
   TabId,
+  ExecEnvSnapshot,
 } from '../types'
 
 interface SessionStore {
@@ -35,6 +36,8 @@ interface SessionStore {
   qaMessages: ChatMessage[]
   /** 用户在 ExecTab 中编辑后的命令（覆盖 session.script_preview） */
   editedScript: string | null
+  /** 执行环境配置（DC-0104） */
+  execEnv: ExecEnvSnapshot | null
 
   setSession: (snapshot: SessionSnapshot) => void
   addMessage: (msg: ChatMessage) => void
@@ -66,6 +69,7 @@ const initialState = {
   activeTab: 'discovery' as TabId,
   qaMessages: [] as ChatMessage[],
   editedScript: null as string | null,
+  execEnv: null as ExecEnvSnapshot | null,
 }
 
 export const useSession = create<SessionStore>((set) => ({
@@ -82,6 +86,7 @@ export const useSession = create<SessionStore>((set) => ({
       lockedTemplateId: snapshot.task_context.template_id,
       workspace: snapshot.workspace,
       editedScript: snapshot.user_script,
+      execEnv: snapshot.exec_env,
     }),
 
   addMessage: (msg) =>

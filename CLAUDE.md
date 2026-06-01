@@ -162,7 +162,7 @@ ogr2ogr --version
 
 **Production dependencies** (locked): `anthropic`, `jinja2` — no others without explicit approval per constitution.md P5.
 
-**GDAL execution environment**: `config.json` supports a `gdal_bin` field (e.g. `"C:/Applications/PostgreSQL/18/bin"`). When executing scripts, this path is prepended to the subprocess `PATH`. The Electron-spawned Python backend inherits the Electron process's `PATH`, which may differ from the bash shell's `PATH`. Use the `/health` endpoint or `shutil.which('ogr2ogr')` to verify the backend can actually locate GDAL binaries.
+**GDAL execution environment**: Script execution environment is configured at runtime via the ExecTab environment panel (not in `config.json`). Users select shell type (`bash`/`cmd`/`powershell`) and optionally a conda environment. The backend validates GDAL availability on demand. `shutil.which('ogr2ogr')` can be used to verify the backend can locate GDAL binaries.
 
 ## Commands
 
@@ -315,9 +315,9 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `frontend/src/pages/MainPage.tsx` | Main UI orchestrator: three-TAB lifecycle, WebSocket execution, state refresh |
 | `frontend/src/components/DiscoveryTab.tsx` | Template discovery TAB: unified input box (local filter + intent send), card grid, candidate mode |
 | `frontend/src/components/QATab.tsx` | GIS Q&A TAB: chat stream, locked-template badge. Workspace selector removed (moved to ExecTab) |
-| `frontend/src/components/ExecTab.tsx` | Script execution TAB: command preview / executing / success / failure states + workspace selector + `gdal_bin` badge |
+| `frontend/src/components/ExecTab.tsx` | Script execution TAB: command preview / executing / success / failure states + workspace selector + runtime exec-env panel |
 | `frontend/src/components/paramGroups.ts` | Shared parameter grouping rules (input/output, CRS, transform, clip, advanced) used by ParamForm and DetailPanel |
-| `frontend/src/api/health.ts` | Health API client — fetches `gdal_bin` path from backend at init |
+| `frontend/src/api/health.ts` | Health API client — basic status check |
 | `frontend/src/components/TabBar.tsx` | TAB switcher bar (Discovery / Q&A / Exec) with message count badge |
 | `frontend/src/components/CmdEditor.tsx` | Monaco-style script editor with Jinja2 syntax highlighting, live validation |
 | `frontend/src/components/ExecStatusPanel.tsx` | Execution result panel (success/failure) with one-click diagnose button |

@@ -40,6 +40,7 @@ export interface SessionSnapshot {
   history: ChatMessage[]
   workspace: string
   user_script: string | null
+  exec_env: ExecEnvSnapshot | null
 }
 
 export interface TimelineStep {
@@ -69,6 +70,33 @@ export interface ErrorContext {
   stderr: string
   duration_ms: number
   diagnosis: ErrorDiagnosis | null
+}
+
+/** 执行环境快照（DC-0104） */
+export interface ExecEnvSnapshot {
+  type: string
+  shell: string
+  shell_path: string
+  env_name: string
+  gdal_available: boolean
+  gdal_version: string
+}
+
+/** 执行环境验证请求 */
+export interface ExecEnvVerifyRequest {
+  type: 'system' | 'conda'
+  env_name: string
+  shell: string
+  shell_path: string
+}
+
+/** 执行环境验证响应 */
+export interface ExecEnvVerifyResponse {
+  valid: boolean
+  shell: { type: string; path: string }
+  gdal: { available: boolean; version: string }
+  env_vars: Record<string, string>
+  error: string | null
 }
 
 export interface TemplateDef {

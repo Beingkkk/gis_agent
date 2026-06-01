@@ -19,6 +19,9 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 if TYPE_CHECKING:
     from llm.models import ErrorDiagnosis, Message
 
+    # Forward reference for exec_env to avoid circular imports
+    from core.exec_env import ExecEnvironment
+
 
 # ---------------------------------------------------------------------------
 # Template / Parameter definitions
@@ -115,6 +118,7 @@ class Session:
     candidates: List[TemplateDef] = field(default_factory=list)
     error_context: Optional[ExecutionErrorContext] = None
     user_script: Optional[str] = None
+    exec_env: Optional["ExecEnvironment"] = None  # DC-0104
 
     def with_state(self, state: SessionState) -> "Session":
         """返回状态变更后的新 Session。"""
@@ -126,6 +130,7 @@ class Session:
             candidates=self.candidates,
             error_context=self.error_context,
             user_script=self.user_script,
+            exec_env=self.exec_env,
         )
 
     def with_template(self, template: Optional[TemplateDef]) -> "Session":
@@ -138,6 +143,7 @@ class Session:
             candidates=self.candidates,
             error_context=self.error_context,
             user_script=self.user_script,
+            exec_env=self.exec_env,
         )
 
     def with_param(self, name: str, value: str) -> "Session":
@@ -152,6 +158,7 @@ class Session:
             candidates=self.candidates,
             error_context=self.error_context,
             user_script=self.user_script,
+            exec_env=self.exec_env,
         )
 
     def with_history(self, message: "Message") -> "Session":
@@ -166,6 +173,7 @@ class Session:
             candidates=self.candidates,
             error_context=self.error_context,
             user_script=self.user_script,
+            exec_env=self.exec_env,
         )
 
     def with_candidates(self, candidates: List[TemplateDef]) -> "Session":
@@ -178,6 +186,7 @@ class Session:
             candidates=list(candidates),
             error_context=self.error_context,
             user_script=self.user_script,
+            exec_env=self.exec_env,
         )
 
     def with_error(self, error_context: Optional[ExecutionErrorContext]) -> "Session":
@@ -194,6 +203,7 @@ class Session:
             candidates=self.candidates,
             error_context=error_context,
             user_script=self.user_script,
+            exec_env=self.exec_env,
         )
 
     def with_user_script(self, user_script: Optional[str]) -> "Session":
@@ -210,6 +220,24 @@ class Session:
             candidates=self.candidates,
             error_context=self.error_context,
             user_script=user_script,
+            exec_env=self.exec_env,
+        )
+
+    def with_exec_env(self, exec_env: Optional["ExecEnvironment"]) -> "Session":
+        """设置执行环境。
+
+        Design:
+            DC-0104
+        """
+        return Session(
+            state=self.state,
+            history=self.history,
+            template=self.template,
+            params=self.params,
+            candidates=self.candidates,
+            error_context=self.error_context,
+            user_script=self.user_script,
+            exec_env=exec_env,
         )
 
     def clear_error(self) -> "Session":
@@ -226,6 +254,7 @@ class Session:
             candidates=self.candidates,
             error_context=None,
             user_script=self.user_script,
+            exec_env=self.exec_env,
         )
 
     def clear_history(self) -> "Session":
@@ -242,6 +271,7 @@ class Session:
             candidates=self.candidates,
             error_context=self.error_context,
             user_script=self.user_script,
+            exec_env=self.exec_env,
         )
 
     def clear_user_script(self) -> "Session":
@@ -258,4 +288,5 @@ class Session:
             candidates=self.candidates,
             error_context=self.error_context,
             user_script=None,
+            exec_env=self.exec_env,
         )

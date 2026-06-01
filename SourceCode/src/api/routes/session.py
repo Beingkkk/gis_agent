@@ -45,6 +45,17 @@ router = APIRouter(prefix="/session", tags=["session"])
 # ---------------------------------------------------------------------------
 
 
+class ExecEnvSnapshot(BaseModel):
+    """Execution environment snapshot for frontend."""
+
+    type: str
+    shell: str
+    shell_path: str
+    env_name: str
+    gdal_available: bool
+    gdal_version: str = ""
+
+
 class SessionResponse(BaseModel):
     """Session snapshot returned to the frontend."""
 
@@ -56,6 +67,7 @@ class SessionResponse(BaseModel):
     history: list[dict[str, str]]
     workspace: str
     user_script: Optional[str] = None
+    exec_env: Optional[ExecEnvSnapshot] = None
 
 
 class IntentRequest(BaseModel):
@@ -181,6 +193,19 @@ def _build_session_response(session_id: str, session: Session) -> SessionRespons
                 "can_auto_fix": session.error_context.diagnosis.can_auto_fix,
             }
 
+    # Build exec_env snapshot if configured (DC-0104)
+    exec_env_snapshot: Optional[ExecEnvSnapshot] = None
+    if session.exec_env is not None:
+        env_type_str = "conda" if "GDAL_DATA" in session.exec_env.env_vars else "system"
+        exec_env_snapshot = ExecEnvSnapshot(
+            type=env_type_str,
+            shell=session.exec_env.shell.value,
+            shell_path=str(session.exec_env.shell_executable),
+            env_name="",
+            gdal_available=session.exec_env.gdal_available,
+            gdal_version=session.exec_env.gdal_version,
+        )
+
     return SessionResponse(
         session_id=session_id,
         state=session.state.name,
@@ -190,6 +215,7 @@ def _build_session_response(session_id: str, session: Session) -> SessionRespons
         history=history,
         workspace=workspace_path,
         user_script=session.user_script,
+        exec_env=exec_env_snapshot,
     )
 
 

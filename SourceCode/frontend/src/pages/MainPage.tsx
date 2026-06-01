@@ -21,7 +21,11 @@ import {
   executeScript,
 } from '../api/session'
 import { listTemplates, getTemplate } from '../api/templates'
-import { getHealth } from '../api/health'
+import {
+  verifyExecEnv,
+  setSessionExecEnv,
+  listCondaEnvs,
+} from '../api/execEnv'
 import { getApiBaseUrl } from '../electron-api'
 import type { TemplateDef, TemplateDetail, ExecResult } from '../types'
 
@@ -38,6 +42,7 @@ export default function MainPage() {
     activeTab,
     qaMessages,
     editedScript,
+    execEnv,
     setSession,
     setLoading,
     setTemplates,
@@ -52,10 +57,9 @@ export default function MainPage() {
   const [execLog, setExecLog] = useState<string[]>([])
   const [isExecuting, setIsExecuting] = useState(false)
   const [execResult, setExecResult] = useState<ExecResult | null>(null)
-  const [gdalBin, setGdalBin] = useState<string>('')
   const { connect: connectExec } = useWebSocket()
 
-  // ─── Init: create session + load templates + health check ──────
+  // ─── Init: create session + load templates ───────────────────────
   useEffect(() => {
     const init = async () => {
       try {
@@ -63,10 +67,6 @@ export default function MainPage() {
         setSession(session)
         const list = await listTemplates()
         setTemplates(list)
-        const health = await getHealth()
-        if (health.gdal_bin) {
-          setGdalBin(health.gdal_bin)
-        }
       } catch (e) {
         console.error('初始化失败:', e)
       }
@@ -374,6 +374,23 @@ export default function MainPage() {
     }
   }
 
+  // ─── Exec env: verify ───────────────────────────────────────────
+  const handleVerifyEnv = async (config: { type: string; env_name: string; shell: string; shell_path: string }) => {
+    return verifyExecEnv(config)
+  }
+
+  // ─── Exec env: save ─────────────────────────────────────────────
+  const handleSaveEnv = async (config: { type: string; env_name: string; shell: string; shell_path: string }) => {
+    if (!sessionId) return
+    const result = await setSessionExecEnv(sessionId, config)
+    setSession(result)
+  }
+
+  // ─── Exec env: list conda envs ──────────────────────────────────
+  const handleListCondaEnvs = async () => {
+    return listCondaEnvs()
+  }
+
   // ─── Render ─────────────────────────────────────────────────────
   return (
     <div className="h-screen flex flex-col">
@@ -421,7 +438,7 @@ export default function MainPage() {
                     paramValues={taskContext?.params || {}}
                     missingParams={taskContext?.missing_params}
                     workspace={workspace}
-                    gdalBin={gdalBin}
+                    execEnv={execEnv}
                     onScriptChange={setEditedScript}
                     onRefreshScript={handleRefreshScript}
                     onExecute={handleExecute}
@@ -434,6 +451,9 @@ export default function MainPage() {
                     onEditParams={handleEditParams}
                     onNewTask={handleNewTask}
                     onUpdateWorkspace={handleUpdateWorkspace}
+                    onVerifyEnv={handleVerifyEnv}
+                    onSaveEnv={handleSaveEnv}
+                    onListCondaEnvs={handleListCondaEnvs}
                   />
                 )}
               </div>

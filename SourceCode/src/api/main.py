@@ -113,6 +113,7 @@ def create_app() -> FastAPI:
     _init_dependencies()
 
     # Register routes
+    from api.routes import exec_env as exec_env_routes
     from api.routes import generator as generator_routes
     from api.routes import pipeline as pipeline_routes
     from api.routes import session as session_routes
@@ -124,6 +125,7 @@ def create_app() -> FastAPI:
     app.include_router(templates_routes.router, prefix="/api")
     app.include_router(pipeline_routes.router, prefix="/api")
     app.include_router(generator_routes.router, prefix="/api")
+    app.include_router(exec_env_routes.router, prefix="/api")
 
     @app.websocket("/ws/chat/{session_id}")
     async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
@@ -138,14 +140,7 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health_check() -> dict[str, str]:
         """Health check endpoint."""
-        gdal_bin = ""
-        try:
-            from config.loader import get_config
-
-            gdal_bin = get_config().gdal_bin
-        except Exception:
-            pass
-        return {"status": "ok", "gdal_bin": gdal_bin}
+        return {"status": "ok"}
 
     return app
 

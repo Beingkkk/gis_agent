@@ -56,7 +56,6 @@ class TestCreateApp:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "ok"
-        assert "gdal_bin" in data
 
     def test_404_unknown_route(self) -> None:
         client = TestClient(create_app())

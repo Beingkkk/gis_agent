@@ -138,11 +138,11 @@ PROJ_LIB  ← {env_path}/Library/share/proj
 
 ### DC-0105: 脚本执行临时化，导出与执行分离
 
-**决策**: 脚本执行时的临时文件不再写入工作空间，改为写入系统临时目录（`tempfile.gettempdir()`）。用户如需保存脚本，通过独立的"导出脚本"功能主动保存。
+**决策**: 脚本执行时的临时文件不再写入工作空间，改为写入项目根目录下的 `cache/` 子目录（自动创建）。用户如需保存脚本，通过独立的"导出脚本"功能主动保存。
 
 **执行流程变更**:
 - 旧：`write_script(commands, workspace)` → `{workspace}/script_{uuid}.{ext}`
-- 新：`write_script_to_temp(commands)` → `{tempdir}/script_{uuid}.{ext}`，执行后清理
+- 新：`write_script_to_temp(commands)` → `{project_root}/cache/script_{uuid}.{ext}`，执行后清理
 
 **导出流程**（独立功能）:
 ```
@@ -167,7 +167,7 @@ POST /session/{id}/export-script {output_path}
 - 工作空间不再被临时脚本文件污染，保持干净
 - 用户有明确的"保存脚本"意图时才生成持久化文件
 - 导出操作不影响会话状态，纯副作用操作
-- 临时目录由操作系统管理，无需应用维护清理策略
+- `cache/` 目录位于项目根目录下，路径可控、易排查，避免 Windows 系统 Temp 目录（`C:\Users\...\AppData\Local\Temp`）带来的跨盘/权限问题
 
 **依赖关系**:
 - plan-ux DC-UX-11a（前端导出按钮 UX）依赖本决策
@@ -515,9 +515,9 @@ POST /session/{id}/exec-env
     ▼
 ShellExecutor.write_script_to_temp(commands)
     │
-    ├──→ bash → 生成 {temp}/script_{uuid}.sh
-    ├──→ cmd  → 生成 {temp}/script_{uuid}.bat
-    └──→ powershell → 生成 {temp}/script_{uuid}.ps1
+    ├──→ bash → 生成 {project_root}/cache/script_{uuid}.sh
+    ├──→ cmd  → 生成 {project_root}/cache/script_{uuid}.bat
+    └──→ powershell → 生成 {project_root}/cache/script_{uuid}.ps1
     │
     ▼
 ShellExecutor.execute(script_path, cwd=workspace)
@@ -531,7 +531,7 @@ ShellExecutor.execute(script_path, cwd=workspace)
 ```
 
 **设计说明**（DC-0105）：
-- 执行时的临时脚本写入系统临时目录（`tempfile.gettempdir()`），不再污染工作空间
+- 执行时的临时脚本写入项目根目录 `cache/` 子目录（自动创建），不再污染工作空间
 - 临时文件由 `execute` 调用方在执行完成后负责清理
 - 用户如需保留脚本，使用独立的"导出脚本"功能（DC-UX-11a）
 
@@ -543,7 +543,7 @@ ShellExecutor.execute(script_path, cwd=workspace)
 
 | 模块 | 接口 | 用途 |
 |------|------|------|
-| `tempfile.gettempdir()` | — | 脚本执行时临时文件写入目录（DC-0105） |
+| 项目根目录 `cache/` | — | 脚本执行时临时文件写入目录（DC-0105） |
 
 ### 5.2 向下暴露
 
@@ -587,7 +587,7 @@ ShellExecutor.execute(script_path, cwd=workspace)
 | EnvironmentBuilder — auto shell | 自动探测并解析为具体 shell 类型 |
 | ShellExecutor — write_script (bash) | 生成 `.sh` 文件到指定路径，包含 `set -euo pipefail` |
 | ShellExecutor — write_script (cmd) | 生成 `.bat` 文件到指定路径，包含 `@echo off` |
-| ShellExecutor — write_script_to_temp | 生成到系统临时目录，文件名含 uuid |
+| ShellExecutor — write_script_to_temp | 生成到项目根目录 cache/ 子目录，文件名含 uuid |
 | verify 端点 — 有效配置 | 返回 `valid: true` + shell/gdal 信息 |
 | 导出脚本端点 — 成功 | 按 shell 类型生成正确格式，写入用户指定路径 |
 | 导出脚本端点 — 路径不可写 | 返回 400 + 错误信息 |
@@ -622,6 +622,7 @@ ShellExecutor.execute(script_path, cwd=workspace)
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.3.0 | 2026-06-02 | **临时目录改为项目 cache/**：DC-0105 更新，临时脚本从 `tempfile.gettempdir()`（Windows 系统 Temp）改为项目根目录 `./cache/`（自动创建），避免跨盘路径问题和权限困扰；同步更新 `cli/executor.py` |
 | v1.2.0 | 2026-06-02 | **脚本执行临时化 + 导出分离**：新增 DC-0105；`ShellExecutor.write_script()` 改为接受任意 `output_path`；新增 `write_script_to_temp()` 用于执行时临时文件；执行流程从 workspace 改为 temp 目录；新增 `/session/{id}/export-script` API；更新 §5.2 向下暴露表 |
 | v1.1.0 | 2026-06-01 | DC-0100 标记为已实现。明确模块定位：独立块，仅在子进程执行时触发交互，不影响其他功能模块 |
 | v1.0.0 | 2026-06-01 | 初版。移除 config.json 中的 `gdal_bin` 配置；改为运行时通过 UI 设置执行环境；定义 ShellDetector、CondaEnvDetector、ShellExecutor、EnvironmentBuilder；新增 `/exec-env/verify` 和 `/session/{id}/exec-env` API；Session 新增 `exec_env` 字段 |

@@ -12,8 +12,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import tempfile
-
 from templates.engine import RenderedScript
 
 logger = logging.getLogger(__name__)
@@ -100,7 +98,7 @@ class ScriptExecutor:
         print(script.content)
 
     def _write_script_file(self, script: RenderedScript) -> Path:
-        """Write script content to a temporary file.
+        """Write script content to a cache directory file.
 
         Returns:
             Path to the written script file.
@@ -109,8 +107,10 @@ class ScriptExecutor:
         # Use a timestamped filename to avoid collisions
         timestamp = str(int(time.time()))
         filename = f"script_{timestamp}{ext}"
-        temp_dir = Path(tempfile.gettempdir())
-        script_path = temp_dir / filename
+        # Resolve cache dir relative to project root (cli/executor.py → 3 levels up)
+        cache_dir = Path(__file__).resolve().parents[2] / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        script_path = cache_dir / filename
         script_path.write_text(script.content, encoding="utf-8")
         logger.debug("Script written to %s", script_path)
         return script_path

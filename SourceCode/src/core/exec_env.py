@@ -652,7 +652,8 @@ class ShellExecutor:
     def write_script_to_temp(self, commands: List[str]) -> Path:
         """Write commands to a temporary script file for execution.
 
-        Uses the system temp directory. The caller is responsible for cleanup.
+        Uses ./cache relative to the project root (created if missing).
+        The caller is responsible for cleanup.
 
         Returns:
             Path to the temporary script file.
@@ -660,8 +661,6 @@ class ShellExecutor:
         Design:
             DC-0105
         """
-        import tempfile
-
         shell = self.env.shell
         timestamp = str(int(time.time()))
         uid = str(uuid.uuid4())[:8]
@@ -676,8 +675,11 @@ class ShellExecutor:
             raise ValueError(f"Unsupported shell: {shell}")
 
         filename = f"gis_script_{timestamp}_{uid}{ext}"
-        temp_dir = Path(tempfile.gettempdir())
-        script_path = temp_dir / filename
+        # Resolve cache dir relative to project root (where this file lives:
+        # src/core/exec_env.py → project root is 3 levels up)
+        cache_dir = Path(__file__).resolve().parents[3] / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        script_path = cache_dir / filename
 
         header, body = self._build_script_content(commands)
         script_path.write_text(header + body, encoding="utf-8")

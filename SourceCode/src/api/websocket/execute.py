@@ -97,23 +97,30 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
             exec_env.gdal_available,
         )
     else:
-        # Fallback: system default — use current os.environ, hardcoded cmd
-        # (preserves backward compatibility for sessions without env config)
-        from core.exec_env import ExecEnvironment, ShellType
+        # Fallback: auto-detect best available shell (DC-0101)
+        from core.exec_env import ExecEnvironment, ShellDetector
 
+        shell_type, shell_path = ShellDetector.detect()
         fallback_env = ExecEnvironment(
             env_vars=dict(os.environ),
-            shell=ShellType.CMD,
-            shell_executable=Path("cmd"),
+            shell=shell_type,
+            shell_executable=shell_path,
             gdal_available=False,
         )
         executor = ShellExecutor(fallback_env)
-        logger.debug("Using fallback exec env (system default, cmd)")
+        logger.debug("Using fallback exec env (auto-detected %s)", shell_type.value)
 
     # Write script to temp file (DC-0105: no longer in workspace)
     script_path: Path | None = None
     try:
-        commands = script_content.strip().splitlines()
+        # Strip comment/header lines (e.g. @echo off, REM, #) so they
+        # don't conflict with the shell-specific header added by
+        # ShellExecutor._build_script_content.
+        commands = [
+            line
+            for line in script_content.strip().splitlines()
+            if line.strip() and not line.strip().startswith(("#", "@", "REM"))
+        ]
         script_path = executor.write_script_to_temp(commands)
     except Exception as exc:
         logger.exception("Script write error: %s", exc)

@@ -73,6 +73,10 @@ Use `codegraph_search` to find specific functions. The following are design patt
 - **CLI**: `SessionProcessor` (in `core/processor.py`) drives the full state machine single-threaded. `_handle_error_recovery()` performs LLM diagnosis and parses user text choices ("1"/"2"/"3").
 - **Desktop UI**: The API routes (`api/routes/session.py`) handle state transitions via REST. `EXECUTING` is special — the `websocket/execute.py` handler runs the script asynchronously, then updates the session state: success → `IDLE` (clears history and error context); failure → `ERROR_RECOVERY` with `ExecutionErrorContext` (DC-0048). The frontend then calls `POST /session/{id}/diagnose` to trigger lazy LLM diagnosis (plan-core DC-0049).
 
+**History isolation (DC-0107)**: `Session` maintains two separate message lists:
+- `history` — Discovery/Exec flow messages (intent matching, parameter submission, execution status)
+- `qa_history` — QATab multi-turn conversation history (DC-UX-14). WebSocket Q&A handler reads from and writes to `qa_history`; DiscoveryTab messages never pollute Q&A context.
+
 ### Two-Stage Intent Matching (DC-0098)
 
 `api/routes/session.py::process_intent` implements a two-stage pipeline for **DiscoveryTab only** (Q&A has its own endpoint, see below):
@@ -82,11 +86,13 @@ Use `codegraph_search` to find specific functions. The following are design patt
 
 The same `score_template_match()` scoring is reused by Q&A context selection (`llm/qa.py`).
 
-### Q&A API Separation (DC-0071)
+### Q&A API Separation (DC-0071, DC-0107, DC-UX-14/15)
 
 Q&A and intent matching are separated at the API level:
 - **`POST /session/{id}/intent`** — DiscoveryTab only. Pure intent matching, no `is_question` keyword heuristic. All inputs go through template matching.
 - **`POST /session/{id}/chat`** — HTTP fallback (backend still implements). QATab **front-end uses WebSocket `/ws/chat/{id}`** for streaming (CODE-5). Always treated as a question. Calls `answer_question()` with `locked_template` to determine whether to include template context (template-knowledge mode) or not (GIS-expert mode).
+
+**Q&A history isolation**: The WebSocket chat handler (`api/websocket/chat.py`) reads `session.qa_history` as the conversation context for `answer_question()`, and appends both user and assistant messages back to `qa_history` after each round. This makes multi-turn Q&A actually functional (previously the handler only read `session.history` but never wrote back). The frontend maintains its own `qaMessages` local state (Zustand) for rendering; it does not consume `qa_history` from the backend snapshot (DC-UX-15).
 
 This removes the old keyword-based (`什么`, `怎么`) question detection from `process_intent`. Intent is determined by which Tab the user is in, not by parsing their text.
 
@@ -99,6 +105,7 @@ Unlike the CLI where `SessionProcessor._handle_error_recovery()` drives the enti
 
 **UI layout in ERROR_RECOVERY**:
 - **Left panel (ExecTab)**: Failure banner + diagnosis result (loading → cause + suggestion + can_auto_fix badge) + error output bash panel + action buttons: **"修改参数"** / **"放弃任务"** (DC-UX-12 v1.11.0). "重新执行" was removed — its behavior was identical to "修改参数".
+- **Diagnosis rendering**: The suggestion text is rendered with `ReactMarkdown` (supporting code blocks, lists, tables via `remark-gfm`). When `can_auto_fix=true`, the LLM prompt requires a 【修复命令参考】section containing the corrected GDAL command in a markdown code block, which the frontend renders as a dark-themed code panel.
 - **Right panel (DetailPanel)**: Template parameters remain visible in **read-only** form (title "参数值" via `ParamForm readOnly`). Diagnosis results and action buttons are **not** duplicated here.
 - **No Q&A Tab jump**: Diagnosis results are shown inline in ExecTab; jumping to Q&A Tab was removed as redundant.
 
@@ -110,7 +117,7 @@ The J2 template generator (`scripts/generate/`) is a **development-time only** b
 
 ### Frontend State Architecture
 
-- `useSession` (Zustand) holds minimal UI state: `sessionId`, `state`, `taskContext`, `messages`, `scriptPreview`, `errorContext`, `execEnv`.
+- `useSession` (Zustand) holds minimal UI state: `sessionId`, `state`, `taskContext`, `messages`, `scriptPreview`, `errorContext`, `execEnv`. QATab messages (`qaMessages`) are maintained locally by the frontend and never synced from the backend snapshot (DC-UX-15).
 - Every API call returns a `SessionSnapshot`; the frontend replaces its state wholesale (DC-UX-03).
 - HTTP for state transitions (intent/lock/params/clear). WebSocket for Q&A (`/ws/chat/{id}`), script execution (`/ws/execute/{id}`), and Pipeline execution (`/ws/pipeline-execute/{id}`). WebSocket is mandatory for any LLM streaming or subprocess log push (CODE-5).
 - **Three-TAB architecture** (DC-UX-10): Discovery (template search), Q&A (GIS expert chat), Exec (script execution). Discovery calls `processIntent` (HTTP); Q&A connects to `/ws/chat/{id}` (WebSocket); Exec triggers execution via HTTP then receives logs via `/ws/execute/{id}` (WebSocket).
@@ -304,18 +311,18 @@ These files are referenced frequently enough to be worth remembering, or they em
 |------|---------------|
 | `Document/constitution.md` | Source of truth for workflow rules (RED-1: no code without plan), quality gates, change control |
 | `Document/spec.md` | All requirements trace back here (F1-F11, P1-P5, UX-1~3) |
-| `Document/plan-core.md` | ERROR_RECOVERY design (DC-0048/DC-0049), matching engine (DC-0094), two-stage matching (DC-0098) |
-| `Document/plan-ux.md` | WebSocket streaming (DC-UX-04/05), state→UI mapping, Pipeline/Generator UX |
+| `Document/plan-core.md` | ERROR_RECOVERY design (DC-0048/DC-0049), matching engine (DC-0094), two-stage matching (DC-0098), one-shot LLM decisions (DC-0106), `qa_history` isolation (DC-0107) |
+| `Document/plan-ux.md` | WebSocket streaming (DC-UX-04/05), state→UI mapping, Q&A history isolation (DC-UX-14/15), diagnosis UX with markdown rendering, Pipeline/Generator UX |
 | `Document/plan-electron.md` | Electron shell architecture, IPC design, Python process lifecycle |
 | `Document/plan-exec-env.md` | Execution environment config: ShellDetector, CondaEnvDetector, ShellExecutor; DC-0101~DC-0105 |
 | `src/api/routes/session.py` | Two-stage intent matching API (DC-0098) + `POST /chat` for Q&A + `POST /diagnose` for lazy error diagnosis + `POST /export-script` for explicit script export (DC-UX-11a) |
-| `src/api/websocket/chat.py` | Q&A WebSocket handler: streams LLM output via `/ws/chat/{id}` (DC-UX-04) |
+| `src/api/websocket/chat.py` | Q&A WebSocket handler: streams LLM output via `/ws/chat/{id}` (DC-UX-04). Reads `session.qa_history` as conversation context and persists user+assistant messages back to `qa_history` after each round (DC-UX-14) |
 | `src/api/websocket/execute.py` | Execution WebSocket handler: subprocess stdout/stderr streaming (DC-0048) |
 | `src/core/processor.py` | CLI state machine dispatcher; `_handle_error_recovery()` is the CLI-side diagnosis driver |
 | `src/core/matching.py` | Unified template matching scoring (keywords=+3, concepts=+2, id/name/desc/notes=+1) |
 | `src/llm/prompts.py` | PromptBuilder with 5 scenario-specific system prompts (DC-0071): intent / template-qa / gis-expert / param / diagnosis |
 | `src/llm/qa.py` | `answer_question()` — code-level branching: `locked_template` determines template-knowledge vs GIS-expert mode |
-| `src/llm/diagnosis.py` | `analyze_execution_error()` — LLM error diagnosis returning structured `ErrorDiagnosis` |
+| `src/llm/diagnosis.py` | `analyze_execution_error()` — One-shot LLM error diagnosis (no history, DC-0106). Prompt requires a 【修复命令参考】 markdown code block when `can_auto_fix=true`. Returns structured `ErrorDiagnosis` (cause, suggestion, fixed_params, confidence, can_auto_fix). |
 | `frontend/electron/main.ts` | Electron main process: frameless window, Python child process, IPC handlers (file dialogs + window controls) |
 | `frontend/electron/preload.ts` | `contextBridge` preload script exposing `selectFile`, `selectDirectory`, `getApiBaseUrl`, `windowControl` |
 | `frontend/src/electron-api.ts` | Renderer-side IPC wrappers including `WindowControlAPI` (minimize/maximize/close) |
@@ -332,13 +339,13 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `frontend/src/api/pipeline.ts` | Pipeline API client — preview and execute multi-step pipelines |
 | `frontend/src/components/TabBar.tsx` | TAB switcher bar (Discovery / Q&A / Exec) with message count badge |
 | `frontend/src/components/CmdEditor.tsx` | Monaco-style script editor with Jinja2 syntax highlighting, live validation |
-| `frontend/src/components/ExecStatusPanel.tsx` | Execution result panel: success (green card with output/returncode/duration) / failure (diagnosis result + error output bash panel + "修改参数"/"放弃任务" actions) |
+| `frontend/src/components/ExecStatusPanel.tsx` | Execution result panel: success (green card with output/returncode/duration) / failure (diagnosis result rendered with ReactMarkdown + error output bash panel + "修改参数"/"放弃任务" actions). Diagnosis suggestion supports markdown code blocks for 【修复命令参考】. |
 | `frontend/src/components/DetailPanel.tsx` | Right-panel state renderer: `PARAM_COLLECT` → ParamForm (grouped); `SCRIPT_PREVIEW` → collapsible ParamForm only (script preview lives in ExecTab CmdEditor); `IDLE` (post-success) → read-only ParamForm showing grouped param values; `ERROR_RECOVERY` → read-only ParamForm (title "参数值", no buttons — diagnosis lives in ExecStatusPanel on left) |
 | `frontend/src/pages/GeneratorPage.tsx` | Five-step J2 wizard: Monaco-style editor, inline Jinja2 highlight, live re-validation |
 | `frontend/src/pages/PipelinePage.tsx` | Pipeline multi-step: template step editor with auto-linked parameters, merged script preview, WebSocket execution |
 | `src/api/routes/pipeline.py` | Pipeline REST API: `POST /pipeline` (preview merged script), `POST /pipeline/execute` (trigger execution) |
 | `src/core/exec_env.py` | `ShellDetector`, `CondaEnvDetector`, `EnvironmentBuilder`, `ShellExecutor` — shell detection, conda env var derivation, script write/execute (DC-0101~DC-0105) |
-| `src/api/websocket/execute.py` | Execution WebSocket handler: renders script from template/params, writes to `./cache/`, streams subprocess stdout/stderr, updates session state (DC-0048, DC-0105) |
+| `src/api/websocket/execute.py` | Execution WebSocket handler: renders script from template/params, writes to `./cache/`, streams subprocess stdout/stderr, updates session state (DC-0048, DC-0105). Done message carries `stdout`/`stderr`/`duration_ms`/`returncode` so the frontend does not need to fall back to `execLog` for error output. |
 | `src/templates/scanner.py` | `.j2` file scanner — parses comment headers into `TemplateDef` at startup |
 
 ### ParamForm readOnly Mode

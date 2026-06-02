@@ -95,7 +95,12 @@ This removes the old keyword-based (`什么`, `怎么`) question detection from 
 Unlike the CLI where `SessionProcessor._handle_error_recovery()` drives the entire recovery loop, the desktop UI splits it across three pieces:
 1. **Backend websocket**: `websocket/execute.py` sets `ERROR_RECOVERY` + basic `ExecutionErrorContext` (stdout/stderr/returncode/duration_ms, diagnosis=None).
 2. **Backend diagnose endpoint**: `POST /session/{id}/diagnose` lazily triggers `llm.diagnosis.analyze_execution_error()`, populates `error_context.diagnosis` (cause, suggestion, fixed_params, confidence, can_auto_fix), and caches the result.
-3. **Frontend DetailPanel**: `ERROR_RECOVERY` state renders a diagnosis panel (loading spinner → diagnosis result → repair options: re-execute / edit params / abandon).
+3. **Frontend auto-trigger**: After WebSocket execution fails, `MainPage` automatically calls `diagnoseSession()` if `error_context.diagnosis` is absent. **No "一键诊断" button** — diagnosis is fully automatic.
+
+**UI layout in ERROR_RECOVERY**:
+- **Left panel (ExecTab)**: Failure banner + diagnosis result (loading → cause + suggestion + can_auto_fix badge) + error output bash panel + action buttons: **"修改参数"** / **"放弃任务"** (DC-UX-12 v1.11.0). "重新执行" was removed — its behavior was identical to "修改参数".
+- **Right panel (DetailPanel)**: Template parameters remain visible in **read-only** form (title "参数值" via `ParamForm readOnly`). Diagnosis results and action buttons are **not** duplicated here.
+- **No Q&A Tab jump**: Diagnosis results are shown inline in ExecTab; jumping to Q&A Tab was removed as redundant.
 
 ### Template System
 
@@ -110,9 +115,13 @@ The J2 template generator (`scripts/generate/`) is a **development-time only** b
 - HTTP for state transitions (intent/lock/params/clear). WebSocket for Q&A (`/ws/chat/{id}`), script execution (`/ws/execute/{id}`), and Pipeline execution (`/ws/pipeline-execute/{id}`). WebSocket is mandatory for any LLM streaming or subprocess log push (CODE-5).
 - **Three-TAB architecture** (DC-UX-10): Discovery (template search), Q&A (GIS expert chat), Exec (script execution). Discovery calls `processIntent` (HTTP); Q&A connects to `/ws/chat/{id}` (WebSocket); Exec triggers execution via HTTP then receives logs via `/ws/execute/{id}` (WebSocket).
 - After WebSocket execution completes, frontend calls `GET /session/{id}` to refresh the updated state.
-- Routing uses `HashRouter` (not `BrowserRouter`) because Electron loads from `file://` protocol.
+- Routing uses `HashRouter` (not `BrowserRouter`) because Electron loads from `file://` protocol. Routes: `/` (MainPage), `/generator` (GeneratorPage), `/pipeline` (PipelinePage).
 - API base URL is resolved via IPC (`getApiBaseUrl()`) returning an absolute URL like `http://localhost:18000`; the frontend never relies on relative `/api` paths in production.
 - Window is frameless (`frame: false`, `titleBarStyle: 'hidden'`) with a custom `TopBar` component providing title, navigation, and window control buttons (minimize/maximize/close) via IPC (`windowControl` API, DC-E07).
+
+### Pipeline Multi-Step Execution
+
+Pipeline (`/#/pipeline`) allows chaining multiple template steps with auto-linked parameters (output of step N → input of step N+1). It shares the same WebSocket execution infrastructure (`/ws/pipeline-execute/{id}`) as single-script execution. The backend merges step scripts with separators; execution environment (shell, conda) is reused from session.
 
 ### GeneratorPage (J2 Template Wizard)
 
@@ -298,6 +307,7 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `Document/plan-core.md` | ERROR_RECOVERY design (DC-0048/DC-0049), matching engine (DC-0094), two-stage matching (DC-0098) |
 | `Document/plan-ux.md` | WebSocket streaming (DC-UX-04/05), state→UI mapping, Pipeline/Generator UX |
 | `Document/plan-electron.md` | Electron shell architecture, IPC design, Python process lifecycle |
+| `Document/plan-exec-env.md` | Execution environment config: ShellDetector, CondaEnvDetector, ShellExecutor; DC-0101~DC-0105 |
 | `src/api/routes/session.py` | Two-stage intent matching API (DC-0098) + `POST /chat` for Q&A + `POST /diagnose` for lazy error diagnosis + `POST /export-script` for explicit script export (DC-UX-11a) |
 | `src/api/websocket/chat.py` | Q&A WebSocket handler: streams LLM output via `/ws/chat/{id}` (DC-UX-04) |
 | `src/api/websocket/execute.py` | Execution WebSocket handler: subprocess stdout/stderr streaming (DC-0048) |
@@ -319,11 +329,16 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `frontend/src/components/ExecTab.tsx` | Script execution TAB: command preview / executing / success / failure states + runtime exec-env panel + export script button (DC-UX-11a) |
 | `frontend/src/components/paramGroups.ts` | Shared parameter grouping rules (input/output, CRS, transform, clip, advanced) used by ParamForm and DetailPanel |
 | `frontend/src/api/health.ts` | Health API client — basic status check |
+| `frontend/src/api/pipeline.ts` | Pipeline API client — preview and execute multi-step pipelines |
 | `frontend/src/components/TabBar.tsx` | TAB switcher bar (Discovery / Q&A / Exec) with message count badge |
 | `frontend/src/components/CmdEditor.tsx` | Monaco-style script editor with Jinja2 syntax highlighting, live validation |
-| `frontend/src/components/ExecStatusPanel.tsx` | Execution result panel (success/failure) with one-click diagnose button |
-| `frontend/src/components/DetailPanel.tsx` | Right-panel state renderer: `PARAM_COLLECT` → ParamForm (grouped); `SCRIPT_PREVIEW` → collapsible ParamForm only (script preview lives in ExecTab CmdEditor); `IDLE` (post-success) → read-only ParamForm showing grouped param values; `ERROR_RECOVERY` → diagnosis panel |
+| `frontend/src/components/ExecStatusPanel.tsx` | Execution result panel: success (green card with output/returncode/duration) / failure (diagnosis result + error output bash panel + "修改参数"/"放弃任务" actions) |
+| `frontend/src/components/DetailPanel.tsx` | Right-panel state renderer: `PARAM_COLLECT` → ParamForm (grouped); `SCRIPT_PREVIEW` → collapsible ParamForm only (script preview lives in ExecTab CmdEditor); `IDLE` (post-success) → read-only ParamForm showing grouped param values; `ERROR_RECOVERY` → read-only ParamForm (title "参数值", no buttons — diagnosis lives in ExecStatusPanel on left) |
 | `frontend/src/pages/GeneratorPage.tsx` | Five-step J2 wizard: Monaco-style editor, inline Jinja2 highlight, live re-validation |
+| `frontend/src/pages/PipelinePage.tsx` | Pipeline multi-step: template step editor with auto-linked parameters, merged script preview, WebSocket execution |
+| `src/api/routes/pipeline.py` | Pipeline REST API: `POST /pipeline` (preview merged script), `POST /pipeline/execute` (trigger execution) |
+| `src/core/exec_env.py` | `ShellDetector`, `CondaEnvDetector`, `EnvironmentBuilder`, `ShellExecutor` — shell detection, conda env var derivation, script write/execute (DC-0101~DC-0105) |
+| `src/api/websocket/execute.py` | Execution WebSocket handler: renders script from template/params, writes to `./cache/`, streams subprocess stdout/stderr, updates session state (DC-0048, DC-0105) |
 | `src/templates/scanner.py` | `.j2` file scanner — parses comment headers into `TemplateDef` at startup |
 
 ### ParamForm readOnly Mode
@@ -375,4 +390,4 @@ After adding a template, restart the application to pick it up (templates are sc
 - `SourceCode/config/config.json` is gitignored; never commit credentials.
 - `SourceCode/docs/README-UI.md` is outdated (browser UI mode was removed); Electron is the sole graphical entry point.
 - The Electron desktop app (`frontend/`) and CLI (`cli/`) are parallel entry points sharing `core/llm/templates`. Changes to business logic affect both UIs.
-- Script execution writes to a temp directory (DC-0105), not to workspace. Users export scripts explicitly via the "Export Script" button (DC-UX-11a) which opens a save dialog and reveals the file in the file manager.
+- Script execution writes temporary scripts to `./cache/` (project-relative, auto-created; DC-0105 v1.3.0), not to workspace or system temp. Users export scripts explicitly via the "Export Script" button (DC-UX-11a) which opens a save dialog and reveals the file in the file manager.

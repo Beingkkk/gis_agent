@@ -317,47 +317,6 @@ export default function MainPage() {
     })
   }
 
-  // ─── One-click diagnose (DC-UX-12) ──────────────────────────────
-  const handleDiagnose = async () => {
-    if (!sessionId || !errorContext) return
-
-    clearQAMessages()
-    setActiveTab('qa')
-
-    addQAMessage({
-      role: 'assistant',
-      content: '🔍 **一键诊断**\n\n正在分析模板信息、执行命令和错误输出...',
-      type: 'text',
-    })
-
-    try {
-      const result = await diagnoseSession(sessionId)
-      setSession(result)
-      if (result.error_context?.diagnosis) {
-        const d = result.error_context.diagnosis
-        let content = `**根因：** ${d.cause}\n\n**建议：** ${d.suggestion}`
-        if (d.can_auto_fix && Object.keys(d.fixed_params).length > 0) {
-          content += `\n\n**可自动修复的参数：** ${Object.entries(d.fixed_params)
-            .map(([k, v]) => `${k}=${v}`)
-            .join(', ')}`
-        }
-        addQAMessage({ role: 'assistant', content, type: 'text' })
-      } else {
-        addQAMessage({
-          role: 'assistant',
-          content: '诊断完成，但未返回详细结果。',
-          type: 'text',
-        })
-      }
-    } catch (e) {
-      addQAMessage({
-        role: 'assistant',
-        content: '诊断失败，请重试。',
-        type: 'error',
-      })
-    }
-  }
-
   // ─── Cancel / reset ─────────────────────────────────────────────
   const handleCancel = async () => {
     if (!sessionId) return
@@ -513,11 +472,6 @@ export default function MainPage() {
                     onRefreshScript={handleRefreshScript}
                     onExecute={handleExecute}
                     onCancelExecute={() => setIsExecuting(false)}
-                    onDiagnose={handleDiagnose}
-                    onRetry={() => {
-                      setExecResult(null)
-                      handleExecute()
-                    }}
                     onEditParams={handleEditParams}
                     onNewTask={handleNewTask}
                     onExportScript={handleExportScript}
@@ -539,8 +493,6 @@ export default function MainPage() {
                 sessionId && lockTemplate(sessionId, id).then(setSession)
               }
               onSubmitParams={handleSubmitParams}
-              onExecute={handleExecute}
-              onEditParams={handleEditParams}
               onCancel={handleCancel}
             />
           }

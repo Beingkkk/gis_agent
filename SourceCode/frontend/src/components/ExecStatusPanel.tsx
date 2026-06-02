@@ -4,7 +4,7 @@
  * 展示脚本执行的成功/失败结果。
  *
  * 成功态：绿色卡片 + 结果详情（输出文件、耗时等）
- * 失败态：红色卡片 + 错误输出高亮 + 一键诊断按钮
+ * 失败态：红色卡片 + 错误输出高亮 + 操作按钮
  *
  * Design: DC-UX-11
  */
@@ -16,10 +16,6 @@ interface ExecStatusPanelProps {
   result: ExecResult
   /** 错误上下文（失败时） */
   errorContext?: ErrorContext | null
-  /** 一键诊断 */
-  onDiagnose?: () => void
-  /** 重新执行 */
-  onRetry?: () => void
   /** 返回修改参数 */
   onEditParams?: () => void
   /** 新任务 */
@@ -29,8 +25,6 @@ interface ExecStatusPanelProps {
 export default function ExecStatusPanel({
   result,
   errorContext,
-  onDiagnose,
-  onRetry,
   onEditParams,
   onNewTask,
 }: ExecStatusPanelProps) {
@@ -187,13 +181,13 @@ export default function ExecStatusPanel({
         </div>
       ) : null}
 
-      {/* Error output */}
-      {(result.stderr || result.stdout) && (
+      {/* Error output: fallback to errorContext when result is empty */}
+      {(result.stderr || result.stdout || errorContext?.stderr || errorContext?.stdout) && (
         <div>
           <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-[0.8px] mb-2">错误输出</h4>
           <div className="bg-[#0f172a] rounded-lg overflow-hidden">
             <pre className="text-slate-300 p-3 text-[11px] font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-[240px] overflow-y-auto">
-              {result.stderr || result.stdout}
+              {result.stderr || result.stdout || errorContext?.stderr || errorContext?.stdout}
             </pre>
           </div>
         </div>
@@ -201,26 +195,6 @@ export default function ExecStatusPanel({
 
       {/* Recovery actions */}
       <div className="space-y-2 pt-2">
-        <button
-          onClick={onDiagnose}
-          className="w-full h-10 rounded-xl bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 transition-all shadow-[0_1px_4px_rgba(217,119,6,0.2)] flex items-center justify-center gap-1.5"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="16" x2="12" y2="12" />
-            <line x1="12" y1="8" x2="12.01" y2="8" />
-          </svg>
-          一键诊断
-        </button>
-        <button
-          onClick={onRetry}
-          className="w-full h-10 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-all shadow-[0_1px_4px_rgba(16,185,129,0.2)] flex items-center justify-center gap-1.5"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polygon points="5 3 19 12 5 21 5 3" />
-          </svg>
-          重新执行
-        </button>
         <button
           onClick={onEditParams}
           className="w-full h-10 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-all flex items-center justify-center gap-1.5"
@@ -230,6 +204,16 @@ export default function ExecStatusPanel({
             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
           </svg>
           修改参数
+        </button>
+        <button
+          onClick={onNewTask}
+          className="w-full h-10 rounded-xl border border-red-200 text-sm font-medium text-red-600 hover:bg-red-50 transition-all flex items-center justify-center gap-1.5"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6" />
+            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+          </svg>
+          放弃任务
         </button>
       </div>
     </div>

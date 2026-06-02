@@ -166,7 +166,7 @@ def _build_session_response(session_id: str, session: Session) -> SessionRespons
     script_preview: Optional[str] = None
     if session.user_script:
         script_preview = session.user_script
-    elif session.state == SessionState.SCRIPT_PREVIEW and template:
+    elif session.state in (SessionState.SCRIPT_PREVIEW, SessionState.ERROR_RECOVERY) and template:
         try:
             engine = get_template_engine()
             rendered = engine.render(template, session.params)

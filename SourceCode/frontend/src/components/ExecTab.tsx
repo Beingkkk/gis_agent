@@ -42,10 +42,6 @@ interface ExecTabProps {
   onExecute: () => void
   /** 取消执行 */
   onCancelExecute: () => void
-  /** 一键诊断 */
-  onDiagnose: () => void
-  /** 重新执行 */
-  onRetry: () => void
   /** 返回修改参数 */
   onEditParams: () => void
   /** 新任务 */
@@ -89,8 +85,6 @@ export default function ExecTab({
   onRefreshScript,
   onExecute,
   onCancelExecute,
-  onDiagnose,
-  onRetry,
   onEditParams,
   onNewTask,
   onExportScript,
@@ -471,33 +465,57 @@ export default function ExecTab({
           </div>
         </div>
 
-        {/* Terminal output */}
-        <div className="flex-1 overflow-hidden bg-[#0f172a] flex flex-col max-h-[400px]"
+        {/* Script preview + Terminal output */}
+        <div className="flex-1 overflow-hidden flex flex-col"
         >
-          <div className="px-4 py-2 bg-[#1e293b] border-b border-white/[0.06] flex items-center justify-between flex-shrink-0"
-          >
-            <span className="text-[11px] font-medium text-slate-400 font-mono"
+          {/* Script being executed */}
+          {script && (
+            <div className="flex-shrink-0 border-b border-slate-200"
             >
-              执行日志
-            </span>
-            <span className="text-[10px] text-slate-600"
-            >
-              {execLog.length} 行
-            </span>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4"
-          >
-            {execLog.length === 0 ? (
-              <div className="text-slate-600 text-xs font-mono"
+              <div className="px-4 py-2 bg-[#1e293b] border-b border-white/[0.06] flex items-center justify-between"
               >
-                等待执行输出...
+                <span className="text-[11px] font-medium text-slate-400 font-mono"
+                >
+                  执行命令
+                </span>
               </div>
-            ) : (
-              <pre className="text-slate-300 text-xs font-mono leading-relaxed whitespace-pre-wrap"
+              <div className="bg-[#0f172a] p-4 overflow-x-auto"
               >
-                {execLog.join('\n')}
-              </pre>
-            )}
+                <pre className="text-slate-300 text-xs font-mono leading-relaxed whitespace-pre"
+                >
+                  {script}
+                </pre>
+              </div>
+            </div>
+          )}
+          {/* Terminal output */}
+          <div className="flex-1 overflow-hidden bg-[#0f172a] flex flex-col min-h-0"
+          >
+            <div className="px-4 py-2 bg-[#1e293b] border-b border-white/[0.06] flex items-center justify-between flex-shrink-0"
+            >
+              <span className="text-[11px] font-medium text-slate-400 font-mono"
+              >
+                执行日志
+              </span>
+              <span className="text-[10px] text-slate-600"
+              >
+                {execLog.length} 行
+              </span>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4"
+            >
+              {execLog.length === 0 ? (
+                <div className="text-slate-600 text-xs font-mono"
+                >
+                  等待执行输出...
+                </div>
+              ) : (
+                <pre className="text-slate-300 text-xs font-mono leading-relaxed whitespace-pre-wrap"
+                >
+                  {execLog.join('\n')}
+                </pre>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -535,8 +553,6 @@ export default function ExecTab({
           <ExecStatusPanel
             result={execResult}
             errorContext={errorContext}
-            onDiagnose={onDiagnose}
-            onRetry={onRetry}
             onEditParams={onEditParams}
             onNewTask={onNewTask}
           />

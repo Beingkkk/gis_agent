@@ -50,11 +50,27 @@ interface SessionStore {
 
   setActiveTab: (tab: TabId) => void
   addQAMessage: (msg: ChatMessage) => void
+  updateLastQAMessage: (content: string) => void
   clearQAMessages: () => void
   setEditedScript: (script: string | null) => void
 }
 
-const initialState = {
+type SessionStateFields = Omit<
+  SessionStore,
+  | 'setSession'
+  | 'addMessage'
+  | 'setLoading'
+  | 'setTemplates'
+  | 'setWorkspace'
+  | 'reset'
+  | 'setActiveTab'
+  | 'addQAMessage'
+  | 'updateLastQAMessage'
+  | 'clearQAMessages'
+  | 'setEditedScript'
+>
+
+const initialState: SessionStateFields = {
   sessionId: null,
   state: 'IDLE' as SessionState,
   taskContext: null,
@@ -110,6 +126,15 @@ export const useSession = create<SessionStore>((set) => ({
     set((state) => ({
       qaMessages: [...state.qaMessages, msg],
     })),
+
+  updateLastQAMessage: (content) =>
+    set((state) => {
+      const msgs = [...state.qaMessages]
+      if (msgs.length > 0 && msgs[msgs.length - 1].role === 'assistant') {
+        msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content }
+      }
+      return { qaMessages: msgs }
+    }),
 
   clearQAMessages: () => set({ qaMessages: [] }),
 

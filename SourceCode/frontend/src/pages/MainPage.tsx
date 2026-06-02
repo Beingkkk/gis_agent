@@ -12,7 +12,6 @@ import {
   createSession,
   getSession,
   processIntent,
-  chatQuestion,
   lockTemplate,
   submitParams,
   clearSession,
@@ -49,6 +48,7 @@ export default function MainPage() {
     setWorkspace,
     setActiveTab,
     addQAMessage,
+    updateLastQAMessage,
     clearQAMessages,
     setEditedScript,
   } = useSession()
@@ -141,27 +141,69 @@ export default function MainPage() {
     }
   }
 
-  // ─── QATab: send message ────────────────────────────────────────
+  // ─── QATab: send message via WebSocket (DC-UX-04) ───────────────
+  const [qaStreaming, setQaStreaming] = useState(false)
+
   const handleQASend = async (text: string) => {
-    if (!text.trim() || !sessionId) return
+    if (!text.trim() || !sessionId || qaStreaming) return
 
     addQAMessage({ role: 'user', content: text })
+    addQAMessage({ role: 'assistant', content: '' })
+    setQaStreaming(true)
     setLoading(true)
 
     try {
-      const result = await chatQuestion(sessionId, text)
-      setSession(result)
-      const lastAgentMsg = result.history.filter((m) => m.role === 'assistant').pop()
-      if (lastAgentMsg) {
-        addQAMessage(lastAgentMsg)
+      const backendUrl = await getApiBaseUrl()
+      if (!backendUrl) {
+        throw new Error('无法获取后端地址')
+      }
+      const wsBase = backendUrl.replace(/^http/, 'ws')
+      const wsUrl = `${wsBase}/ws/chat/${sessionId}`
+
+      const ws = new WebSocket(wsUrl)
+      let fullContent = ''
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ message: text }))
+      }
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data)
+          if (msg.type === 'chunk') {
+            fullContent += msg.content
+            updateLastQAMessage(fullContent)
+          } else if (msg.type === 'done') {
+            updateLastQAMessage(fullContent)
+            setQaStreaming(false)
+            setLoading(false)
+            ws.close()
+          } else if (msg.type === 'error') {
+            updateLastQAMessage(`处理失败：${msg.message}`)
+            setQaStreaming(false)
+            setLoading(false)
+            ws.close()
+          }
+        } catch {
+          // ignore malformed ws messages
+        }
+      }
+
+      ws.onerror = () => {
+        updateLastQAMessage('WebSocket 连接失败，请重试。')
+        setQaStreaming(false)
+        setLoading(false)
+      }
+
+      ws.onclose = () => {
+        if (qaStreaming) {
+          setQaStreaming(false)
+          setLoading(false)
+        }
       }
     } catch (e) {
-      addQAMessage({
-        role: 'assistant',
-        content: '处理失败，请重试。',
-        type: 'error',
-      })
-    } finally {
+      updateLastQAMessage('处理失败，请重试。')
+      setQaStreaming(false)
       setLoading(false)
     }
   }
@@ -336,6 +378,7 @@ export default function MainPage() {
   // ─── Return to param editing ────────────────────────────────────
   const handleEditParams = () => {
     if (sessionId && selectedTemplate) {
+      setExecResult(null)
       lockTemplate(sessionId, selectedTemplate.id)
         .then((s) => setSession(s))
         .catch(() => {})
@@ -421,6 +464,7 @@ export default function MainPage() {
                   <QATab
                     messages={qaMessages}
                     isLoading={isLoading}
+                    isStreaming={qaStreaming}
                     lockedTemplateName={taskContext?.template_name}
                     onSendMessage={handleQASend}
                     onClearMessages={clearQAMessages}

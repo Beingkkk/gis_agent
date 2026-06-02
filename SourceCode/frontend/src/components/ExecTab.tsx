@@ -452,17 +452,6 @@ export default function ExecTab({
               </svg>
               {hasMissing ? `还有 ${missingParams!.length} 个必填参数` : '执行脚本'}
             </button>
-            <button
-              onClick={onEditParams}
-              className="h-10 rounded-xl border border-slate-200 px-4 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-all flex items-center justify-center gap-1.5"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-              >
-                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-              </svg>
-              修改参数
-            </button>
           </div>
         </div>
       </div>

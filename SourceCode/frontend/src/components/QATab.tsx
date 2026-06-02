@@ -14,6 +14,7 @@ import type { ChatMessage as ChatMessageType } from '../types'
 interface QATabProps {
   messages: ChatMessageType[]
   isLoading: boolean
+  isStreaming?: boolean
   lockedTemplateName?: string | null
   onSendMessage: (text: string) => void
   onClearMessages: () => void
@@ -22,6 +23,7 @@ interface QATabProps {
 export default function QATab({
   messages,
   isLoading,
+  isStreaming,
   lockedTemplateName,
   onSendMessage,
   onClearMessages,
@@ -120,7 +122,7 @@ export default function QATab({
             message={msg}
           />
         ))}
-        {isLoading && (
+        {isLoading && !isStreaming && (
           <div className="flex justify-start">
             <div className="flex gap-[3px] items-center">
               <span className="w-[5px] h-[5px] rounded-full bg-slate-400 animate-bounce" />

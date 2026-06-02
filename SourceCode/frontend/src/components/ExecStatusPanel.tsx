@@ -95,6 +95,16 @@ export default function ExecStatusPanel({
         {/* Actions */}
         <div className="flex gap-2 pt-2">
           <button
+            onClick={onEditParams}
+            className="flex-1 h-10 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-all flex items-center justify-center gap-1.5"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+            参数调整
+          </button>
+          <button
             onClick={onNewTask}
             className="flex-1 h-10 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-all shadow-[0_1px_4px_rgba(37,99,235,0.2)] flex items-center justify-center gap-1.5"
           >

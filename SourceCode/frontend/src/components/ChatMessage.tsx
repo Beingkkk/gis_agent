@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { ChatMessage as ChatMessageType, CandidateTemplate } from '../types'
 
 interface ChatMessageProps {
@@ -235,7 +237,15 @@ export default function ChatMessage({
           ? 'bg-blue-600 text-white rounded-tr-sm border border-blue-600'
           : 'bg-white border border-slate-200 text-slate-900 rounded-tl-sm'
       }`}>
-        <p className="whitespace-pre-wrap">{message.content}</p>
+        {isUser ? (
+          <p className="whitespace-pre-wrap">{message.content}</p>
+        ) : (
+          <div className="markdown-body [&_p]:mb-2 [&_p:last-child]:mb-0 [&_h1]:text-base [&_h1]:font-bold [&_h1]:mb-2 [&_h2]:text-[14px] [&_h2]:font-bold [&_h2]:mb-2 [&_h3]:text-[13.5px] [&_h3]:font-bold [&_h3]:mb-1.5 [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:mb-2 [&_ol]:list-decimal [&_ol]:pl-4 [&_ol]:mb-2 [&_li]:mb-1 [&_pre]:bg-slate-900 [&_pre]:text-slate-200 [&_pre]:p-3 [&_pre]:rounded-md [&_pre]:text-xs [&_pre]:font-mono [&_pre]:overflow-x-auto [&_pre]:my-2 [&_code]:bg-slate-100 [&_code]:text-slate-700 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs [&_code]:font-mono [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit [&_a]:text-blue-600 [&_a]:underline [&_table]:w-full [&_table]:border-collapse [&_table]:my-2 [&_th]:border [&_th]:border-slate-200 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold [&_th]:bg-slate-50 [&_td]:border [&_td]:border-slate-200 [&_td]:px-2 [&_td]:py-1 [&_hr]:my-3 [&_hr]:border-slate-200 [&_blockquote]:border-l-4 [&_blockquote]:border-slate-300 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:my-2 [&_strong]:font-semibold">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {message.content || ''}
+            </ReactMarkdown>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -76,6 +76,8 @@ async def handle_chat_websocket(websocket: WebSocket, session_id: str) -> None:
                 client=llm_client,
                 builder=prompt_builder,
                 on_chunk=_on_chunk,
+                locked_template=session.template,
+                current_params=session.params,
             )
 
             await websocket.send_json({"type": "done"})

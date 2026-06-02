@@ -345,7 +345,6 @@ async def process_intent(
             classify_intent,
             user_input=user_input,
             available_templates=template_infos,
-            history=list(session.history),
             client=llm_client,
             builder=prompt_builder,
         )
@@ -448,7 +447,7 @@ async def chat_question(
             answer_question,
             user_input=request.input,
             templates=context_templates,
-            history=list(session.history),
+            history=list(session.qa_history),
             client=llm_client,
             builder=prompt_builder,
             locked_template=session.template,
@@ -463,10 +462,10 @@ async def chat_question(
 
     new_session = (
         session
-        .with_history(
+        .with_qa_history(
             Message(role="user", content=request.input)
         )
-        .with_history(
+        .with_qa_history(
             Message(role="assistant", content=reply)
         )
     )
@@ -779,7 +778,6 @@ async def diagnose_execution(
             stdout=error_ctx.stdout,
             stderr=error_ctx.stderr,
             diagnosis_context=diagnosis_context,
-            history=list(session.history),
             client=get_llm_client(),
             builder=get_prompt_builder(),
         )

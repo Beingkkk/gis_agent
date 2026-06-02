@@ -2,10 +2,10 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.0.1 |
+| 版本 | v1.0.8 |
 | 状态 | 设计基线 |
 | 作者 | - |
-| 日期 | 2026-05-28 |
+| 日期 | 2026-06-02 |
 
 ---
 
@@ -285,6 +285,41 @@ def scan_templates(template_dir: Path) -> List[TemplateDef]:
 
 **与 DC-0044 的关系**：DC-0044 定义了单一阈值（0.7）的澄清机制；DC-0098 在此基础上扩展为"快速路径 + 三级决策"，DC-0044 的阈值仍适用于 CLI 层 `SessionProcessor._handle_idle()` 的原有逻辑（全模板 LLM 分类），API 层采用 DC-0098 的两阶段方案。
 
+### DC-0106: 一次性 LLM 决策调用取消 history 参数
+
+**决策**: `classify_intent()`、`extract_params()`、`analyze_execution_error()` 三个一次性决策型 LLM 调用取消 `history` 参数，改为单轮调用（`messages = [user_prompt]`）。
+
+**理由**:
+- 意图识别、参数提取、错误诊断都是一次性决策，不需要多轮上下文
+- 传入 `session.history` 反而让 LLM 被无关历史干扰（如 Discovery 阶段的模板选择对话混入参数提取上下文）
+- 减少每次调用的 token 消耗和上下文窗口占用
+- 简化函数签名，调用方不需要关心"该传哪份历史"
+
+**影响范围**:
+- `llm/intent.py`: `classify_intent()` 移除 `history` 参数
+- `llm/params.py`: `extract_params()` 移除 `history` 参数
+- `llm/diagnosis.py`: `analyze_execution_error()` 移除 `history` 参数
+- `api/routes/session.py`: `process_intent()`、`diagnose_execution()` 调用时不再传 `history`
+- `core/processor.py`: 三个调用点同步调整
+
+**向后兼容**: CLI 的 `extract_params` 保留功能但不再传历史；API 层的 `submit_params` 本就不调用 `extract_params`（走 `validator.validate_all`）。
+
+### DC-0107: Session 模型增加独立的 qa_history
+
+**决策**: `Session` 新增 `qa_history: List[Message]` 字段，专用于 QATab 多轮对话。Discovery/Exec 流程消息继续写入 `history`，QATab 消息写入 `qa_history`。
+
+**理由**:
+- 当前 Discovery 的意图匹配消息写入 `session.history`，QATab 读取同一份 history 作为上下文 → 互相污染
+- 用户可能在 Discovery 说"把 shp 转 geojson"（意图匹配），然后在 QATab 问"GeoJSON 和 Shapefile 有什么区别"——后者不需要前者作为上下文
+- QATab 的 `answer_question()` 需要真正的多轮历史（追问、延伸），而 Discovery 的历史是单任务流程消息
+- 分离后两个 TAB 的历史策略独立：Discovery 不累积（每次输入独立匹配），QATab 累积（多轮对话）
+
+**接口变更**:
+- `Session` 新增字段：`qa_history: List[Message] = field(default_factory=list)`
+- 新增方法：`with_qa_history(message: Message) -> Session`
+
+**与 DC-UX-15 的关系**：前端 `QATab` 通过 WebSocket Q&A 获取 LLM 回复，回复完成后后端将消息写入 `qa_history`（见 DC-UX-14）；前端 `useSession` 的 `qaMessages` 仅维护前端本地状态，不依赖后端 `history`。
+
 ---
 
 ## 3. 接口定义
@@ -348,7 +383,8 @@ class TemplateDef:
 class Session:
     """会话上下文。"""
     state: SessionState = SessionState.IDLE
-    history: List[Message] = field(default_factory=list)
+    history: List[Message] = field(default_factory=list)     # Discovery/Exec 流程消息
+    qa_history: List[Message] = field(default_factory=list)  # QATab 多轮对话（DC-0107）
     template: Optional[TemplateDef] = None
     params: Dict[str, str] = field(default_factory=dict)
     candidates: List[TemplateDef] = field(default_factory=list)  # 澄清候选项
@@ -364,7 +400,10 @@ class Session:
         """返回添加参数后的新 Session。"""
 
     def with_history(self, message: Message) -> "Session":
-        """返回追加消息后的新 Session。"""
+        """返回追加消息后的新 Session（Discovery/Exec 流程）。"""
+
+    def with_qa_history(self, message: Message) -> "Session":
+        """返回追加 QA 消息后的新 Session（QATab 专属，DC-0107）。"""
 
     def with_candidates(self, candidates: List[TemplateDef]) -> "Session":
         """返回更新澄清候选项后的新 Session。"""
@@ -528,6 +567,8 @@ def _handle_idle(
 ) -> tuple[Session, str]:
     """空闲状态：进行意图分类。
 
+    调用 classify_intent() 时不传 history（DC-0106），仅传入候选模板列表。
+
     - 高置信度（>=0.7）→ PARAM_COLLECT，展示任务名称和所需参数列表
     - 低置信度（<0.7）→ INTENT_CONFIRM，列出候选模板让用户选择
     - 无匹配（LLM 返回空 template_id）→ INTENT_CONFIRM，展示候选模板让用户选择，附带友好说明
@@ -552,6 +593,8 @@ def _handle_param_collect(
     user_input: str,
 ) -> tuple[Session, str]:
     """参数收集状态：抽取参数，检查完整性。
+
+    调用 extract_params() 时不传 history（DC-0106），仅传入 param_schema 和 current_params。
 
     - 参数完整且校验通过 → SCRIPT_PREVIEW，展示脚本
     - 有缺失参数 → 保持在 PARAM_COLLECT，追问缺失字段
@@ -593,7 +636,7 @@ def _handle_error_recovery(
     """错误恢复状态：LLM 诊断 + 用户选择修复路径。
 
     首次进入（error_context.diagnosis is None）：
-        - 调用 analyze_execution_error() 获取诊断
+        - 调用 analyze_execution_error() 获取诊断（不传 history，DC-0106）
         - 显示诊断结果 + 选项菜单
         - 保持在 ERROR_RECOVERY
 
@@ -604,7 +647,7 @@ def _handle_error_recovery(
         - 其他输入 → 当作参数修改 → PARAM_COLLECT（清除 error_context）
 
     Design:
-        DC-0048, DC-0049
+        DC-0048, DC-0049, DC-0106
     """
 ```
 
@@ -621,7 +664,7 @@ def _handle_error_recovery(
   ▼
 _process_idle()
   │
-  ├──→ classify_intent() → confidence=0.95, template_id="shp2geojson"
+  ├──→ classify_intent() (不传 history, DC-0106) → confidence=0.95, template_id="shp2geojson"
   │
   ├──→ Session.with_template(shp2geojson)
   │
@@ -690,7 +733,7 @@ _process_script_preview()
   ▼
 _process_idle()
   │
-  ├──→ classify_intent() → confidence=0.45, top3=[shp2geojson, merge_shp, clip_raster]
+  ├──→ classify_intent() (不传 history, DC-0106) → confidence=0.45, top3=[shp2geojson, merge_shp, clip_raster]
   │
   ├──→ 低于阈值 0.7，进入澄清
   │
@@ -727,7 +770,7 @@ _process_intent_confirm()
   ▼
 _process_param_collect()
   │
-  ├──→ extract_params() → {input: "/data/roads.shp"}
+  ├──→ extract_params() (不传 history, DC-0106) → {input: "/data/roads.shp"}
   │
   ├──→ ParamValidator.validate(input="/data/roads.shp")
   │       └── Workspace.resolve_path("/data/roads.shp", must_exist=True)
@@ -759,7 +802,7 @@ CLI 层执行脚本
           ▼
   _handle_error_recovery()
           │
-          ├──→ analyze_execution_error() → ErrorDiagnosis
+          ├──→ analyze_execution_error() (不传 history, DC-0106) → ErrorDiagnosis
           │       ├── cause: "输入文件不存在"
           │       ├── suggestion: "请使用绝对路径或确认文件在工作空间内"
           │       ├── fixed_params: {"input": "C:\\data\\roads.shp"}
@@ -814,8 +857,8 @@ CLI 层执行脚本
 
 | 模块 | 接口 | 用途 |
 |------|------|------|
-| `llm` | `classify_intent()` | 意图分类 |
-| `llm` | `extract_params()` | 参数抽取 |
+| `llm` | `classify_intent()` | 意图分类（不传 history，DC-0106） |
+| `llm` | `extract_params()` | 参数抽取（不传 history，DC-0106） |
 | `llm` | `LLMClient`, `PromptBuilder` | 传参给 classify/extract |
 | `workspace` | `Workspace` | file_path 参数存在性校验（must_exist） |
 | `config` | `get_config()` | 读取意图置信度阈值等配置 |
@@ -885,15 +928,15 @@ CLI 层执行脚本
 
 | 需求 ID | 设计决策 | 代码文件/函数 | 说明 |
 |:-------:|:--------:|:-------------:|------|
-| F2 | DC-0040, DC-0044 | `SessionProcessor._handle_idle()` | 意图分类与澄清 |
-| F3 | DC-0040, DC-0042 | `SessionProcessor._handle_param_collect()` | 参数抽取与校验 |
-| F8 | DC-0043 | `Session.history` | 会话上下文 |
+| F2 | DC-0040, DC-0044, DC-0106 | `SessionProcessor._handle_idle()` | 意图分类与澄清（不传 history） |
+| F3 | DC-0040, DC-0042, DC-0106 | `SessionProcessor._handle_param_collect()` | 参数抽取与校验（不传 history） |
+| F8 | DC-0043, DC-0107 | `Session.history`, `Session.qa_history` | 会话上下文：流程历史 + QA 历史分离 |
 | F9 | DC-0040 | 状态机预留扩展 | 多步任务栈（预留） |
 | P1 | DC-0041 | `TemplateRegistry` | 模板化命令映射 |
 | P2 | DC-0040 | SCRIPT_PREVIEW 状态 | 先展后行 |
 | CODE-2 | DC-0042 | `validate_file_path` | 路径规范化 + must_exist 校验 |
 | CODE-3 | — | 仅依赖 llm/ 层 | LLM 调用不外泄 |
-| F10 | DC-0048, DC-0049 | `SessionProcessor._handle_error_recovery()` | 执行失败后保留上下文，LLM 诊断 + 用户选择修复路径 |
+| F10 | DC-0048, DC-0049, DC-0106 | `SessionProcessor._handle_error_recovery()` | 执行失败后保留上下文，LLM 诊断 + 用户选择修复路径（不传 history） |
 
 ---
 
@@ -901,6 +944,7 @@ CLI 层执行脚本
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.0.8 | 2026-06-02 | 新增 DC-0106：一次性 LLM 决策调用（classify_intent / extract_params / analyze_execution_error）取消 history 参数，改为单轮调用；新增 DC-0107：Session 模型增加独立 `qa_history` 字段，Discovery/Exec 流程历史与 QATab 多轮对话历史分离；§3.1 更新 Session 数据模型；§3.5 更新 handler 说明；§8 更新需求追溯表 |
 | v1.0.7 | 2026-05-30 | 新增 DC-0098：两阶段匹配（关键词粗筛 + LLM 精排）+ 自动决策（confidence ≥ 0.85 直接进入 PARAM_COLLECT）；更新 DC-0044 以兼容两阶段分支；§3.5 更新 `_handle_idle()` 行为描述 |
 | v1.0.6 | 2026-05-30 | 新增 DC-0095：`TemplateRegistry` 支持运行时重扫描（`rescan()`），`api/dependencies.py` 新增 `refresh_registry()`；§3.2 更新 `TemplateRegistry` 接口定义；支持 J2 模板生成器保存后热加载（plan-j2-generate DC-0093） |
 | v1.0.5 | 2026-05-29 | 新增 DC-0070：`SessionProcessor` 新增 `output_fn` 可选参数和 `set_output_fn()` 后置设置方法；Q&A 路由将 callback 透传至 `answer_question(on_chunk=...)`；§3.4 更新 `SessionProcessor` 接口定义 |

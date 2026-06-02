@@ -18,6 +18,7 @@ from api.dependencies import (
     get_registry,
     get_session_manager,
 )
+from llm.models import Message
 from llm.qa import answer_question
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,9 @@ async def handle_chat_websocket(websocket: WebSocket, session_id: str) -> None:
     Receives JSON messages from the frontend, streams LLM responses
     back as ``{"type": "chunk", "content": "..."}`` frames,
     followed by ``{"type": "done"}``.
+
+    Each round of Q&A is persisted to ``session.qa_history`` so that
+    multi-turn conversations work correctly (DC-0107, DC-UX-14).
 
     Args:
         websocket: FastAPI WebSocket instance.
@@ -55,6 +59,12 @@ async def handle_chat_websocket(websocket: WebSocket, session_id: str) -> None:
             if not user_message:
                 continue
 
+            # Persist user message to qa_history (DC-0107)
+            session = session.with_qa_history(
+                Message(role="user", content=user_message)
+            )
+            session_manager.update_session(session_id, session)
+
             # Build template context from all available templates
             registry = get_registry()
             templates = registry.list_templates()
@@ -68,17 +78,23 @@ async def handle_chat_websocket(websocket: WebSocket, session_id: str) -> None:
                     loop,
                 )
 
-            await asyncio.to_thread(
+            full_reply = await asyncio.to_thread(
                 answer_question,
                 user_input=user_message,
                 templates=templates,
-                history=list(session.history),
+                history=list(session.qa_history),
                 client=llm_client,
                 builder=prompt_builder,
                 on_chunk=_on_chunk,
                 locked_template=session.template,
                 current_params=session.params,
             )
+
+            # Persist assistant reply to qa_history (DC-UX-14)
+            session = session.with_qa_history(
+                Message(role="assistant", content=full_reply)
+            )
+            session_manager.update_session(session_id, session)
 
             await websocket.send_json({"type": "done"})
 

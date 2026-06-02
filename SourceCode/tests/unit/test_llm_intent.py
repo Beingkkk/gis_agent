@@ -61,7 +61,6 @@ class TestClassifyIntent:
         result = classify_intent(
             user_input="把 shp 转成 GeoJSON",
             available_templates=templates,
-            history=[],
             client=client,
             builder=builder,
         )
@@ -86,7 +85,6 @@ class TestClassifyIntent:
         result = classify_intent(
             user_input="随便说点什么",
             available_templates=templates,
-            history=[],
             client=client,
             builder=builder,
         )
@@ -105,7 +103,6 @@ class TestClassifyIntent:
         classify_intent(
             user_input="裁剪栅格",
             available_templates=templates,
-            history=[],
             client=client,
             builder=builder,
         )
@@ -132,7 +129,6 @@ class TestClassifyIntent:
         classify_intent(
             user_input="test",
             available_templates=templates[:1],
-            history=[],
             client=client,
             builder=builder,
         )
@@ -140,30 +136,24 @@ class TestClassifyIntent:
         call_args = client.chat.call_args
         assert call_args.kwargs["temperature"] == 0.1
 
-    def test_includes_history_in_messages(
+    def test_messages_have_single_user_prompt(
         self, client: MagicMock, builder: PromptBuilder, templates: list[TemplateInfo]
     ) -> None:
-        """F2: History messages passed to client."""
+        """DC-0106: No history passed — messages contain only current prompt."""
         client.chat.return_value = json.dumps(
             {"template_id": "shp2geojson", "confidence": 0.9, "reasoning": "ok"}
         )
 
-        history = [
-            Message(role="user", content="之前的输入"),
-            Message(role="assistant", content="之前的回复"),
-        ]
-
         classify_intent(
             user_input="现在的输入",
             available_templates=templates[:1],
-            history=history,
             client=client,
             builder=builder,
         )
 
         call_args = client.chat.call_args
         messages = call_args.kwargs["messages"]
-        assert len(messages) == 3  # 2 history + 1 current
+        assert len(messages) == 1  # no history, only current (DC-0106)
 
     def test_non_json_response_raises_llm_response_error(
         self, client: MagicMock, builder: PromptBuilder, templates: list[TemplateInfo]
@@ -175,7 +165,6 @@ class TestClassifyIntent:
             classify_intent(
                 user_input="test",
                 available_templates=templates[:1],
-                history=[],
                 client=client,
                 builder=builder,
             )
@@ -190,7 +179,6 @@ class TestClassifyIntent:
             classify_intent(
                 user_input="test",
                 available_templates=templates[:1],
-                history=[],
                 client=client,
                 builder=builder,
             )
@@ -206,7 +194,6 @@ class TestClassifyIntent:
         result = classify_intent(
             user_input="test",
             available_templates=[],
-            history=[],
             client=client,
             builder=builder,
         )
@@ -227,7 +214,6 @@ class TestClassifyIntent:
         result = classify_intent(
             user_input="test",
             available_templates=templates,
-            history=[],
             client=client,
             builder=builder,
         )

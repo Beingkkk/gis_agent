@@ -31,16 +31,16 @@ def _format_templates(templates: List[TemplateInfo]) -> str:
 def classify_intent(
     user_input: str,
     available_templates: List[TemplateInfo],
-    history: List[Message],
     client: LLMClient,
     builder: PromptBuilder,
 ) -> IntentResult:
     """Classify user input to predefined template.
 
+    One-shot decision: no conversation history is passed (DC-0106).
+
     Args:
         user_input: Current user input.
         available_templates: Available template metadata (id, name, description).
-        history: Conversation history.
         client: LLM client.
         builder: Prompt builder.
 
@@ -48,7 +48,7 @@ def classify_intent(
         Classification result with template ID and confidence.
 
     Design:
-        F2, P1
+        F2, P1, DC-0106
     """
     templates_str = _format_templates(available_templates)
     template_ids = [t.id for t in available_templates]
@@ -84,12 +84,9 @@ def classify_intent(
         '以及是否存在其他接近的候选"}'
     ) % {"input": user_input}
 
-    messages = list(history)
-    messages.append(Message(role="user", content=user_prompt))
-
     response = client.chat(
         system_prompt=system_prompt,
-        messages=messages,
+        messages=[Message(role="user", content=user_prompt)],
         temperature=0.1,
     )
 

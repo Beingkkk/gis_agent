@@ -216,7 +216,14 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
             )
 
         await websocket.send_json(
-            {"type": "done", "success": returncode == 0, "returncode": returncode}
+            {
+                "type": "done",
+                "success": returncode == 0,
+                "returncode": returncode,
+                "stdout": "\n".join(stdout_lines),
+                "stderr": "\n".join(stderr_lines),
+                "duration_ms": duration_ms,
+            }
         )
     except asyncio.TimeoutError:
         logger.error("Script execution timed out after %s seconds", _DEFAULT_TIMEOUT)
@@ -242,7 +249,15 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
         session_manager.update_session(session_id, new_session)
         try:
             await websocket.send_json(
-                {"type": "done", "success": False, "error": "timeout"}
+                {
+                    "type": "done",
+                    "success": False,
+                    "returncode": -1,
+                    "stdout": "\n".join(stdout_lines),
+                    "stderr": "Execution timed out after {} seconds".format(_DEFAULT_TIMEOUT),
+                    "duration_ms": duration_ms,
+                    "error": "timeout",
+                }
             )
         except Exception:
             pass
@@ -266,7 +281,15 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
         stderr_task.cancel()
         try:
             await websocket.send_json(
-                {"type": "done", "success": False, "error": str(exc)}
+                {
+                    "type": "done",
+                    "success": False,
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": str(exc),
+                    "duration_ms": 0,
+                    "error": str(exc),
+                }
             )
         except Exception:
             pass

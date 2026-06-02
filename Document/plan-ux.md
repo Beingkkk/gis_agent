@@ -2,10 +2,10 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.6.0 |
+| 版本 | v1.13.0 |
 | 状态 | 设计基线 |
 | 作者 | - |
-| 日期 | 2026-05-29 |
+| 日期 | 2026-06-02 |
 
 ---
 
@@ -251,11 +251,11 @@ interface DataLink {
 
 **决策**: 将模板搜索匹配、知识问答、脚本执行从混合的聊天区分离为三个独立的顶部 TAB。每个 TAB 对应独立的后端 API，代码层面决定场景，不依赖 LLM 猜测用户意图。
 
-| TAB | 职责 | 后端 API | 历史累积 | 典型内容 |
+| TAB | 职责 | 后端 API | 历史存储 | 典型内容 |
 |-----|------|---------|---------|---------|
-| **模板识别** | 搜索模板、LLM 意图匹配、选中模板 | `POST /session/{id}/intent` | ❌ 不累积 | 模板卡片网格、分类过滤芯片、候选模板列表（带置信度） |
-| **GIS 问答** | 学习 GIS 概念、问参数含义、获取使用建议 | `POST /session/{id}/chat` | ✅ 累积多轮 | 聊天消息流、快捷问题建议、诊断结果 |
-| **脚本执行** | 命令预览、执行、结果查看 | `WS /ws/execute/{id}` | ❌ 单次覆盖 | 命令编辑器、实时日志、成功/失败结果 |
+| **模板识别** | 搜索模板、LLM 意图匹配、选中模板 | `POST /session/{id}/intent` | `session.history`（流程消息） | 模板卡片网格、分类过滤芯片、候选模板列表（带置信度） |
+| **GIS 问答** | 学习 GIS 概念、问参数含义、获取使用建议 | `WS /ws/chat/{id}`（流式） | `session.qa_history`（多轮对话，DC-0107） | 聊天消息流、快捷问题建议 |
+| **脚本执行** | 命令预览、执行、结果查看 | `WS /ws/execute/{id}` | 无 | 命令编辑器、实时日志、成功/失败结果 |
 
 **DiscoveryTab（模板识别）约束**：
 - 所有输入走 `process_intent()`，**仅做意图匹配，不做问答**
@@ -268,14 +268,16 @@ interface DataLink {
   - **未匹配**（`INTENT_CONFIRM` 无候选）：黄色提示"未找到匹配的模板，请尝试其他描述或手动选择"
 
 **QATab（GIS 问答）约束**：
-- 所有输入走 `chat_question()`，**始终视为问答请求，不做意图匹配**
+- 所有输入走 WebSocket `/ws/chat/{id}`（前端），**始终视为问答请求，不做意图匹配**
 - 后端根据 `session.template` 是否存在，代码层面选择模板知识问答或 GIS 专家问答
+- `answer_question()` 的 history 从 `session.qa_history` 读取，对话完成后写回 `qa_history`（DC-UX-14）
 - 提问"这个模板的参数怎么填"时，若已锁定模板则基于模板上下文回答；若未锁定则作为 GIS 专家问题回答
 
 **GIS 问答 TAB 的特殊机制**：
-- 提供"清空会话"按钮，一键清除所有历史消息
+- 提供"清空会话"按钮，一键清除前端 `qaMessages` 本地状态
 - 当用户已选中模板时，问答上下文自动绑定该模板的元数据（`@concept`、`@note`、`@common_error`），AI 回答会引用模板知识
 - 诊断结果直接在脚本执行 TAB 的诊断结果面板中展示，不跳转 Q&A TAB
+- 前端 `qaMessages` 与后端 `qa_history` 读写分离（DC-UX-15）：前端维护本地消息列表用于渲染，后端维护 `qa_history` 用于 LLM 多轮上下文
 
 **理由**：
 - 模板搜索和知识问答虽然都使用 LLM，但目的不同、交互模式不同、历史策略不同，混在一起会让用户困惑
@@ -321,9 +323,19 @@ interface DataLink {
 4. **结果展示**：诊断结果（根因、建议、可自动修复状态）直接渲染在脚本执行 TAB 的【诊断结果】面板中，与错误输出同屏展示
 
 **诊断 Prompt 设计要点**：
-- 系统 Prompt 明确 instruct："你是一个 GIS 数据处理专家，请根据以下模板信息和错误输出，分析失败原因并给出具体修复建议"
+- 系统 Prompt 明确 instruct："你是一个 GDAL 命令行工具的错误诊断专家，分析以下执行错误，结合模板和参数上下文，判断错误根因并给出修复建议"
 - 用户消息包含：模板描述、参数值、执行命令、错误输出、相关 `@common_error`
-- 要求 LLM 输出：根因（1-2 句话）、修复步骤（编号列表）、修复后的命令（如有）、可自动修复标记
+- 要求 LLM 输出：
+  - `cause`：错误根因，用中文简洁描述
+  - `suggestion`：修复建议。当 `can_auto_fix=true` 时，必须在建议末尾换行并写入【修复命令参考】，随后换行用三个反引号包裹修正后的完整 GDAL 命令
+  - `fixed_params`：修正后的参数键值对
+  - `confidence`：置信度 0.0–1.0
+  - `can_auto_fix`：是否可自动修复
+- `can_auto_fix` 判定规则（严格执行）：
+  - `true`：错误根因明确为参数值问题（路径不存在、坐标系错误、格式不支持、必填参数缺失），修改参数值后重新执行同一模板即可修复
+  - `false`：以下情况必须设为 false——系统级问题（权限不足、GDAL 版本不支持、驱动缺失、数据损坏）、模板渲染逻辑错误（参数值为 false 时模板仍输出标志位、多个互斥参数同时输出）、需要修改模板文件本身才能修复的问题、需要用户手动判断修复策略的情况
+  - `confidence < 0.5` 时，`can_auto_fix` 必须设为 false
+- 诊断结果面板使用 `ReactMarkdown` 渲染 suggestion，LLM 输出的 markdown 代码块自动高亮显示
 
 **理由**:
 - 诊断结果与错误输出同屏展示，用户无需在 TAB 间跳转即可获取完整信息
@@ -358,6 +370,33 @@ interface DataLink {
 - 释放的 300px 空间分配给参数面板，让参数表单更从容（label 列从 140px → 160px）
 - 三 TAB 的切换比在三栏间跳转更符合用户的任务流（发现 → 配置 → 执行）
 
+### DC-UX-14: WebSocket Q&A 写回 qa_history
+
+**决策**: `handle_chat_websocket` 在每次 Q&A 对话完成后，将 user 消息和 assistant 回复追加到 `session.qa_history`（而非 `session.history`）。
+
+**理由**:
+- 当前 WebSocket chat handler 读取 `session.history` 作为 `answer_question()` 的上下文，但对话完成后不写入任何消息 → QATab 多轮对话形同单轮（DC-0107）
+- 写入 `qa_history` 而非 `history`，确保 QATab 历史与 Discovery/Exec 历史隔离
+- WebSocket Q&A 是前端 QATab 的**唯一**入口（HTTP fallback `/session/{id}/chat` 保留但前端不使用）
+
+**实现要点**:
+1. WebSocket 收到用户消息后，先追加到 `session.qa_history`
+2. `answer_question()` 的 `history` 参数从 `session.qa_history` 读取（含当前轮次）
+3. LLM 流式输出完成后，将完整 assistant 回复追加到 `session.qa_history`
+4. 返回 `{"type": "done"}` 给前端
+
+### DC-UX-15: QATab 消息完全隔离，前端独立维护 qaMessages
+
+**决策**: 前端 `QATab` 的消息列表完全由前端本地状态 `qaMessages`（Zustand）维护，不依赖后端 `SessionSnapshot.history`。后端 `qa_history` 仅用于 LLM 多轮上下文，不向前端透传。
+
+**理由**:
+- QATab 的消息是"对话流"，需要前端本地维护才能支持流式输出（chunk-by-chunk 更新）
+- 如果前端依赖后端 history，每次 Q&A 后需要额外 HTTP 请求刷新，增加延迟且破坏流式体验
+- 后端 `qa_history` 的职责：**仅**为 `answer_question()` 提供多轮上下文；前端的职责：管理消息渲染和流式更新
+- `SessionSnapshot` 不再包含 `qa_history`，减少每次 API 调用的 payload
+
+**与 DC-0107 的关系**：后端 `Session.qa_history` ↔ 前端 `useSession.qaMessages` 是读写分离的镜像：后端写（WebSocket handler）、前端读（本地状态）。两者不直接同步，但都按 (user, assistant) 顺序累积。
+
 ---
 
 ## 3. 接口定义
@@ -380,7 +419,7 @@ async def process_intent(session_id: str, request: IntentRequest) -> Session:
     两阶段匹配（DC-0098）：
     1. 对所有模板执行关键词打分（score_template_match）
     2. 高分快速路径（≥ 8）→ 直接 PARAM_COLLECT
-    3. 否则取 top-10 候选池，调用 LLM 精排（classify_intent）
+    3. 否则取 top-10 候选池，调用 LLM 精排（classify_intent，不传 history，DC-0106）
     4. 按 LLM confidence 自动决策：
        ≥ 0.85 → PARAM_COLLECT（绝对优势，自动选中）
        ≥ 0.50 → INTENT_CONFIRM（返回 top-1 推荐 + 备选）
@@ -389,12 +428,14 @@ async def process_intent(session_id: str, request: IntentRequest) -> Session:
 
 @router.post("/session/{session_id}/chat", response_model=SessionResponse)
 async def chat_question(session_id: str, request: IntentRequest) -> Session:
-    """QATab 用户提问，始终视为问答请求。
+    """QATab 用户提问（HTTP fallback，前端使用 WebSocket `/ws/chat/{id}`）。
 
     不走意图匹配，直接调用 `answer_question()`：
+    - history 从 `session.qa_history` 读取（DC-0107）
     - 若 session 已锁定模板 → 基于模板上下文回答（模板知识问答）
     - 若 session 无锁定模板 → GIS 专家问答（无模板上下文）
 
+    对话完成后将 user + assistant 消息写入 `session.qa_history`（DC-UX-14）。
     返回 IDLE 状态 + agent 回复消息。
     """
 
@@ -469,12 +510,17 @@ async def save_template(request: SaveRequest):
 # api/websocket.py
 
 class ChatWebSocket:
-    """Q&A 流式对话。前端发送消息，后端通过 LLM 流式推送回复。"""
+    """Q&A 流式对话。前端发送消息，后端通过 LLM 流式推送回复。
+
+    每轮对话完成后将 user + assistant 消息写入 session.qa_history（DC-UX-14）。
+    answer_question() 的 history 参数从 session.qa_history 读取（DC-0107）。
+    """
     
     async def connect(self, websocket: WebSocket, session_id: str):
         await websocket.accept()
         # 复用 llm/answer_question() 的 on_chunk 回调
         # 每收到一个 chunk，websocket.send_text(chunk)
+        # 对话完成后：session.with_qa_history(user_msg) + session.with_qa_history(assistant_msg)
 
 class ExecuteWebSocket:
     """脚本执行实时日志。前端连接后，后端启动 subprocess 并逐行推送输出。"""
@@ -483,7 +529,8 @@ class ExecuteWebSocket:
         await websocket.accept()
         # 使用 subprocess.Popen 而非 run
         # 逐行读取 stdout/stderr，websocket.send_text(line)
-        # 完成后发送 {"type": "done", "success": true, "output_path": "..."}
+        # 完成后发送 {"type": "done", "success": true/false, "returncode": N,
+        #            "stdout": "...", "stderr": "...", "duration_ms": N}
 ```
 
 ### 3.3 核心数据结构（前后端共享）
@@ -503,7 +550,8 @@ interface SessionSnapshot {
   };
   script_preview: string | null;
   error_context: ErrorContext | null;
-  history: ChatMessage[];
+  history: ChatMessage[];      // Discovery/Exec 流程消息（DC-0107）
+  // qa_history 在后端维护，不向前端透传（DC-UX-15）
   workspace: string;
 }
 
@@ -789,6 +837,8 @@ UX 方案**不删除**现有 CLI 代码。`cli/` 目录保持完整，与 `api/`
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.13.0 | 2026-06-02 | **诊断体验优化**：DC-UX-12 更新诊断 Prompt 设计要点——增加【修复命令参考】输出要求、收紧 `can_auto_fix` 判定规则（明确排除模板渲染逻辑错误类问题）、诊断结果面板改用 `ReactMarkdown` 渲染 suggestion 中的 markdown 代码块；§3.2 `ExecuteWebSocket` done 消息补全 `stdout`/`stderr`/`duration_ms` 字段 |
+| v1.12.0 | 2026-06-02 | **Q&A 历史隔离**：新增 DC-UX-14（WebSocket Q&A 写回 `qa_history`）、DC-UX-15（QATab 消息完全隔离，前端独立维护 `qaMessages`）；§3.1 更新 `process_intent`（classify_intent 不传 history，DC-0106）和 `chat_question`（使用 `qa_history`，DC-0107）；§3.2 更新 `ChatWebSocket` 说明；§3.3 `SessionSnapshot` 标注 `qa_history` 不向前端透传 |
 | v1.11.0 | 2026-06-02 | **诊断流程简化**：DC-UX-12 从"一键诊断+跳转 Q&A TAB"改为"自动诊断+结果直接展示在脚本执行 TAB"；移除一键诊断按钮；失败态操作简化为"修改参数"/"放弃任务"；执行中态新增"执行命令"展示 |
 | v1.10.0 | 2026-06-02 | **导出脚本**：DC-UX-11 命令预览态新增"导出脚本"按钮（DC-UX-11a）；成功态移除"打开输出目录"按钮（脚本不再自动写入 workspace） |
 | v1.9.0 | 2026-05-31 | **DiscoveryTab 意图匹配状态反馈**：§2 新增三种匹配结果的前端状态提示（识别中/已确认/未匹配）；§4.1 流程图补充前端反馈标注；移除冗余的 MatchedBanner 横幅，改为轻量状态条 |

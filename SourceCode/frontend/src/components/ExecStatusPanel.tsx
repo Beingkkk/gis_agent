@@ -9,6 +9,8 @@
  * Design: DC-UX-11
  */
 
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { ExecResult, ErrorContext } from '../types'
 
 interface ExecStatusPanelProps {
@@ -150,11 +152,15 @@ export default function ExecStatusPanel({
           <div className="space-y-2">
             <div>
               <span className="text-[11px] font-medium text-amber-600 uppercase">根因</span>
-              <p className="text-sm text-amber-700 mt-0.5">{diagnosis.cause}</p>
+              <div className="text-sm text-amber-700 mt-0.5 markdown-body [&_p]:mb-1 [&_p:last-child]:mb-0 [&_pre]:bg-slate-900 [&_pre]:text-slate-200 [&_pre]:p-2.5 [&_pre]:rounded-md [&_pre]:text-xs [&_pre]:font-mono [&_pre]:overflow-x-auto [&_pre]:my-1.5 [&_code]:bg-amber-100 [&_code]:text-amber-800 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{diagnosis.cause}</ReactMarkdown>
+              </div>
             </div>
             <div>
               <span className="text-[11px] font-medium text-amber-600 uppercase">建议</span>
-              <p className="text-sm text-amber-700 mt-0.5">{diagnosis.suggestion}</p>
+              <div className="text-sm text-amber-700 mt-0.5 markdown-body [&_p]:mb-1 [&_p:last-child]:mb-0 [&_pre]:bg-slate-900 [&_pre]:text-slate-200 [&_pre]:p-2.5 [&_pre]:rounded-md [&_pre]:text-xs [&_pre]:font-mono [&_pre]:overflow-x-auto [&_pre]:my-1.5 [&_code]:bg-amber-100 [&_code]:text-amber-800 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{diagnosis.suggestion}</ReactMarkdown>
+              </div>
             </div>
             {diagnosis.can_auto_fix && (
               <div className="flex items-center gap-1.5 mt-2">

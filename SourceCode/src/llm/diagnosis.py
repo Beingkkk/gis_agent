@@ -8,7 +8,7 @@ Design: DC-0036
 import json
 import logging
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from llm.client import LLMClient
 from llm.models import ErrorDiagnosis, Message
@@ -22,11 +22,12 @@ def analyze_execution_error(
     stdout: str,
     stderr: str,
     diagnosis_context: str,
-    history: List[Message],
     client: LLMClient,
     builder: PromptBuilder,
 ) -> ErrorDiagnosis:
     """Analyze GDAL script execution error, return structured diagnosis.
+
+    One-shot decision: no conversation history is passed (DC-0106).
 
     Args:
         returncode: Process exit code.
@@ -34,7 +35,6 @@ def analyze_execution_error(
         stderr: Process stderr.
         diagnosis_context: Full context string built by caller, containing
             template info, param schema, current params, rendered script.
-        history: Conversation history.
         client: LLM client.
         builder: Prompt builder.
 
@@ -43,7 +43,7 @@ def analyze_execution_error(
         and can_auto_fix flag.
 
     Design:
-        DC-0036
+        DC-0036, DC-0106
     """
     task_context = (
         "【错误诊断任务】\n"
@@ -61,7 +61,7 @@ def analyze_execution_error(
         f"请分析错误根因，输出严格 JSON（不要 Markdown 代码块）：\n"
         f"{{\n"
         f'  "cause": "错误根因，用中文简洁描述",\n'
-        f'  "suggestion": "修复建议，用中文描述",\n'
+        f'  "suggestion": "修复建议，用中文描述。当 can_auto_fix=true 时，必须在建议末尾包含【修复命令参考】区块，写出基于 fixed_params 修正后的完整 GDAL 命令，供用户直接参考执行",\n'
         f'  "fixed_params": {{"参数名": "修正后的值"}},\n'
         f'  "confidence": 0.0到1.0,\n'
         f'  "can_auto_fix": true或false\n'
@@ -72,13 +72,10 @@ def analyze_execution_error(
         f"confidence < 0.5 时，can_auto_fix 必须设为 false。"
     )
 
-    messages = list(history)
-    messages.append(Message(role="user", content=user_prompt))
-
     try:
         response = client.chat(
             system_prompt=system_prompt,
-            messages=messages,
+            messages=[Message(role="user", content=user_prompt)],
             temperature=0.1,
         )
     except Exception as exc:

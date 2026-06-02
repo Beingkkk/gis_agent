@@ -286,15 +286,19 @@ export default function MainPage() {
                 .then((snapshot) => {
                   setSession(snapshot)
                   if (!msg.success) {
-                    if (
-                      snapshot.error_context?.diagnosis === null ||
-                      snapshot.error_context?.diagnosis === undefined
-                    ) {
+                    const hasDiagnosis =
+                      snapshot.error_context?.diagnosis !== null &&
+                      snapshot.error_context?.diagnosis !== undefined
+                    console.log('[诊断] error_context:', snapshot.error_context)
+                    console.log('[诊断] hasDiagnosis:', hasDiagnosis)
+                    if (!hasDiagnosis) {
+                      console.log('[诊断] 触发 diagnoseSession')
                       diagnoseSession(sessionId)
                         .then((diagnosed) => {
+                          console.log('[诊断] diagnoseSession 成功:', diagnosed.error_context?.diagnosis)
                           setSession(diagnosed)
                         })
-                        .catch((e) => console.error('诊断失败:', e))
+                        .catch((e) => console.error('[诊断] diagnoseSession 失败:', e))
                     }
                   }
                 })

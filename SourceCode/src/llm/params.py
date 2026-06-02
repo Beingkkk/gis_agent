@@ -21,18 +21,18 @@ def extract_params(
     template_id: str,
     param_schema: Dict[str, Any],
     current_params: Dict[str, str],
-    history: List[Message],
     client: LLMClient,
     builder: PromptBuilder,
 ) -> ParamResult:
     """Extract template parameters from user input.
+
+    One-shot decision: no conversation history is passed (DC-0106).
 
     Args:
         user_input: Current user input (may be answer to a previous question).
         template_id: Confirmed template ID.
         param_schema: Parameter schema (field names, types, required, descriptions).
         current_params: Already collected parameters.
-        history: Conversation history.
         client: LLM client.
         builder: Prompt builder.
 
@@ -40,7 +40,7 @@ def extract_params(
         Parameter extraction result with collected, missing, and questions.
 
     Design:
-        F3
+        F3, DC-0106
     """
     schema_json = json.dumps(param_schema, ensure_ascii=False, indent=2)
     current_json = json.dumps(current_params, ensure_ascii=False, indent=2)
@@ -63,12 +63,9 @@ def extract_params(
         f'"questions": ["追问问题", ...]}}'
     )
 
-    messages = list(history)
-    messages.append(Message(role="user", content=user_prompt))
-
     response = client.chat(
         system_prompt=system_prompt,
-        messages=messages,
+        messages=[Message(role="user", content=user_prompt)],
         temperature=0.1,
     )
 

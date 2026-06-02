@@ -191,7 +191,6 @@ class SessionProcessor:
         result = classify_intent(
             user_input=user_input,
             available_templates=template_infos,
-            history=session.history,
             client=self._llm_client,
             builder=self._prompt_builder,
         )
@@ -433,7 +432,6 @@ class SessionProcessor:
             template_id=template.id,
             param_schema=param_schema,
             current_params=session.params,
-            history=session.history,
             client=self._llm_client,
             builder=self._prompt_builder,
         )
@@ -657,7 +655,6 @@ class SessionProcessor:
                     stdout=error_ctx.stdout,
                     stderr=error_ctx.stderr,
                     diagnosis_context=diagnosis_context,
-                    history=session.history,
                     client=self._llm_client,
                     builder=self._prompt_builder,
                 )

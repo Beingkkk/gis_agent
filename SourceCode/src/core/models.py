@@ -17,10 +17,9 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 if TYPE_CHECKING:
-    from llm.models import ErrorDiagnosis, Message
-
     # Forward reference for exec_env to avoid circular imports
     from core.exec_env import ExecEnvironment
+    from llm.models import ErrorDiagnosis, Message
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +111,8 @@ class Session:
     """
 
     state: SessionState = SessionState.IDLE
-    history: List["Message"] = field(default_factory=list)
+    history: List["Message"] = field(default_factory=list)  # Discovery/Exec
+    qa_history: List["Message"] = field(default_factory=list)  # QATab (DC-0107)
     template: Optional[TemplateDef] = None
     params: Dict[str, str] = field(default_factory=dict)
     candidates: List[TemplateDef] = field(default_factory=list)
@@ -125,6 +125,7 @@ class Session:
         return Session(
             state=state,
             history=self.history,
+            qa_history=self.qa_history,
             template=self.template,
             params=self.params,
             candidates=self.candidates,
@@ -138,6 +139,7 @@ class Session:
         return Session(
             state=self.state,
             history=self.history,
+            qa_history=self.qa_history,
             template=template,
             params=self.params,
             candidates=self.candidates,
@@ -153,6 +155,7 @@ class Session:
         return Session(
             state=self.state,
             history=self.history,
+            qa_history=self.qa_history,
             template=self.template,
             params=new_params,
             candidates=self.candidates,
@@ -162,12 +165,29 @@ class Session:
         )
 
     def with_history(self, message: "Message") -> "Session":
-        """返回追加消息后的新 Session。"""
+        """返回追加消息后的新 Session（Discovery/Exec 流程）。"""
         new_history = list(self.history)
         new_history.append(message)
         return Session(
             state=self.state,
             history=new_history,
+            qa_history=self.qa_history,
+            template=self.template,
+            params=self.params,
+            candidates=self.candidates,
+            error_context=self.error_context,
+            user_script=self.user_script,
+            exec_env=self.exec_env,
+        )
+
+    def with_qa_history(self, message: "Message") -> "Session":
+        """返回追加 QA 消息后的新 Session（QATab 专属，DC-0107）。"""
+        new_qa = list(self.qa_history)
+        new_qa.append(message)
+        return Session(
+            state=self.state,
+            history=self.history,
+            qa_history=new_qa,
             template=self.template,
             params=self.params,
             candidates=self.candidates,
@@ -181,6 +201,7 @@ class Session:
         return Session(
             state=self.state,
             history=self.history,
+            qa_history=self.qa_history,
             template=self.template,
             params=self.params,
             candidates=list(candidates),
@@ -198,6 +219,7 @@ class Session:
         return Session(
             state=self.state,
             history=self.history,
+            qa_history=self.qa_history,
             template=self.template,
             params=self.params,
             candidates=self.candidates,
@@ -215,6 +237,7 @@ class Session:
         return Session(
             state=self.state,
             history=self.history,
+            qa_history=self.qa_history,
             template=self.template,
             params=self.params,
             candidates=self.candidates,
@@ -232,6 +255,7 @@ class Session:
         return Session(
             state=self.state,
             history=self.history,
+            qa_history=self.qa_history,
             template=self.template,
             params=self.params,
             candidates=self.candidates,
@@ -249,6 +273,7 @@ class Session:
         return Session(
             state=self.state,
             history=self.history,
+            qa_history=self.qa_history,
             template=self.template,
             params=self.params,
             candidates=self.candidates,
@@ -266,6 +291,21 @@ class Session:
         return Session(
             state=self.state,
             history=[],
+            qa_history=self.qa_history,
+            template=self.template,
+            params=self.params,
+            candidates=self.candidates,
+            error_context=self.error_context,
+            user_script=self.user_script,
+            exec_env=self.exec_env,
+        )
+
+    def clear_qa_history(self) -> "Session":
+        """清空 QA 对话历史（QATab 一键清空，DC-0107）。"""
+        return Session(
+            state=self.state,
+            history=self.history,
+            qa_history=[],
             template=self.template,
             params=self.params,
             candidates=self.candidates,
@@ -283,6 +323,7 @@ class Session:
         return Session(
             state=self.state,
             history=self.history,
+            qa_history=self.qa_history,
             template=self.template,
             params=self.params,
             candidates=self.candidates,

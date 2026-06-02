@@ -149,14 +149,12 @@ def test_analyze_execution_error_calls_llm_and_parses(
     )
 
     from llm.diagnosis import analyze_execution_error
-    from llm.models import Message
 
     result = analyze_execution_error(
         returncode=1,
         stdout="",
         stderr="error",
         diagnosis_context="template info",
-        history=[Message(role="user", content="hello")],
         client=mock_client,
         builder=mock_builder,
     )
@@ -192,7 +190,6 @@ def test_analyze_execution_error_fallback_on_llm_failure(
         stdout="",
         stderr="error",
         diagnosis_context="template info",
-        history=[],
         client=mock_client,
         builder=mock_builder,
     )

@@ -77,6 +77,7 @@ class TestChatWebSocket:
             client: MagicMock,
             builder: MagicMock,
             on_chunk: any = None,
+            **kwargs: any,
         ) -> str:
             if on_chunk:
                 on_chunk("这是")
@@ -114,6 +115,7 @@ class TestChatWebSocket:
             client: MagicMock,
             builder: MagicMock,
             on_chunk: any = None,
+            **kwargs: any,
         ) -> str:
             return "Short answer"
 

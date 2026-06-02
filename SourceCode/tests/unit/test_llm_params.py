@@ -58,7 +58,6 @@ class TestExtractParams:
             template_id="shp2geojson",
             param_schema=param_schema,
             current_params={},
-            history=[],
             client=client,
             builder=builder,
         )
@@ -86,7 +85,6 @@ class TestExtractParams:
             template_id="shp2geojson",
             param_schema=param_schema,
             current_params={"input": "roads.shp"},
-            history=[],
             client=client,
             builder=builder,
         )
@@ -115,7 +113,6 @@ class TestExtractParams:
             template_id="shp2geojson",
             param_schema=param_schema,
             current_params={},
-            history=[],
             client=client,
             builder=builder,
         )
@@ -136,7 +133,6 @@ class TestExtractParams:
             template_id="shp2geojson",
             param_schema=param_schema,
             current_params={},
-            history=[],
             client=client,
             builder=builder,
         )
@@ -159,7 +155,6 @@ class TestExtractParams:
             template_id="shp2geojson",
             param_schema=param_schema,
             current_params={"input": "roads.shp"},
-            history=[],
             client=client,
             builder=builder,
         )
@@ -181,7 +176,6 @@ class TestExtractParams:
             template_id="shp2geojson",
             param_schema=param_schema,
             current_params={},
-            history=[],
             client=client,
             builder=builder,
         )
@@ -201,7 +195,6 @@ class TestExtractParams:
                 template_id="shp2geojson",
                 param_schema=param_schema,
                 current_params={},
-                history=[],
                 client=client,
                 builder=builder,
             )
@@ -218,7 +211,6 @@ class TestExtractParams:
                 template_id="shp2geojson",
                 param_schema=param_schema,
                 current_params={},
-                history=[],
                 client=client,
                 builder=builder,
             )
@@ -236,14 +228,13 @@ class TestExtractParams:
             template_id="shp2geojson",
             param_schema=param_schema,
             current_params={},
-            history=[Message(role="user", content="之前的问题")],
             client=client,
             builder=builder,
         )
 
         call_args = client.chat.call_args
         messages = call_args.kwargs["messages"]
-        assert messages[-1].role == "user"
+        assert len(messages) == 1
         assert "roads.json" in messages[-1].content
 
     def test_markdown_json_code_block_stripped(
@@ -261,7 +252,6 @@ class TestExtractParams:
             template_id="shp2geojson",
             param_schema=param_schema,
             current_params={},
-            history=[],
             client=client,
             builder=builder,
         )

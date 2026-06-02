@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 |------|------|
 | 项目代号 | `gis-agent` |
-| 版本 | v1.2.0 |
+| 版本 | v1.3.0 |
 | 效力 | **最高约束**，所有开发活动必须遵守 |
 | 适用范围 | 本项目全部设计文档与源代码 |
 
@@ -283,6 +283,7 @@ gis-agent/
 | CODE-2 | **所有文件路径操作必须经过规范化层** | 调用 `workspace.resolve_path()` 或等效函数进行路径规范化，禁止直接使用 `os.path.join` 处理用户输入路径 |
 | CODE-3 | **所有 LLM 调用必须封装在 `llm/` 模块内** | 其他模块禁止直接调用 `anthropic` 客户端 |
 | CODE-4 | **异常不得静默吞没** | 所有 `except` 块必须至少记录日志或向上转换异常 |
+| CODE-5 | **流式交互必须走 WebSocket** | 任何涉及 LLM 流式输出或 subprocess 实时日志推送的前后端交互，必须使用 WebSocket；禁止在前端使用同步 HTTP 轮询或长等待替代 WebSocket（参见 spec.md §4.3） |
 | CODE-6 | **模板文件 (*.j2) 中的参数必须做转义处理** | 防止命令注入，参见 plan-security.md 中的转义策略 |
 
 ### 5.3 文档字符串规范
@@ -398,6 +399,20 @@ def function_name(param: str, optional: int = 0) -> bool:
 | 工作空间管理 | 单例模式（进程级） | 全局变量直接传递路径 |
 | LLM 调用 | 适配器模式（封装 anthropic 客户端） | 直接散布 API 调用 |
 | 参数校验 | 校验器链（Chain of Responsibility） | 单个巨型校验函数 |
+
+### 6.4 协议选择原则（CODE-5 补充）
+
+| 场景 | 协议 | 理由 |
+|------|------|------|
+| 状态流转（意图匹配、参数提交、模板锁定） | HTTP REST | 请求-响应，即时返回完整 SessionSnapshot |
+| 数据查询（模板列表、详情） | HTTP REST | 纯数据查询，无实时性要求 |
+| **Q&A 对话** | **WebSocket** | LLM 流式输出需要逐块推送，禁止用 HTTP 长等待替代（CODE-5） |
+| **脚本执行日志** | **WebSocket** | subprocess stdout/stderr 需要逐行实时推送 |
+| **Pipeline 执行日志** | **WebSocket** | 同脚本执行，且需要步骤级语义 |
+| 模板生成/校验/保存 | HTTP REST | 同步计算，无需流式 |
+| 执行环境验证 | HTTP REST | 同步验证，即时返回 |
+
+**违反 CODE-5 的典型反例**：前端用 `axios.post()` 调用 LLM 流式接口，30 秒超时后截断响应，用户体验为"有时成功，有时失败"。
 
 ---
 
@@ -521,6 +536,7 @@ pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 | v1.0.0 | 2026-05-26 | 初版发布，建立规范驱动设计工作流与项目规范 | - |
 | v1.1.0 | 2026-05-27 | 新增 §5.4 TDD 测试驱动开发规范，明确编码阶段的红-绿-重构循环与 TDD-1~TDD-5 纪律 | - |
 | v1.2.0 | 2026-05-29 | 架构扩展为双入口（CLI + Browser UI）：更新 §2.1 目录结构加入 `api/` 与 `frontend/`；§6.1 分层架构加入前端层与 API 层；§6.2 新增 DEP-5~DEP-7；§9.1 P2 泛化为"交互层确认" | - |
+| v1.3.0 | 2026-06-01 | **新增 CODE-5 流式交互强制 WebSocket 约束**：§5.2 新增 `CODE-5`（禁止用 HTTP 长等待替代 WebSocket）；§6.4 新增协议选择原则表，明确 HTTP vs WebSocket 场景边界；追溯接口对齐审计中发现的 Q&A HTTP 超时问题 | - |
 
 ---
 

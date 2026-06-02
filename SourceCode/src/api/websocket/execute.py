@@ -12,14 +12,12 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
 from api.dependencies import (
     get_session_manager,
     get_template_engine,
-    get_workspace,
 )
 from core.exec_env import ShellExecutor
 from core.models import ExecutionErrorContext, SessionState
@@ -27,6 +25,16 @@ from core.models import ExecutionErrorContext, SessionState
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = 300
+
+
+def _cleanup_temp_script(script_path: Path) -> None:
+    """Remove temporary script file if it exists."""
+    try:
+        if script_path.exists():
+            script_path.unlink()
+            logger.debug("Cleaned up temp script: %s", script_path)
+    except Exception as exc:
+        logger.warning("Failed to clean up temp script %s: %s", script_path, exc)
 
 
 async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> None:
@@ -79,7 +87,6 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
 
     # Resolve execution environment
     # ━━━ DC-0104: use session.exec_env if configured, else fallback ━━━
-    workspace = get_workspace()
     exec_env = session.exec_env
     if exec_env is not None:
         # User-configured environment (conda / custom shell)
@@ -103,10 +110,11 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
         executor = ShellExecutor(fallback_env)
         logger.debug("Using fallback exec env (system default, cmd)")
 
-    # Write script to temp file in workspace
+    # Write script to temp file (DC-0105: no longer in workspace)
+    script_path: Path | None = None
     try:
         commands = script_content.strip().splitlines()
-        script_path = executor.write_script(commands, Path(workspace.root))
+        script_path = executor.write_script_to_temp(commands)
     except Exception as exc:
         logger.exception("Script write error: %s", exc)
         await websocket.send_json(
@@ -116,9 +124,10 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
 
     # Execute with streaming
     try:
-        process = await executor.execute(script_path, Path(workspace.root))
+        process = await executor.execute(script_path, Path("."))
     except Exception as exc:
         logger.exception("Failed to start subprocess: %s", exc)
+        _cleanup_temp_script(script_path)
         await websocket.send_json({"type": "done", "success": False, "error": str(exc)})
         return
 
@@ -254,3 +263,7 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
             )
         except Exception:
             pass
+    finally:
+        # Clean up temporary script file (DC-0105)
+        if script_path is not None:
+            _cleanup_temp_script(script_path)

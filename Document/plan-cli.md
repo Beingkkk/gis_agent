@@ -25,11 +25,8 @@ CLI 层（`cli/`）。可依赖所有下层模块（core、llm、templates、wor
 |:-------:|---------|
 | F5 | 向用户完整展示脚本内容，要求明确确认（Y/N）后执行 |
 | F6 | 支持 `--dry-run` 空跑模式 |
-| F7 | 支持启动时指定工作空间（`--workspace`） |
 | F8 | 会话内记忆（多轮追问和补充） |
 | P2 | 先展后行：任何脚本必须展示并获得确认 |
-| P3 | 所有操作强制限制在工作空间内 |
-| W1-W3 | 工作空间相关约束 |
 
 ---
 
@@ -37,7 +34,7 @@ CLI 层（`cli/`）。可依赖所有下层模块（core、llm、templates、wor
 
 ### DC-0060: 启动参数使用 argparse 标准库解析
 
-**决策**: 使用 Python 标准库 `argparse` 解析命令行参数：`--workspace`、`--config`、`--dry-run`。
+**决策**: 使用 Python 标准库 `argparse` 解析命令行参数：`--config`、`--dry-run`。
 
 **理由**:
 - 零额外依赖（符合 P5）
@@ -83,18 +80,17 @@ def repl_loop(session: Session) -> None:
 |------|------|
 | `/quit` 或 `/q` | 退出程序 |
 | `/clear` | 清除会话历史，重置为 IDLE 状态 |
-| `/workspace` | 显示当前工作空间路径 |
 | `/templates` | 列出可用模板 |
-| `/status` | 显示当前状态、工作空间、历史轮数 |
+| `/status` | 显示当前状态、历史轮数 |
 | `/help` | 显示帮助信息 |
 
-### DC-0063: 脚本执行使用 subprocess，cwd 限定在工作空间
+### DC-0063: 脚本执行使用 subprocess（DC-0105：临时目录执行）
 
-**决策**: 用户确认后，通过 `subprocess.run()` 执行渲染后的脚本，`cwd` 参数设为工作空间根目录。
+**决策**: 用户确认后，通过 `subprocess.run()` 执行渲染后的脚本。脚本写入系统临时目录（`tempfile.gettempdir()`），`cwd` 不设限。用户如需保存脚本，通过独立的"导出脚本"功能主动保存。
 
 **理由**:
 - `subprocess` 是标准库，提供进程隔离
-- `cwd` 参数确保 GDAL 命令在工作空间内执行
+- 临时目录执行不污染用户目录（DC-0105）
 - `timeout` 参数防止长时间挂起
 - 可捕获 stdout/stderr 用于错误诊断（F10）
 
@@ -156,7 +152,6 @@ from typing import Optional
 @dataclass(frozen=True)
 class CLIArgs:
     """解析后的命令行参数。"""
-    workspace: Optional[Path] = None
     config: Optional[Path] = None
     dry_run: bool = False
 ```
@@ -170,13 +165,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     执行流程：
     1. 解析命令行参数
     2. 加载配置（config.load_config）
-    3. 初始化工作空间（workspace.initialize）
-    4. 初始化 LLM 客户端和 Prompt 构建器
-    5. 定位模板目录（由包路径推导 ``{pkg_root}/data/templates/``）
-    6. 扫描模板文件并构建 TemplateRegistry
-    7. 构建 SessionProcessor（含 TemplateRegistry、ParamValidator、LLMClient、PromptBuilder、TemplateEngine）
-    8. 构建 ScriptExecutor（含 workspace）
-    9. 启动 REPL 循环（注入 SessionProcessor + ScriptExecutor）
+    3. 初始化 LLM 客户端和 Prompt 构建器
+    4. 定位模板目录（由包路径推导 ``{pkg_root}/data/templates/``）
+    5. 扫描模板文件并构建 TemplateRegistry
+    6. 构建 SessionProcessor（含 TemplateRegistry、ParamValidator、LLMClient、PromptBuilder、TemplateEngine）
+    7. 构建 ScriptExecutor
+    8. 启动 REPL 循环（注入 SessionProcessor + ScriptExecutor）
 
     Args:
         argv: 命令行参数列表。默认为 sys.argv[1:]。
@@ -251,7 +245,7 @@ class ExecutionResult:
 class ScriptExecutor:
     """脚本执行器。
 
-    负责在安全沙箱中执行渲染后的 GDAL 脚本。
+    负责执行渲染后的 GDAL 脚本（写入临时目录，DC-0105）。
 
     Design:
         DC-0063, DC-0065
@@ -259,11 +253,9 @@ class ScriptExecutor:
 
     def __init__(
         self,
-        workspace: Workspace,
         timeout: int = 300,
     ) -> None:
         """Args:
-            workspace: 工作空间（作为 cwd）。
             timeout: 超时秒数。
         """
 
@@ -299,7 +291,6 @@ class SlashCommandHandler:
         "quit": _cmd_quit,
         "q": _cmd_quit,
         "clear": _cmd_clear,
-        "workspace": _cmd_workspace,
         "templates": _cmd_templates,
         "status": _cmd_status,
         "help": _cmd_help,
@@ -309,7 +300,7 @@ class SlashCommandHandler:
         """处理斜杠命令。
 
         Args:
-            command_line: 完整命令行（如 "/workspace /data/gis"）。
+            command_line: 完整命令行（如 "/quit"）。
             session: 当前会话。
 
         Returns:
@@ -324,7 +315,7 @@ class SlashCommandHandler:
 ### 4.1 启动初始化流程
 
 ```
-[用户执行] python -m gis_agent --workspace /data/gis
+[用户执行] python -m gis_agent --config config.json
     │
     ▼
 argparse 解析参数
@@ -337,12 +328,6 @@ load_config(config_path)
     │
     ├──→ 成功 → 继续
     └──→ 失败 → 打印错误，退出码 2
-    │
-    ▼
-workspace.initialize(workspace_path)
-    │
-    ├──→ 成功 → 继续
-    └──→ 失败（目录不存在）→ 打印错误，退出码 2
     │
     ▼
 打印 "正在加载文档检索系统（首次启动可能需要 1-2 分钟）..."
@@ -372,7 +357,7 @@ workspace.initialize(workspace_path)
 初始化 Session（state=IDLE）
     │
     ▼
-打印欢迎信息（含工作空间路径、可用模板数量、/help 提示）
+打印欢迎信息（含可用模板数量、/help 提示）
     │
     ▼
 启动 REPL.run()
@@ -469,12 +454,11 @@ ogr2ogr -f "GeoJSON" ...
 ```
 ScriptExecutor.execute(script)
     │
-    ├──→ 将 script.content 写入临时文件（工作空间内）
+    ├──→ 将 script.content 写入临时文件（系统临时目录）
     │       └── 文件名：script_20260526_143052.bat
     │
     ├──→ subprocess.run(
     │       cmd=["cmd", "/c", temp_script],
-    │       cwd=workspace.root,
     │       timeout=300,
     │       capture_output=True,
     │       text=True,

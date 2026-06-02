@@ -344,7 +344,7 @@ class TestShellExecutorWriteScript:
         executor = ShellExecutor(env)
 
         script_path = executor.write_script(
-            ["ogr2ogr --version", "echo done"], tmp_path
+            ["ogr2ogr --version", "echo done"], tmp_path / "test.sh"
         )
 
         content = script_path.read_text()
@@ -364,7 +364,7 @@ class TestShellExecutorWriteScript:
         executor = ShellExecutor(env)
 
         script_path = executor.write_script(
-            ["ogr2ogr --version"], tmp_path
+            ["ogr2ogr --version"], tmp_path / "test.bat"
         )
 
         content = script_path.read_text()
@@ -383,7 +383,7 @@ class TestShellExecutorWriteScript:
         executor = ShellExecutor(env)
 
         script_path = executor.write_script(
-            ["Write-Host 'test'"], tmp_path
+            ["Write-Host 'test'"], tmp_path / "test.ps1"
         )
 
         content = script_path.read_text()
@@ -413,7 +413,7 @@ class TestIntegration:
                 env = builder.build()
 
         executor = ShellExecutor(env)
-        script_path = executor.write_script(["echo hello"], tmp_path)
+        script_path = executor.write_script(["echo hello"], tmp_path / "test.bat")
 
         assert script_path.exists()
         assert script_path.suffix == ".bat"

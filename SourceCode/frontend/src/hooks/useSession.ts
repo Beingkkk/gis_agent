@@ -26,8 +26,6 @@ interface SessionStore {
   errorContext: ErrorContext | null
   isLoading: boolean
   templates: TemplateDef[]
-  workspace: string | null
-
   // === v4: 三 TAB 架构新增状态 (DC-UX-10 ~ DC-UX-13) ===
 
   /** 当前激活的 TAB */
@@ -43,7 +41,6 @@ interface SessionStore {
   addMessage: (msg: ChatMessage) => void
   setLoading: (loading: boolean) => void
   setTemplates: (templates: TemplateDef[]) => void
-  setWorkspace: (path: string) => void
   reset: () => void
 
   // === v4: 三 TAB 架构新增方法 ===
@@ -61,7 +58,6 @@ type SessionStateFields = Omit<
   | 'addMessage'
   | 'setLoading'
   | 'setTemplates'
-  | 'setWorkspace'
   | 'reset'
   | 'setActiveTab'
   | 'addQAMessage'
@@ -80,7 +76,6 @@ const initialState: SessionStateFields = {
   errorContext: null as ErrorContext | null,
   isLoading: false,
   templates: [] as TemplateDef[],
-  workspace: null as string | null,
   // v4
   activeTab: 'discovery' as TabId,
   qaMessages: [] as ChatMessage[],
@@ -100,7 +95,6 @@ export const useSession = create<SessionStore>((set) => ({
       errorContext: snapshot.error_context,
       messages: snapshot.history,
       lockedTemplateId: snapshot.task_context.template_id,
-      workspace: snapshot.workspace,
       editedScript: snapshot.user_script,
       execEnv: snapshot.exec_env,
     }),
@@ -113,8 +107,6 @@ export const useSession = create<SessionStore>((set) => ({
   setLoading: (loading) => set({ isLoading: loading }),
 
   setTemplates: (templates) => set({ templates }),
-
-  setWorkspace: (path) => set({ workspace: path }),
 
   reset: () => set(initialState),
 

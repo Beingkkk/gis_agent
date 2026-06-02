@@ -1,7 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import path from 'path'
 import { spawn, ChildProcess } from 'child_process'
-import fs from 'fs'
 
 // ─── Configuration ───────────────────────────────────────────
 
@@ -10,22 +9,7 @@ const PYTHON_PATH =
     ? 'C:/Users/PC/.conda/envs/gis-agent/python.exe'
     : '/Users/PC/.conda/envs/gis-agent/bin/python'
 
-/**
- * Read API port from backend config.json.
- * Falls back to 18000 (matches config.json default).
- */
-function getBackendPort(): number {
-  try {
-    const configPath = path.join(__dirname, '../../config/config.json')
-    const raw = fs.readFileSync(configPath, 'utf-8')
-    const cfg = JSON.parse(raw)
-    return cfg.api?.port ?? 18000
-  } catch {
-    return 18000
-  }
-}
-
-const BACKEND_PORT = getBackendPort()
+const BACKEND_PORT = 18000
 const BACKEND_URL = `http://localhost:${BACKEND_PORT}`
 
 // ─── State ───────────────────────────────────────────────────
@@ -280,6 +264,17 @@ function registerIpcHandlers(): void {
     }
   )
 
+  ipcMain.handle(
+    'dialog:saveFile',
+    async (_, options?: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => {
+      if (!mainWindow) return null
+      const result = options
+        ? await dialog.showSaveDialog(mainWindow, options)
+        : await dialog.showSaveDialog(mainWindow)
+      return result.canceled ? null : result.filePath
+    }
+  )
+
   // Expose backend URL so renderer can construct absolute API URLs
   ipcMain.handle('app:getApiBaseUrl', () => BACKEND_URL)
 
@@ -302,6 +297,11 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('window:isMaximized', () => {
     return mainWindow?.isMaximized() ?? false
+  })
+
+  // Show file in folder (DC-UX-11a: auto-reveal exported script)
+  ipcMain.handle('shell:showItemInFolder', (_, filePath: string) => {
+    shell.showItemInFolder(filePath)
   })
 }
 

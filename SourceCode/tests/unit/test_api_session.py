@@ -103,12 +103,13 @@ class TestCreateSession:
         assert data["state"] == "IDLE"
         assert data["task_context"]["template_id"] is None
 
-    def test_create_session_with_workspace(self, client: TestClient) -> None:
-        # workspace parameter is accepted but does not affect response yet
-        response = client.post("/api/session?workspace=/data/gis")
+    def test_create_session(self, client: TestClient) -> None:
+        """Session creation returns a valid session ID."""
+        response = client.post("/api/session")
         assert response.status_code == 200
         data = response.json()
         assert "session_id" in data
+        assert data["state"] == "IDLE"
 
 
 class TestProcessIntent:

@@ -10,10 +10,10 @@ Design: plan-core v1.0.0 (DC-0042)
 """
 
 import re
+from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 from core.models import ParamDef, TemplateDef
-from core.workspace import PathNotFoundError, Workspace
 
 ValidationResult = Tuple[bool, Optional[str]]
 # (is_valid, error_message)
@@ -33,13 +33,6 @@ class ParamValidator:
     """EPSG code pattern (e.g. EPSG:4326)."""
     _RAW_EPSG_RE = re.compile(r"^\d+$")
     """Raw EPSG digits (e.g. 4326) — will be auto-prefixed."""
-
-    def __init__(self, workspace: Workspace) -> None:
-        """Args:
-        workspace: 用于 file_path 类型的路径存在性校验（must_exist）。
-            Workspace v2.0 是记忆锚点，不是安全边界；绝对路径直接放行。
-        """
-        self._workspace = workspace
 
     # ------------------------------------------------------------------
     # Public API
@@ -147,15 +140,14 @@ class ParamValidator:
         return validators.get(param_type, self._validate_string)
 
     def _validate_file_path(self, param_def: ParamDef, value: str) -> ValidationResult:
-        """Validate file path: non-empty, must_exist check via workspace."""
+        """Validate file path: non-empty, must_exist check via filesystem."""
         if not value:
             return (False, f"参数 '{param_def.name}' 不能为空")
 
         if param_def.must_exist:
-            try:
-                self._workspace.resolve_path(value, must_exist=True)
-            except PathNotFoundError as exc:
-                return (False, f"参数 '{param_def.name}': 路径不存在 ({exc})")
+            resolved = Path(value).resolve()
+            if not resolved.exists():
+                return (False, f"参数 '{param_def.name}': 路径不存在 ({resolved})")
 
         return (True, None)
 
@@ -233,7 +225,7 @@ class ParamValidator:
     def _validate_folder_path(
         self, param_def: ParamDef, value: str
     ) -> ValidationResult:
-        """Validate folder path: non-empty, must_exist check via workspace.
+        """Validate folder path: non-empty, must_exist check via filesystem.
 
         When must_exist is True, also verifies the path is a directory.
 
@@ -244,17 +236,16 @@ class ParamValidator:
             return (False, f"参数 '{param_def.name}' 不能为空")
 
         if param_def.must_exist:
-            try:
-                resolved = self._workspace.resolve_path(value, must_exist=True)
-                if not resolved.is_dir():
-                    return (
-                        False,
-                        f"参数 '{param_def.name}': 路径不是目录",
-                    )
-            except PathNotFoundError as exc:
+            resolved = Path(value).resolve()
+            if not resolved.exists():
                 return (
                     False,
-                    f"参数 '{param_def.name}': 目录不存在 ({exc})",
+                    f"参数 '{param_def.name}': 目录不存在 ({resolved})",
+                )
+            if not resolved.is_dir():
+                return (
+                    False,
+                    f"参数 '{param_def.name}': 路径不是目录",
                 )
 
         return (True, None)

@@ -346,14 +346,14 @@ def quote_filter(value: str) -> str:
     """
 
 
-def safe_path_filter(value: str, workspace: Workspace) -> str:
+def safe_path_filter(value: str) -> str:
     """安全路径解析过滤器。
 
-    将相对路径解析为工作空间内的绝对路径，
-    同时进行路径安全校验。
+    将路径解析为绝对路径。绝对路径直接返回；
+    相对路径以当前工作目录为基准解析。
 
     示例：
-        {{ "data/roads.shp" | safe_path }} → "/workspace/data/roads.shp"
+        {{ "data/roads.shp" | safe_path }} → "/current/dir/data/roads.shp"
     """
 ```
 

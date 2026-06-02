@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from config import Config, LLMConfig, WorkspaceConfig, get_config, load_config
+from config import Config, LLMConfig, get_config, load_config
 from config.loader import _clear_config_singleton
 
 # ---------------------------------------------------------------------------
@@ -26,10 +26,6 @@ def valid_config_dict() -> dict:
             "base_url": "https://api.kimi.com/coding/",
             "auth_key": "sk-test",
             "model_name": "claude-sonnet-4-6",
-        },
-        "workspace": {
-            "default_path": ".",
-            "allow_parent_access": False,
         },
     }
 
@@ -66,15 +62,9 @@ class TestDataModels:
         assert cfg.auth_key == "sk-xxx"
         assert cfg.model_name == "test"
 
-    def test_workspace_config_defaults(self) -> None:
-        cfg = WorkspaceConfig()
-        assert cfg.default_path == "."
-        assert cfg.allow_parent_access is False
-
     def test_config_creation(self) -> None:
         cfg = Config(
             llm=LLMConfig(base_url="https://a.com", auth_key="k", model_name="m"),
-            workspace=WorkspaceConfig(),
         )
         assert cfg.llm.base_url == "https://a.com"
 
@@ -98,18 +88,16 @@ class TestLoadConfig:
         assert cfg.llm.base_url == "https://api.kimi.com/coding/"
         assert cfg.llm.auth_key == "sk-test"
         assert cfg.llm.model_name == "claude-sonnet-4-6"
-        assert cfg.workspace.default_path == "."
-        assert cfg.workspace.allow_parent_access is False
 
     def test_missing_required_fields(self, tmp_path: Path) -> None:
         path = tmp_path / "bad.json"
-        path.write_text(json.dumps({"llm": {}, "workspace": {}}))
+        path.write_text(json.dumps({"llm": {}}))
         with pytest.raises(ValueError, match="Missing required fields"):
             load_config(path)
 
     def test_missing_llm_section(self, tmp_path: Path) -> None:
         path = tmp_path / "bad.json"
-        path.write_text(json.dumps({"workspace": {}}))
+        path.write_text(json.dumps({}))
         with pytest.raises(ValueError, match="llm"):
             load_config(path)
 
@@ -157,13 +145,6 @@ class TestEnvOverride:
         cfg = load_config(config_file)
         assert cfg.llm.auth_key == "env-sk-override"
 
-    def test_override_bool_allow_parent_access(
-        self, config_file: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("GISAGENT_WORKSPACE_ALLOW_PARENT_ACCESS", "true")
-        cfg = load_config(config_file)
-        assert cfg.workspace.allow_parent_access is True
-
     def test_env_takes_precedence_over_file(
         self, config_file: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -179,32 +160,6 @@ class TestEnvOverride:
         monkeypatch.delenv("GISAGENT_LLM_BASE_URL", raising=False)
         cfg = load_config(config_file)
         assert cfg.llm.base_url == "https://api.kimi.com/coding/"
-
-
-# ---------------------------------------------------------------------------
-# Default values tests
-# ---------------------------------------------------------------------------
-
-
-class TestDefaults:
-    """Tests for default value filling (C-05)."""
-
-    def test_defaults_filled(self, tmp_path: Path) -> None:
-        path = tmp_path / "minimal.json"
-        path.write_text(
-            json.dumps(
-                {
-                    "llm": {
-                        "base_url": "https://api.example.com",
-                        "auth_key": "sk-xxx",
-                        "model_name": "test-model",
-                    },
-                }
-            )
-        )
-        cfg = load_config(path)
-        assert cfg.workspace.default_path == "."
-        assert cfg.workspace.allow_parent_access is False
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +196,6 @@ class TestSingleton:
                 "auth_key": "sk-new",
                 "model_name": "new",
             },
-            "workspace": {},
         }
         new_path.write_text(json.dumps(data))
         cfg2 = load_config(new_path)
@@ -261,5 +215,4 @@ class TestIntegration:
     def test_full_config_matches_expected_structure(self, config_file: Path) -> None:
         cfg = load_config(config_file)
         assert isinstance(cfg.llm, LLMConfig)
-        assert isinstance(cfg.workspace, WorkspaceConfig)
         assert isinstance(cfg, Config)

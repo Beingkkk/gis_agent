@@ -598,26 +598,21 @@ class ShellExecutor:
         """
         self.env = env
 
-    def write_script(self, commands: List[str], workspace: Path) -> Path:
-        """Write commands to a script file matching the shell type.
-
-        Args:
-            commands: List of command lines to include in the script.
-            workspace: Directory where the script file will be written.
+    def _build_script_content(self, commands: List[str]) -> tuple[str, str]:
+        """Build script header and body for the current shell type.
 
         Returns:
-            Path to the written script file.
+            (header, body) tuple.
+
+        Design:
+            DC-0103, DC-0105
         """
         shell = self.env.shell
-        timestamp = str(int(time.time()))
-        uid = str(uuid.uuid4())[:8]
 
         if shell == ShellType.BASH:
-            ext = ".sh"
             header = "#!/bin/bash\nset -euo pipefail\n"
             body = "\n".join(commands) + "\n"
         elif shell == ShellType.CMD:
-            ext = ".bat"
             header = "@echo off\n"
             body_parts = []
             for cmd in commands:
@@ -625,7 +620,6 @@ class ShellExecutor:
                 body_parts.append("if errorlevel 1 exit /b 1")
             body = "\n".join(body_parts) + "\n"
         elif shell == ShellType.POWERSHELL:
-            ext = ".ps1"
             header = (
                 "#Requires -Version 5.1\n"
                 "$ErrorActionPreference = 'Stop'\n"
@@ -634,10 +628,60 @@ class ShellExecutor:
         else:
             raise ValueError(f"Unsupported shell: {shell}")
 
-        filename = f"script_{timestamp}_{uid}{ext}"
-        script_path = workspace / filename
+        return header, body
+
+    def write_script(self, commands: List[str], output_path: Path) -> Path:
+        """Write commands to a script file at the specified path.
+
+        Args:
+            commands: List of command lines to include in the script.
+            output_path: Full path to the target script file
+                (including filename and extension).
+
+        Returns:
+            Path to the written script file.
+
+        Design:
+            DC-0103, DC-0105
+        """
+        header, body = self._build_script_content(commands)
+        output_path.write_text(header + body, encoding="utf-8")
+        logger.debug("Script written to %s (%s)", output_path, self.env.shell.value)
+        return output_path
+
+    def write_script_to_temp(self, commands: List[str]) -> Path:
+        """Write commands to a temporary script file for execution.
+
+        Uses the system temp directory. The caller is responsible for cleanup.
+
+        Returns:
+            Path to the temporary script file.
+
+        Design:
+            DC-0105
+        """
+        import tempfile
+
+        shell = self.env.shell
+        timestamp = str(int(time.time()))
+        uid = str(uuid.uuid4())[:8]
+
+        if shell == ShellType.BASH:
+            ext = ".sh"
+        elif shell == ShellType.CMD:
+            ext = ".bat"
+        elif shell == ShellType.POWERSHELL:
+            ext = ".ps1"
+        else:
+            raise ValueError(f"Unsupported shell: {shell}")
+
+        filename = f"gis_script_{timestamp}_{uid}{ext}"
+        temp_dir = Path(tempfile.gettempdir())
+        script_path = temp_dir / filename
+
+        header, body = self._build_script_content(commands)
         script_path.write_text(header + body, encoding="utf-8")
-        logger.debug("Script written to %s (%s)", script_path, shell.value)
+        logger.debug("Temp script written to %s (%s)", script_path, shell.value)
         return script_path
 
     async def execute(

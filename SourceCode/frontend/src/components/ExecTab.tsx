@@ -9,7 +9,6 @@
 import { useState, useCallback } from 'react'
 import CmdEditor from './CmdEditor'
 import ExecStatusPanel from './ExecStatusPanel'
-import { selectDirectory } from '../electron-api'
 import type { ExecResult, ErrorContext, TemplateDetail, ExecEnvVerifyRequest, ExecEnvVerifyResponse } from '../types'
 
 export type ExecPhase = 'preview' | 'executing' | 'success' | 'failure'
@@ -33,8 +32,6 @@ interface ExecTabProps {
   paramValues?: Record<string, string>
   /** 未填完的必填参数 */
   missingParams?: string[]
-  /** 工作空间路径 */
-  workspace?: string | null
   /** 当前执行环境配置 */
   execEnv?: { type: string; shell: string; env_name: string; gdal_available: boolean; gdal_version: string } | null
   /** 脚本编辑回调 */
@@ -53,8 +50,8 @@ interface ExecTabProps {
   onEditParams: () => void
   /** 新任务 */
   onNewTask: () => void
-  /** 切换工作空间 */
-  onUpdateWorkspace?: (path: string) => void
+  /** 导出脚本 */
+  onExportScript?: () => void
   /** 环境验证回调 */
   onVerifyEnv?: (config: ExecEnvVerifyRequest) => Promise<ExecEnvVerifyResponse>
   /** 环境保存回调 */
@@ -87,7 +84,6 @@ export default function ExecTab({
   errorContext,
   paramValues,
   missingParams,
-  workspace,
   execEnv,
   onScriptChange,
   onRefreshScript,
@@ -97,7 +93,7 @@ export default function ExecTab({
   onRetry,
   onEditParams,
   onNewTask,
-  onUpdateWorkspace,
+  onExportScript,
   onVerifyEnv,
   onSaveEnv,
   onListCondaEnvs,
@@ -111,13 +107,6 @@ export default function ExecTab({
   const [verifyLoading, setVerifyLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
   const [condaEnvs, setCondaEnvs] = useState<string[]>([])
-
-  const handleBrowseClick = async () => {
-    const path = await selectDirectory()
-    if (path && path !== workspace) {
-      onUpdateWorkspace?.(path)
-    }
-  }
 
   /** 展开环境面板时拉取 conda 环境列表 */
   const handleToggleEnvPanel = useCallback(async () => {
@@ -177,27 +166,6 @@ export default function ExecTab({
     }
   }
 
-  /** 工作空间路径显示（header 右侧公用） */
-  const WorkspaceDisplay = () => (
-    <div className="flex items-center gap-3 min-w-0">
-      <div className="flex items-center gap-1.5 text-xs min-w-0 overflow-x-auto scrollbar-hide">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-400 flex-shrink-0">
-          <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
-        </svg>
-        <span className="font-mono text-slate-600 text-xs whitespace-nowrap" title={workspace || '未设置'}>
-          {workspace || '未设置'}
-        </span>
-      </div>
-      <button
-        type="button"
-        onClick={handleBrowseClick}
-        className="h-7 px-2.5 rounded-md bg-white text-slate-500 text-[11px] hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-colors border border-slate-200 font-medium flex-shrink-0"
-      >
-        浏览
-      </button>
-    </div>
-  )
-
   /** 环境配置按钮 */
   const EnvConfigButton = () => {
     const hasEnv = execEnv && execEnv.gdal_available
@@ -249,7 +217,6 @@ export default function ExecTab({
           </div>
           <div className="flex items-center gap-2">
             <EnvConfigButton />
-            <WorkspaceDisplay />
           </div>
         </div>
 
@@ -438,6 +405,17 @@ export default function ExecTab({
           <div className="flex gap-2 pt-2"
           >
             <button
+              onClick={onExportScript}
+              className="h-10 px-4 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-blue-600 hover:border-blue-300 transition-all flex items-center justify-center gap-1.5"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              导出脚本
+            </button>
+            <button
               onClick={onExecute}
               disabled={hasMissing}
               className={`flex-1 h-10 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-1.5
@@ -484,7 +462,6 @@ export default function ExecTab({
             )}
           </div>
           <div className="flex items-center gap-2">
-            <WorkspaceDisplay />
             <button
               onClick={onCancelExecute}
               className="text-[11px] font-medium px-2.5 py-[5px] rounded-md border border-red-100 text-red-600 hover:bg-red-50 transition-all"
@@ -549,7 +526,6 @@ export default function ExecTab({
             </span>
           )}
         </div>
-        <WorkspaceDisplay />
       </div>
 
       {/* Status panel */}

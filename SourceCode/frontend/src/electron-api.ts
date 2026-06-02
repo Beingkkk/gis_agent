@@ -33,6 +33,13 @@ export interface ElectronAPI {
     title?: string
     defaultPath?: string
   }): Promise<string | null>
+  saveFile(options?: {
+    title?: string
+    defaultPath?: string
+    filters?: { name: string; extensions: string[] }[]
+  }): Promise<string | null>
+  /** Reveal file in file manager (shell.showItemInFolder) */
+  showItemInFolder(filePath: string): Promise<void>
   windowControl: WindowControlAPI
 }
 
@@ -76,6 +83,23 @@ export async function selectDirectory(options?: {
 }
 
 /**
+ * 打开保存文件对话框。
+ *
+ * @param options - 对话框选项（含默认文件名和文件类型过滤）
+ * @returns 用户选择的保存路径，取消则返回 null
+ */
+export async function saveFile(options?: {
+  title?: string
+  defaultPath?: string
+  filters?: { name: string; extensions: string[] }[]
+}): Promise<string | null> {
+  if (window.electron) {
+    return window.electron.saveFile(options)
+  }
+  return null
+}
+
+/**
  * 获取后端 API 基础地址。
  *
  * 返回如 http://localhost:18000，用于构造绝对 API 和 WebSocket URL。
@@ -85,6 +109,15 @@ export async function getApiBaseUrl(): Promise<string | null> {
     return window.electron.getApiBaseUrl()
   }
   return null
+}
+
+/**
+ * 在文件管理器中打开文件所在目录并选中该文件。
+ *
+ * @param filePath - 文件的绝对路径
+ */
+export async function showItemInFolder(filePath: string): Promise<void> {
+  await window.electron?.showItemInFolder(filePath)
 }
 
 // ─── Window Control (DC-E07) ─────────────────────────────────

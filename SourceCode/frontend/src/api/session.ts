@@ -67,19 +67,21 @@ export async function clearSession(sessionId: string): Promise<SessionSnapshot> 
   return resp.data
 }
 
-export async function updateWorkspace(
-  sessionId: string,
-  path: string
-): Promise<SessionSnapshot> {
-  const resp = await apiClient.post(`/session/${sessionId}/workspace`, {
-    path,
-  })
-  return resp.data
-}
-
 export async function diagnoseSession(
   sessionId: string
 ): Promise<SessionSnapshot> {
   const resp = await apiClient.post(`/session/${sessionId}/diagnose`)
+  return resp.data
+}
+
+export async function exportScript(
+  sessionId: string,
+  outputPath: string,
+  script?: string
+): Promise<{ success: boolean; path: string; size: number; message: string }> {
+  const resp = await apiClient.post(`/session/${sessionId}/export-script`, {
+    output_path: outputPath,
+    script,
+  })
   return resp.data
 }

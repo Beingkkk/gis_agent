@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Tuple
 from jinja2 import Environment, FileSystemLoader
 
 from core.models import TemplateDef
-from core.workspace import Workspace
+from pathlib import Path
 
 
 class Platform(Enum):
@@ -90,18 +90,16 @@ def quote_filter(value: str) -> str:
     return shlex.quote(value)
 
 
-def safe_path_filter(value: str, workspace: Workspace) -> str:
-    """Resolve path via workspace and return as string.
+def safe_path_filter(value: str) -> str:
+    """Resolve path to absolute and return as string.
 
-    Relative paths are resolved against the workspace root.
-    Absolute paths are passed through without restriction
-    (workspace v2.0.0 is a memory anchor, not a security boundary).
+    Absolute paths are returned as-is; relative paths are resolved
+    against the current working directory.
 
     Design:
-        DC-0053, DC-0051, DC-0011
+        DC-0053, DC-0051
     """
-    resolved = workspace.resolve_path(value)
-    return str(resolved)
+    return str(Path(value).resolve())
 
 
 class ScriptSecurityChecker:
@@ -151,24 +149,19 @@ class TemplateEngine:
     def __init__(
         self,
         template_dir: Path,
-        workspace: Workspace,
     ) -> None:
         """Initialize Jinja2 environment.
 
         Args:
             template_dir: Root directory for .j2 template files.
-            workspace: For safe_path resolution.
         """
-        self._workspace = workspace
         self._env = Environment(
             loader=FileSystemLoader(str(template_dir)),
             autoescape=False,  # GDAL scripts are not HTML
         )
         # Register custom filters
         self._env.filters["quote"] = quote_filter
-        self._env.filters["safe_path"] = lambda value: safe_path_filter(
-            value, self._workspace
-        )
+        self._env.filters["safe_path"] = safe_path_filter
 
     def render(
         self,

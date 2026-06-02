@@ -46,7 +46,7 @@
 
 ### DC-0002: 配置项按功能域分层
 
-**决策**: 配置顶层按功能域分组：`llm`、`workspace`。
+**决策**: 配置顶层按功能域分组：`llm`。
 
 **理由**:
 - 避免扁平命名空间膨胀（如 `llm_base_url` vs `llm.base_url`）
@@ -56,9 +56,7 @@
 **分层结构**:
 ```json
 {
-  "llm": { "base_url": "", "auth_key": "", "model_name": "" },
-  "workspace": { "default_path": ".", "allow_parent_access": false },
-  "api": { "host": "0.0.0.0", "port": 8000 }
+  "llm": { "base_url": "", "auth_key": "", "model_name": "" }
 }
 ```
 
@@ -114,25 +112,9 @@ class LLMConfig:
 
 
 @dataclass(frozen=True)
-class WorkspaceConfig:
-    """工作空间默认配置。"""
-    default_path: str = "."
-    allow_parent_access: bool = False
-
-
-@dataclass(frozen=True)
-class APIConfig:
-    """FastAPI 服务器配置。"""
-    host: str = "0.0.0.0"
-    port: int = 8000
-
-
-@dataclass(frozen=True)
 class Config:
     """全局配置根对象。"""
     llm: LLMConfig
-    workspace: WorkspaceConfig
-    api: APIConfig = APIConfig()
 ```
 
 ### 3.2 公共 API
@@ -183,10 +165,6 @@ def get_config() -> Config:
 | `llm.base_url` | str | 是 | — | 非空，合法 URL 格式 |
 | `llm.auth_key` | str | 是 | — | 非空，或通过环境变量提供 |
 | `llm.model_name` | str | 是 | — | 非空 |
-| `workspace.default_path` | str | 否 | `"."` | 非空 |
-| `workspace.allow_parent_access` | bool | 否 | `false` | — |
-| `api.host` | str | 否 | `"0.0.0.0"` | 非空 |
-| `api.port` | int | 否 | `8000` | 1–65535 |
 
 ---
 
@@ -215,8 +193,6 @@ def get_config() -> Config:
     │
     ├──→ 类型转换与校验（int/str/bool）
     │
-    ├──→ 业务规则校验（chunk_overlap < chunk_size 等）
-    │
     └──→ 构造 Config 对象（frozen dataclass）
     │
     ▼
@@ -233,9 +209,6 @@ def get_config() -> Config:
 | `GISAGENT_LLM_BASE_URL` | `llm.base_url` | `https://api.example.com` |
 | `GISAGENT_LLM_AUTH_KEY` | `llm.auth_key` | `sk-xxxxxxxx` |
 | `GISAGENT_LLM_MODEL_NAME` | `llm.model_name` | `claude-opus` |
-| `GISAGENT_WORKSPACE_DEFAULT_PATH` | `workspace.default_path` | `/data/gis` |
-| `GISAGENT_API_HOST` | `api.host` | `127.0.0.1` |
-| `GISAGENT_API_PORT` | `api.port` | `9000` |
 
 ---
 
@@ -294,7 +267,7 @@ def get_config() -> Config:
 
 | 需求 ID | 设计决策 | 代码文件/函数 | 说明 |
 |:-------:|:--------:|:-------------:|------|
-| F7 | DC-0002 | `Config.workspace.default_path` | 工作空间默认路径 |
+| F7 | — | — | 工作空间概念已移除，路径由用户通过文件对话框直接指定绝对路径 |
 | — | DC-0003 | `load_config()` 环境变量逻辑 | 敏感信息隔离 |
 | P5 | DC-0001 | `json` 标准库 | 零额外依赖 |
 | SEC-1 | DC-0003 | 环境变量覆盖机制 | auth_key 不硬编码提交 |
@@ -307,3 +280,5 @@ def get_config() -> Config:
 |------|------|---------|
 | v1.0.0 | 2026-05-26 | 初版，定义配置分层结构、校验规则、环境变量覆盖 |
 | v1.1.0 | 2026-05-29 | 新增 `api` 配置域（`host`、`port`），支持 FastAPI 服务器地址可配置 |
+| v1.2.0 | 2026-06-02 | 移除 `api` 配置域。Electron 桌面应用模式下后端仅服务于本机，`host` 无意义；`port` 由 Electron 主进程与 Python 子进程硬编码约定为 18000，无需用户配置 |
+| v1.3.0 | 2026-06-02 | 移除 `workspace` 配置域。工作空间概念废弃：用户通过文件对话框直接选择绝对路径，不再需要一个基准目录作为记忆锚点 |

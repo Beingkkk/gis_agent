@@ -10,20 +10,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cli.executor import ExecutionResult, ScriptExecutor
-from core.workspace import Workspace
 from templates.engine import Platform, RenderedScript
 
 
 @pytest.fixture
-def workspace(tmp_path: Path) -> Workspace:
-    """Temporary workspace fixture."""
-    return Workspace(tmp_path)
-
-
-@pytest.fixture
-def executor(workspace: Workspace) -> ScriptExecutor:
+def executor() -> ScriptExecutor:
     """ScriptExecutor fixture."""
-    return ScriptExecutor(workspace)
+    return ScriptExecutor()
 
 
 @pytest.fixture
@@ -91,7 +84,7 @@ class TestScriptExecutorExecute:
         # Verify subprocess was called with correct arguments
         mock_run.assert_called_once()
         call_kwargs = mock_run.call_args[1]
-        assert call_kwargs["cwd"] == executor._workspace.root
+        assert "timeout" in call_kwargs
         assert call_kwargs["timeout"] == 300
         assert call_kwargs["capture_output"] is True
         assert call_kwargs["text"] is True
@@ -132,11 +125,10 @@ class TestScriptExecutorExecute:
 
     def test_custom_timeout(
         self,
-        workspace: Workspace,
         sample_script: RenderedScript,
     ) -> None:
         """Custom timeout is passed to subprocess.run."""
-        custom_executor = ScriptExecutor(workspace, timeout=600)
+        custom_executor = ScriptExecutor(timeout=600)
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = ""
@@ -146,42 +138,6 @@ class TestScriptExecutorExecute:
             custom_executor.execute(sample_script)
 
         assert mock_run.call_args[1]["timeout"] == 600
-
-    def test_script_written_to_workspace(
-        self,
-        executor: ScriptExecutor,
-        sample_script: RenderedScript,
-        workspace: Workspace,
-    ) -> None:
-        """Script content is written as a temporary file in workspace."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = ""
-        mock_result.stderr = ""
-
-        with patch("cli.executor.subprocess.run", return_value=mock_result):
-            executor.execute(sample_script)
-
-        # Check that a .bat file was created in workspace
-        bat_files = list(workspace.root.glob("*.bat"))
-        assert len(bat_files) == 1
-        assert bat_files[0].read_text(encoding="utf-8") == sample_script.content
-
-    def test_cwd_is_workspace_root(
-        self,
-        executor: ScriptExecutor,
-        sample_script: RenderedScript,
-    ) -> None:
-        """subprocess.run is called with cwd=workspace.root."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = ""
-        mock_result.stderr = ""
-
-        with patch("cli.executor.subprocess.run", return_value=mock_result) as mock_run:
-            executor.execute(sample_script)
-
-        assert mock_run.call_args[1]["cwd"] == executor._workspace.root
 
 
 class TestScriptExecutorPreview:

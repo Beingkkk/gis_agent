@@ -14,15 +14,7 @@ from cli.commands import SlashCommandHandler
 from cli.executor import ScriptExecutor
 from cli.repl import REPL
 from config import load_config
-from core import (
-    ParamValidator,
-    Session,
-    SessionProcessor,
-    TemplateRegistry,
-    get_workspace,
-    initialize,
-)
-from core.workspace import WorkspaceNotFoundError
+from core import ParamValidator, Session, SessionProcessor, TemplateRegistry
 from llm import LLMClient, PromptBuilder
 from templates import RenderedScript, TemplateEngine, scan_templates
 
@@ -52,7 +44,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # 2. Load configuration
     try:
-        config = load_config(args.config)
+        load_config(args.config)
     except FileNotFoundError as exc:
         print(f"配置文件不存在：{exc}")
         return 2
@@ -60,26 +52,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"配置加载失败：{exc}")
         return 2
 
-    # 3. Initialize workspace
-    workspace_path = args.workspace
-    if workspace_path is None:
-        workspace_path = Path(config.workspace.default_path)
-
-    try:
-        initialize(workspace_path)
-    except WorkspaceNotFoundError as exc:
-        print(f"工作空间初始化失败：{exc}")
-        return 2
-
-    # 4. Locate template directory and scan templates
+    # 3. Locate template directory and scan templates
     # __file__ = src/cli/main.py -> parent.parent.parent = project_root/SourceCode
     template_dir = Path(__file__).parent.parent.parent / "data" / "templates"
     templates = scan_templates(template_dir)
     registry = TemplateRegistry(templates, template_dir)
 
-    # 5. Build core components
-    validator = ParamValidator(get_workspace())
-    template_engine = TemplateEngine(template_dir, get_workspace())
+    # 4. Build core components
+    validator = ParamValidator()
+    template_engine = TemplateEngine(template_dir)
     llm_client = LLMClient()
 
     prompt_builder = PromptBuilder()
@@ -92,8 +73,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         prompt_builder=prompt_builder,
     )
 
-    # 6. Build executor and REPL
-    executor = ScriptExecutor(get_workspace())
+    # 5. Build executor and REPL
+    executor = ScriptExecutor()
     slash_handler = SlashCommandHandler()
 
     def render_fn(session: Session) -> "RenderedScript":
@@ -110,7 +91,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         executor=executor,
         slash_handler=slash_handler,
         registry=registry,
-        workspace=get_workspace(),
         dry_run=args.dry_run,
         render_fn=render_fn,
     )
@@ -118,10 +98,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     # Wire REPL output for streaming Q&A (DC-0071)
     processor.set_output_fn(repl.output_fn)
 
-    # 7. Print welcome and start loop
+    # 6. Print welcome and start loop
     print(
         f"GIS Agent 已启动。\n"
-        f"工作空间：{get_workspace().root}\n"
         f"可用模板数：{len(templates)}\n"
         f"输入 /help 查看可用命令。"
     )

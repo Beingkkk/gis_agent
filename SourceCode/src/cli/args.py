@@ -13,7 +13,6 @@ from typing import Optional
 class CLIArgs:
     """Parsed command-line arguments."""
 
-    workspace: Optional[Path] = None
     config: Optional[Path] = None
     dry_run: bool = False
 
@@ -32,11 +31,6 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIArgs:
         description="Command-line assistant for GIS data processing.",
     )
     parser.add_argument(
-        "--workspace",
-        type=Path,
-        help="Workspace directory path",
-    )
-    parser.add_argument(
         "--config",
         type=Path,
         help="Configuration file path",
@@ -48,7 +42,6 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIArgs:
     )
     namespace = parser.parse_args(argv)
     return CLIArgs(
-        workspace=namespace.workspace,
         config=namespace.config,
         dry_run=namespace.dry_run,
     )

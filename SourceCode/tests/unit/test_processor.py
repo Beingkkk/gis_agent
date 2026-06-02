@@ -18,7 +18,6 @@ from core.models import (
 from core.processor import SessionProcessor
 from core.registry import TemplateRegistry
 from core.validator import ParamValidator
-from core.workspace import Workspace
 from llm.models import ErrorDiagnosis, IntentResult, ParamResult
 from templates.engine import Platform, RenderedScript
 
@@ -70,10 +69,9 @@ def registry(sample_templates: list[TemplateDef], tmp_path: Path) -> TemplateReg
 
 
 @pytest.fixture
-def validator(tmp_path: Path) -> ParamValidator:
-    """ParamValidator backed by temp workspace."""
-    workspace = Workspace(tmp_path)
-    return ParamValidator(workspace)
+def validator() -> ParamValidator:
+    """ParamValidator instance."""
+    return ParamValidator()
 
 
 @pytest.fixture

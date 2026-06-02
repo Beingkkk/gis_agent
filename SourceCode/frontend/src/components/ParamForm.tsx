@@ -6,7 +6,6 @@ import type { ParamDef } from '../types'
 interface ParamFormProps {
   params: ParamDef[]
   values: Record<string, string>
-  workspace?: string | null
   onSubmit: (values: Record<string, string>) => void
   onCancel?: () => void
   /** 只读模式：禁用输入、隐藏底部操作按钮 */
@@ -403,7 +402,6 @@ function ParamSection({
 export default function ParamForm({
   params,
   values: initialValues,
-  workspace,
   onSubmit,
   onCancel,
   readOnly = false,
@@ -437,13 +435,13 @@ export default function ParamForm({
   const handleBrowse = useCallback(
     async (paramName: string, isDir: boolean) => {
       const path = isDir
-        ? await selectDirectory({ defaultPath: workspace || undefined })
-        : await selectFile({ defaultPath: workspace || undefined })
+        ? await selectDirectory()
+        : await selectFile()
       if (path) {
         handleChange(paramName, path)
       }
     },
-    [workspace, handleChange],
+    [handleChange],
   )
 
   const handleSubmit = (e: React.FormEvent) => {

@@ -12,7 +12,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from core.workspace import Workspace
+import tempfile
+
 from templates.engine import RenderedScript
 
 logger = logging.getLogger(__name__)
@@ -30,26 +31,20 @@ class ExecutionResult:
 
 
 class ScriptExecutor:
-    """Executes rendered GDAL scripts in a workspace-isolated subprocess.
+    """Executes rendered GDAL scripts in a temporary directory.
 
     Design:
-        DC-0063, DC-0065
+        DC-0063, DC-0065, DC-0105
     """
 
     _DEFAULT_TIMEOUT = 300
 
-    def __init__(
-        self,
-        workspace: Workspace,
-        timeout: int = _DEFAULT_TIMEOUT,
-    ) -> None:
+    def __init__(self, timeout: int = _DEFAULT_TIMEOUT) -> None:
         """Initialize executor.
 
         Args:
-            workspace: Workspace root used as cwd for script execution.
             timeout: Execution timeout in seconds. Default 300.
         """
-        self._workspace = workspace
         self._timeout = timeout
 
     def execute(self, script: RenderedScript) -> ExecutionResult:
@@ -64,14 +59,13 @@ class ScriptExecutor:
         Returns:
             ExecutionResult with outcome details.
         """
-        # Write script to a temp file in workspace
+        # Write script to a temp file
         script_path = self._write_script_file(script)
 
         start = time.monotonic()
         try:
             result = subprocess.run(
                 ["cmd", "/c", str(script_path)],
-                cwd=self._workspace.root,
                 timeout=self._timeout,
                 capture_output=True,
                 text=True,
@@ -106,7 +100,7 @@ class ScriptExecutor:
         print(script.content)
 
     def _write_script_file(self, script: RenderedScript) -> Path:
-        """Write script content to a file in the workspace.
+        """Write script content to a temporary file.
 
         Returns:
             Path to the written script file.
@@ -115,7 +109,8 @@ class ScriptExecutor:
         # Use a timestamped filename to avoid collisions
         timestamp = str(int(time.time()))
         filename = f"script_{timestamp}{ext}"
-        script_path = self._workspace.root / filename
+        temp_dir = Path(tempfile.gettempdir())
+        script_path = temp_dir / filename
         script_path.write_text(script.content, encoding="utf-8")
         logger.debug("Script written to %s", script_path)
         return script_path

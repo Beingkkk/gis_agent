@@ -9,14 +9,12 @@ import pytest
 
 from core.models import ParamDef, TemplateDef
 from core.validator import ParamValidator
-from core.workspace import Workspace
 
 
 @pytest.fixture
-def validator(tmp_path: Path) -> ParamValidator:
-    """A ParamValidator backed by a temporary workspace."""
-    workspace = Workspace(tmp_path)
-    return ParamValidator(workspace)
+def validator() -> ParamValidator:
+    """A ParamValidator instance."""
+    return ParamValidator()
 
 
 @pytest.fixture
@@ -77,7 +75,7 @@ def test_file_path_must_exist_present(
     existing = tmp_path / "exists.shp"
     existing.write_text("dummy")
     param = ParamDef("input", "file_path", True, "Input path", must_exist=True)
-    ok, error = validator.validate(param, "exists.shp")
+    ok, error = validator.validate(param, str(existing))
     assert ok is True
     assert error is None
 
@@ -391,7 +389,7 @@ def test_folder_path_must_exist_present(
     existing_dir = tmp_path / "existing_dir"
     existing_dir.mkdir()
     param = ParamDef("outdir", "folder_path", True, "Output dir", must_exist=True)
-    ok, error = validator.validate(param, "existing_dir")
+    ok, error = validator.validate(param, str(existing_dir))
     assert ok is True
     assert error is None
 

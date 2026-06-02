@@ -30,43 +30,29 @@ def _init_dependencies() -> None:
         set_template_engine,
         set_validator,
     )
-    from config import load_config
-    from core import ParamValidator, TemplateRegistry, get_workspace, initialize
-    from core.workspace import WorkspaceNotFoundError
+    from core import ParamValidator, TemplateRegistry
     from llm import LLMClient, PromptBuilder
     from templates import TemplateEngine, scan_templates
 
     # 1. Load configuration
     try:
-        config = load_config()
+        from config import load_config
+        load_config()
     except Exception:
         logger.warning("Config load failed, using defaults for API init")
-        config = None
 
-    # 2. Initialize workspace
-    workspace_path = Path(".")
-    if config is not None:
-        workspace_path = Path(config.workspace.default_path)
-
-    try:
-        initialize(workspace_path)
-    except WorkspaceNotFoundError:
-        logger.warning("Workspace init failed, using current directory")
-        initialize(Path("."))
-
-    # 3. Scan templates and build registry
+    # 2. Scan templates and build registry
     template_dir = Path(__file__).parent.parent.parent / "data" / "templates"
     templates = scan_templates(template_dir)
     registry = TemplateRegistry(templates, template_dir)
 
-    # 4. Build core components
-    validator = ParamValidator(get_workspace())
-    template_engine = TemplateEngine(template_dir, get_workspace())
+    # 3. Build core components
+    validator = ParamValidator()
+    template_engine = TemplateEngine(template_dir)
     llm_client = LLMClient()
-
     prompt_builder = PromptBuilder()
 
-    # 5. Register singletons for dependency injection
+    # 4. Register singletons for dependency injection
     set_registry(registry)
     set_validator(validator)
     set_template_engine(template_engine)
@@ -74,9 +60,8 @@ def _init_dependencies() -> None:
     set_prompt_builder(prompt_builder)
 
     logger.info(
-        "API dependencies initialized: %d templates, workspace=%s",
+        "API dependencies initialized: %d templates",
         len(templates),
-        get_workspace().root,
     )
 
 
@@ -149,17 +134,5 @@ def main() -> int:
     """Entry point for `python -m api`."""
     import uvicorn
 
-    # Load config for host/port, fallback to defaults if unavailable
-    host = "0.0.0.0"
-    port = 8000
-    try:
-        from config import load_config
-
-        cfg = load_config()
-        host = cfg.api.host
-        port = cfg.api.port
-    except Exception:
-        pass  # Use defaults if config not available
-
-    uvicorn.run("api.main:create_app", factory=True, host=host, port=port)
+    uvicorn.run("api.main:create_app", factory=True, host="127.0.0.1", port=18000)
     return 0

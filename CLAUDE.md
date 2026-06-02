@@ -41,7 +41,7 @@ Strict layered architecture. Upper layers may call lower layers; **reverse depen
 Frontend (frontend/)    → React + TypeScript + Vite + Electron desktop app
 API layer (api/)        → FastAPI REST + WebSocket adapters (Python child process)
 CLI layer (cli/)        → REPL, slash commands, script execution
-Core layer (core/)      → workspace, template registry, param validator, session processor, matching engine
+Core layer (core/)      → template registry, param validator, session processor, matching engine
 App layer (llm/)        → LLM interaction, intent classification, template-knowledge Q&A, error diagnosis
 Infra layer             → anthropic SDK, jinja2, GDAL CLI
 Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker
@@ -53,13 +53,12 @@ Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker
 - `cli/` may depend on `core/`, `llm/`, `templates/`
 - `core/` may depend on `llm/`, `templates/`
 - `llm/` may depend on `core/` (for `TemplateDef` knowledge metadata in Q&A)
-- `templates/` may depend on `core/` (models + workspace)
+- `templates/` may depend on `core/` (models)
 - `scripts/generate/` is a development-time tool, not a runtime layer
 - External library types must not leak upward through layer boundaries
 
 **Key design patterns**:
 - GDAL commands are rendered via Jinja2 templates in `data/templates/` — **never** string-concatenated
-- Workspace is a memory anchor (v2.0), not a security boundary — paths are normalized, not sandboxed
 - LLM calls (`anthropic`) are encapsulated in `llm/` only (CODE-3)
 - Session is immutable — every state transition returns a new `Session` instance via `with_*` methods
 
@@ -87,7 +86,7 @@ The same `score_template_match()` scoring is reused by Q&A context selection (`l
 
 Q&A and intent matching are separated at the API level:
 - **`POST /session/{id}/intent`** — DiscoveryTab only. Pure intent matching, no `is_question` keyword heuristic. All inputs go through template matching.
-- **`POST /session/{id}/chat`** — QATab only. Always treated as a question. Calls `answer_question()` with `locked_template` to determine whether to include template context (template-knowledge mode) or not (GIS-expert mode).
+- **`POST /session/{id}/chat`** — HTTP fallback (backend still implements). QATab **front-end uses WebSocket `/ws/chat/{id}`** for streaming (CODE-5). Always treated as a question. Calls `answer_question()` with `locked_template` to determine whether to include template context (template-knowledge mode) or not (GIS-expert mode).
 
 This removes the old keyword-based (`什么`, `怎么`) question detection from `process_intent`. Intent is determined by which Tab the user is in, not by parsing their text.
 
@@ -106,10 +105,10 @@ The J2 template generator (`scripts/generate/`) is a **development-time only** b
 
 ### Frontend State Architecture
 
-- `useSession` (Zustand) holds minimal UI state: `sessionId`, `state`, `taskContext`, `messages`, `scriptPreview`, `errorContext`, `workspace`.
+- `useSession` (Zustand) holds minimal UI state: `sessionId`, `state`, `taskContext`, `messages`, `scriptPreview`, `errorContext`, `execEnv`.
 - Every API call returns a `SessionSnapshot`; the frontend replaces its state wholesale (DC-UX-03).
-- HTTP for state transitions (intent/**chat**/lock/params/clear/workspace). WebSocket for LLM streaming Q&A (`/ws/chat/{id}`) and real-time execution logs (`/ws/execute/{id}`).
-- **Three-TAB architecture** (DC-UX-10): Discovery (template search), Q&A (GIS expert chat), Exec (script execution). Each TAB calls a dedicated API — `processIntent` for Discovery, `chatQuestion` for Q&A.
+- HTTP for state transitions (intent/lock/params/clear). WebSocket for Q&A (`/ws/chat/{id}`), script execution (`/ws/execute/{id}`), and Pipeline execution (`/ws/pipeline-execute/{id}`). WebSocket is mandatory for any LLM streaming or subprocess log push (CODE-5).
+- **Three-TAB architecture** (DC-UX-10): Discovery (template search), Q&A (GIS expert chat), Exec (script execution). Discovery calls `processIntent` (HTTP); Q&A connects to `/ws/chat/{id}` (WebSocket); Exec triggers execution via HTTP then receives logs via `/ws/execute/{id}` (WebSocket).
 - After WebSocket execution completes, frontend calls `GET /session/{id}` to refresh the updated state.
 - Routing uses `HashRouter` (not `BrowserRouter`) because Electron loads from `file://` protocol.
 - API base URL is resolved via IPC (`getApiBaseUrl()`) returning an absolute URL like `http://localhost:18000`; the frontend never relies on relative `/api` paths in production.
@@ -241,7 +240,6 @@ npm run electron:dev
 ```bash
 cd SourceCode
 python start_cli.py
-python start_cli.py --workspace /path/to/project
 python start_cli.py --dry-run
 ```
 
@@ -276,6 +274,7 @@ python scripts/generate_templates.py --source ... --output ... --force
 - **88-character line limit**
 - All public functions/classes must have docstrings referencing their design decision (`DC-XXXX`)
 - All `except` blocks must log or re-raise — no silent swallowing
+- **CODE-5**: Streamed interactions (LLM output, subprocess logs) must use WebSocket; never use HTTP long-polling or sync requests with timeouts as a substitute
 - Template parameters in `.j2` files must be escaped to prevent command injection
 
 ## Security Principles
@@ -284,7 +283,7 @@ Hard constraints from `Document/spec.md`:
 
 - **P1 (Template only)**: GDAL commands must be rendered from Jinja2 templates in `data/templates/` — dynamic string construction is prohibited
 - **P2 (Show before execute)**: The CLI must display the full script and require explicit `Y/N` confirmation before execution
-- **P3 (Minimal permissions)**: Default output to workspace with timestamps to prevent silent overwrites. Paths are normalized via `resolve()`. Workspace v2.0 is a memory anchor, not a security boundary — absolute paths are allowed.
+- **P3 (Minimal permissions)**: Output paths are user-specified via file dialog (absolute paths). Timestamps are appended to prevent silent overwrites. Paths are normalized via `resolve()`.
 - **P4 (Template knowledge only)**: Usage guidance knowledge comes exclusively from J2 template metadata (`@concept`, `@note`, `@common_error`); basic concepts may be answered from LLM parametric knowledge. No external API calls for knowledge.
 - **P5 (Minimal deps)**: Production dependencies are locked to `anthropic`, `jinja2`
 
@@ -299,8 +298,9 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `Document/plan-core.md` | ERROR_RECOVERY design (DC-0048/DC-0049), matching engine (DC-0094), two-stage matching (DC-0098) |
 | `Document/plan-ux.md` | WebSocket streaming (DC-UX-04/05), state→UI mapping, Pipeline/Generator UX |
 | `Document/plan-electron.md` | Electron shell architecture, IPC design, Python process lifecycle |
-| `src/api/routes/session.py` | Two-stage intent matching API (DC-0098) + `POST /chat` for Q&A + `POST /diagnose` for lazy error diagnosis |
-| `src/api/websocket/execute.py` | Execution breakpoint: success→IDLE / failure→ERROR_RECOVERY (DC-0048) |
+| `src/api/routes/session.py` | Two-stage intent matching API (DC-0098) + `POST /chat` for Q&A + `POST /diagnose` for lazy error diagnosis + `POST /export-script` for explicit script export (DC-UX-11a) |
+| `src/api/websocket/chat.py` | Q&A WebSocket handler: streams LLM output via `/ws/chat/{id}` (DC-UX-04) |
+| `src/api/websocket/execute.py` | Execution WebSocket handler: subprocess stdout/stderr streaming (DC-0048) |
 | `src/core/processor.py` | CLI state machine dispatcher; `_handle_error_recovery()` is the CLI-side diagnosis driver |
 | `src/core/matching.py` | Unified template matching scoring (keywords=+3, concepts=+2, id/name/desc/notes=+1) |
 | `src/llm/prompts.py` | PromptBuilder with 5 scenario-specific system prompts (DC-0071): intent / template-qa / gis-expert / param / diagnosis |
@@ -311,11 +311,12 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `frontend/src/electron-api.ts` | Renderer-side IPC wrappers including `WindowControlAPI` (minimize/maximize/close) |
 | `frontend/src/components/TopBar.tsx` | Custom title bar with draggable region and window control buttons (DC-E07) |
 | `frontend/src/api/client.ts` | Axios instance with dynamic absolute baseURL via IPC |
+| `frontend/src/hooks/useWebSocket.ts` | Generic WebSocket hook used by ExecTab and QATab |
 | `frontend/src/main.tsx` | Entry point using `HashRouter` (required for `file://` protocol) |
-| `frontend/src/pages/MainPage.tsx` | Main UI orchestrator: three-TAB lifecycle, WebSocket execution, state refresh |
+| `frontend/src/pages/MainPage.tsx` | Main UI orchestrator: three-TAB lifecycle, WebSocket execution, state refresh, export script flow (saveFile dialog → backend write → shell.showItemInFolder) |
 | `frontend/src/components/DiscoveryTab.tsx` | Template discovery TAB: unified input box (local filter + intent send), card grid, candidate mode |
-| `frontend/src/components/QATab.tsx` | GIS Q&A TAB: chat stream, locked-template badge. Workspace selector removed (moved to ExecTab) |
-| `frontend/src/components/ExecTab.tsx` | Script execution TAB: command preview / executing / success / failure states + workspace selector + runtime exec-env panel |
+| `frontend/src/components/QATab.tsx` | GIS Q&A TAB: chat stream, locked-template badge |
+| `frontend/src/components/ExecTab.tsx` | Script execution TAB: command preview / executing / success / failure states + runtime exec-env panel + export script button (DC-UX-11a) |
 | `frontend/src/components/paramGroups.ts` | Shared parameter grouping rules (input/output, CRS, transform, clip, advanced) used by ParamForm and DetailPanel |
 | `frontend/src/api/health.ts` | Health API client — basic status check |
 | `frontend/src/components/TabBar.tsx` | TAB switcher bar (Discovery / Q&A / Exec) with message count badge |
@@ -374,4 +375,4 @@ After adding a template, restart the application to pick it up (templates are sc
 - `SourceCode/config/config.json` is gitignored; never commit credentials.
 - `SourceCode/docs/README-UI.md` is outdated (browser UI mode was removed); Electron is the sole graphical entry point.
 - The Electron desktop app (`frontend/`) and CLI (`cli/`) are parallel entry points sharing `core/llm/templates`. Changes to business logic affect both UIs.
-- Workspace switching (`POST /session/{id}/workspace`) recreates `ParamValidator` and `TemplateEngine` singletons because they hold `Workspace` references. The core `Workspace` singleton is updated via `change_workspace()`. Switching workspace **does not clear** session state (template, params, history, error_context are preserved).
+- Script execution writes to a temp directory (DC-0105), not to workspace. Users export scripts explicitly via the "Export Script" button (DC-UX-11a) which opens a save dialog and reveals the file in the file manager.

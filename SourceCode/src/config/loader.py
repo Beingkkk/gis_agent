@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from config.models import APIConfig, Config, LLMConfig, WorkspaceConfig
+from config.models import Config, LLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -35,21 +35,11 @@ def _apply_env_overrides(raw: dict[str, Any]) -> dict[str, Any]:
         GISAGENT_LLM_BASE_URL        -> llm.base_url
         GISAGENT_LLM_AUTH_KEY        -> llm.auth_key
         GISAGENT_LLM_MODEL_NAME      -> llm.model_name
-        GISAGENT_WORKSPACE_DEFAULT_PATH        -> workspace.default_path
-        GISAGENT_WORKSPACE_ALLOW_PARENT_ACCESS -> workspace.allow_parent_access
     """
     env_map = {
         "GISAGENT_LLM_BASE_URL": ("llm", "base_url", str),
         "GISAGENT_LLM_AUTH_KEY": ("llm", "auth_key", str),
         "GISAGENT_LLM_MODEL_NAME": ("llm", "model_name", str),
-        "GISAGENT_WORKSPACE_DEFAULT_PATH": ("workspace", "default_path", str),
-        "GISAGENT_WORKSPACE_ALLOW_PARENT_ACCESS": (
-            "workspace",
-            "allow_parent_access",
-            bool,
-        ),
-        "GISAGENT_API_HOST": ("api", "host", str),
-        "GISAGENT_API_PORT": ("api", "port", int),
     }
 
     for env_name, (section, key, cast_type) in env_map.items():
@@ -110,33 +100,9 @@ def _validate_config(raw: dict[str, Any]) -> None:
             f"got: {base_url!r}"
         )
 
-    # --- Workspace defaults ---
-    workspace = raw.get("workspace", {})
-    default_path = workspace.get("default_path", ".")
-    if not default_path:
-        raise ValueError("workspace.default_path must be non-empty")
-
-    allow_parent = workspace.get("allow_parent_access", False)
-    if not isinstance(allow_parent, bool):
-        raise ValueError(
-            f"workspace.allow_parent_access must be a boolean, got: {allow_parent!r}"
-        )
-
 
 def _fill_defaults(raw: dict[str, Any]) -> dict[str, Any]:
     """Fill in default values for optional fields."""
-    if "workspace" not in raw:
-        raw["workspace"] = {}
-    workspace = raw["workspace"]
-    workspace.setdefault("default_path", ".")
-    workspace.setdefault("allow_parent_access", False)
-
-    if "api" not in raw:
-        raw["api"] = {}
-    api = raw["api"]
-    api.setdefault("host", "0.0.0.0")
-    api.setdefault("port", 8000)
-
     return raw
 
 
@@ -147,14 +113,6 @@ def _build_config(raw: dict[str, Any]) -> Config:
             base_url=raw["llm"]["base_url"],
             auth_key=raw["llm"]["auth_key"],
             model_name=raw["llm"]["model_name"],
-        ),
-        workspace=WorkspaceConfig(
-            default_path=raw["workspace"].get("default_path", "."),
-            allow_parent_access=raw["workspace"].get("allow_parent_access", False),
-        ),
-        api=APIConfig(
-            host=raw["api"].get("host", "0.0.0.0"),
-            port=raw["api"].get("port", 8000),
         ),
     )
 

@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from core.models import ParamDef, TemplateDef
-from core.workspace import Workspace
 from templates.engine import (
     Platform,
     RenderedScript,
@@ -29,12 +28,6 @@ from templates.engine import (
 
 
 @pytest.fixture
-def workspace(tmp_path: Path) -> Workspace:
-    """Create a Workspace instance using a temporary directory."""
-    return Workspace(tmp_path)
-
-
-@pytest.fixture
 def template_dir(tmp_path: Path) -> Path:
     """Create a temporary templates directory with subdirs."""
     for sub in ("vector", "raster", "general"):
@@ -43,9 +36,9 @@ def template_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def engine(template_dir: Path, workspace: Workspace) -> TemplateEngine:
+def engine(template_dir: Path) -> TemplateEngine:
     """Create a TemplateEngine instance."""
-    return TemplateEngine(template_dir, workspace)
+    return TemplateEngine(template_dir)
 
 
 @pytest.fixture
@@ -132,17 +125,16 @@ def test_quote_filter_shell_metacharacter() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_safe_path_filter_relative(workspace: Workspace) -> None:
-    """Relative path resolves against workspace root."""
-    result = safe_path_filter("data/roads.shp", workspace)
-    expected = str(workspace.root / "data" / "roads.shp")
-    assert result == expected
+def test_safe_path_filter_resolves() -> None:
+    """safe_path_filter resolves path to absolute."""
+    result = safe_path_filter("data/roads.shp")
+    assert Path(result).is_absolute()
 
 
-def test_safe_path_filter_absolute(workspace: Workspace, tmp_path: Path) -> None:
-    """Absolute path is passed through (not restricted to workspace)."""
+def test_safe_path_filter_absolute(tmp_path: Path) -> None:
+    """Absolute path is preserved."""
     abs_path = str(tmp_path / "external" / "data.tif")
-    result = safe_path_filter(abs_path, workspace)
+    result = safe_path_filter(abs_path)
     assert result == abs_path
 
 

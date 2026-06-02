@@ -10,6 +10,7 @@ Design:
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -25,11 +26,11 @@ from api.dependencies import (
     get_session_manager,
     get_template_engine,
     get_validator,
-    update_workspace,
 )
+from core.exec_env import ShellExecutor, ShellType
 from core.matching import score_template_match
 from core.models import ExecutionErrorContext, Session, SessionState
-from core.workspace import WorkspaceNotFoundError
+
 from llm.diagnosis import analyze_execution_error
 from llm.intent import classify_intent
 from llm.models import ErrorDiagnosis, Message, TemplateInfo
@@ -65,7 +66,6 @@ class SessionResponse(BaseModel):
     script_preview: Optional[str]
     error_context: Optional[dict[str, Any]]
     history: list[dict[str, str]]
-    workspace: str
     user_script: Optional[str] = None
     exec_env: Optional[ExecEnvSnapshot] = None
 
@@ -88,12 +88,6 @@ class ParamsRequest(BaseModel):
     params: dict[str, str]
 
 
-class WorkspaceRequest(BaseModel):
-    """Workspace path update."""
-
-    path: str
-
-
 class ExecutionTriggerResponse(BaseModel):
     """Execution trigger response."""
 
@@ -106,6 +100,22 @@ class DryRunResponse(BaseModel):
 
     dry_run: bool
     script_preview: Optional[str]
+    message: str
+
+
+class ExportScriptRequest(BaseModel):
+    """Export script to user-specified path."""
+
+    output_path: str
+    script: Optional[str] = None
+
+
+class ExportScriptResponse(BaseModel):
+    """Export script response."""
+
+    success: bool
+    path: str
+    size: int
     message: str
 
 
@@ -170,11 +180,6 @@ def _build_session_response(session_id: str, session: Session) -> SessionRespons
             )
             script_preview = None
 
-    # Get current workspace absolute path
-    from api.dependencies import get_workspace
-
-    workspace_path = str(get_workspace().root)
-
     # Build error_context if in ERROR_RECOVERY state
     error_context: Optional[dict[str, Any]] = None
     if session.error_context is not None:
@@ -213,7 +218,6 @@ def _build_session_response(session_id: str, session: Session) -> SessionRespons
         script_preview=script_preview,
         error_context=error_context,
         history=history,
-        workspace=workspace_path,
         user_script=session.user_script,
         exec_env=exec_env_snapshot,
     )
@@ -237,7 +241,6 @@ def _get_session_or_404(
 
 @router.post("", response_model=SessionResponse)
 async def create_session(
-    workspace: Optional[str] = None,
     session_manager: SessionManager = Depends(get_session_manager),
 ) -> SessionResponse:
     """Create a new session.
@@ -809,38 +812,91 @@ async def diagnose_execution(
     return _build_session_response(session_id, new_session)
 
 
-@router.post("/{session_id}/workspace", response_model=SessionResponse)
-async def update_session_workspace(
+@router.post("/{session_id}/export-script", response_model=ExportScriptResponse)
+async def export_script(
     session_id: str,
-    request: WorkspaceRequest,
+    request: ExportScriptRequest,
     session_manager: SessionManager = Depends(get_session_manager),
-) -> SessionResponse:
-    """Update workspace path and recreate dependent components.
+) -> ExportScriptResponse:
+    """Export script to a user-specified path.
 
-    Validates that the new path exists and is a directory before switching.
-    Preserves the current session state (template, params, history, etc.).
+    Renders the script from session template + params using the
+    session's configured shell type, and writes it to the provided
+    output path. Does not affect session state.
 
     Args:
         session_id: Session UUID.
-        request: WorkspaceRequest with new path.
+        request: ExportScriptRequest with output_path.
         session_manager: SessionManager dependency.
 
     Returns:
-        SessionResponse with new workspace context, session state unchanged.
+        ExportScriptResponse with success status and file info.
 
     Raises:
-        HTTPException: 400 if path invalid, 404 if session not found.
+        HTTPException: 404 if session not found, 400 if no script to export.
+
+    Design:
+        plan-exec-env DC-0105, plan-ux DC-UX-11a
     """
     session = _get_session_or_404(session_id, session_manager)
 
+    if session.template is None:
+        raise HTTPException(status_code=400, detail="No template selected")
+
+    # Resolve script content: request-provided > session.user_script > template render
+    script_content = ""
+    if request.script is not None:
+        script_content = request.script
+    elif session.user_script:
+        script_content = session.user_script
+    else:
+        try:
+            engine = get_template_engine()
+            rendered = engine.render(session.template, session.params)
+            script_content = rendered.content.strip()
+        except Exception as exc:
+            logger.exception("Script render error: %s", exc)
+            raise HTTPException(
+                status_code=400, detail=f"Script rendering failed: {exc}"
+            ) from exc
+
+    # Determine shell type from session exec_env or fallback
+    shell_type = ShellType.CMD
+    if session.exec_env is not None:
+        shell_type = session.exec_env.shell
+
+    # Build a minimal executor for script writing
+    from core.exec_env import ExecEnvironment
+
+    env = ExecEnvironment(
+        env_vars=dict(os.environ),
+        shell=shell_type,
+        shell_executable=Path("cmd"),
+        gdal_available=False,
+    )
+    executor = ShellExecutor(env)
+
+    output_path = Path(request.output_path)
+
     try:
-        new_path = Path(request.path).resolve()
-        update_workspace(new_path)
-    except WorkspaceNotFoundError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if request.script is not None:
+            # User-provided script content: write verbatim (DC-UX-11a)
+            output_path.write_text(script_content, encoding="utf-8")
+            written_path = output_path
+        else:
+            # Legacy path: wrap via ShellExecutor (template-rendered content)
+            commands = script_content.strip().splitlines()
+            written_path = executor.write_script(commands, output_path)
+        size = written_path.stat().st_size
     except Exception as exc:
+        logger.exception("Script export failed: %s", exc)
         raise HTTPException(
-            status_code=400, detail=f"Invalid workspace path: {exc}"
+            status_code=400, detail=f"Failed to write script: {exc}"
         ) from exc
 
-    return _build_session_response(session_id, session)
+    return ExportScriptResponse(
+        success=True,
+        path=str(written_path),
+        size=size,
+        message="Script exported successfully",
+    )

@@ -21,7 +21,6 @@ from typing import Optional
 from core.models import Session
 from core.registry import TemplateRegistry
 from core.validator import ParamValidator
-from core.workspace import Workspace
 from llm.client import LLMClient
 from llm.prompts import PromptBuilder
 from templates.engine import TemplateEngine
@@ -93,7 +92,6 @@ _validator_instance: Optional[ParamValidator] = None
 _template_engine_instance: Optional[TemplateEngine] = None
 _llm_client_instance: Optional[LLMClient] = None
 _prompt_builder_instance: Optional[PromptBuilder] = None
-_workspace_instance: Optional[Workspace] = None
 
 
 def get_session_manager() -> SessionManager:
@@ -168,8 +166,9 @@ def get_validator() -> ParamValidator:
     Raises:
         RuntimeError: If validator has not been set.
     """
+    global _validator_instance
     if _validator_instance is None:
-        raise RuntimeError("Validator not initialized. Call set_validator() first.")
+        _validator_instance = ParamValidator()
     return _validator_instance
 
 
@@ -184,12 +183,11 @@ def get_template_engine() -> TemplateEngine:
 
     Returns:
         TemplateEngine instance.
-
-    Raises:
-        RuntimeError: If engine has not been set.
     """
+    global _template_engine_instance
     if _template_engine_instance is None:
-        raise RuntimeError("Engine not initialized. Call set_template_engine() first.")
+        template_dir = Path(__file__).parent.parent.parent / "data" / "templates"
+        _template_engine_instance = TemplateEngine(template_dir)
     return _template_engine_instance
 
 
@@ -235,68 +233,14 @@ def get_prompt_builder() -> PromptBuilder:
     return _prompt_builder_instance
 
 
-def set_workspace(workspace: Workspace) -> None:
-    """Inject a Workspace instance (for testing)."""
-    global _workspace_instance
-    _workspace_instance = workspace
-
-
-def get_workspace() -> Workspace:
-    """Get the global Workspace.
-
-    Returns:
-        Workspace instance.
-
-    Raises:
-        RuntimeError: If workspace has not been set.
-    """
-    if _workspace_instance is not None:
-        return _workspace_instance
-    # Fallback to core workspace singleton
-    from core import workspace as core_workspace
-
-    return core_workspace.get_workspace()
-
-
-def update_workspace(root: Path) -> Workspace:
-    """Change workspace root and recreate dependent singletons.
-
-    Updates the core workspace singleton and refreshes
-    ParamValidator / TemplateEngine to use the new workspace.
-
-    Args:
-        root: New workspace root directory path.
-
-    Returns:
-        New Workspace instance.
-    """
-    from core.workspace import change_workspace
-    from templates import TemplateEngine
-
-    global _workspace_instance, _validator_instance, _template_engine_instance
-
-    new_workspace = change_workspace(root)
-    _workspace_instance = new_workspace
-
-    # Recreate components that hold workspace references
-    _validator_instance = ParamValidator(new_workspace)
-    # Template directory is fixed relative to source tree
-    template_dir = Path(__file__).parent.parent.parent / "data" / "templates"
-    _template_engine_instance = TemplateEngine(template_dir, new_workspace)
-
-    return new_workspace
-
-
 def _reset_dependencies() -> None:
     """Reset all global singleton instances. For testing only."""
     global _session_manager_instance, _registry_instance
     global _validator_instance, _template_engine_instance
     global _llm_client_instance, _prompt_builder_instance
-    global _workspace_instance
     _session_manager_instance = None
     _registry_instance = None
     _validator_instance = None
     _template_engine_instance = None
     _llm_client_instance = None
     _prompt_builder_instance = None
-    _workspace_instance = None

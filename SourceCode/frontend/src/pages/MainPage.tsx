@@ -15,9 +15,9 @@ import {
   lockTemplate,
   submitParams,
   clearSession,
-  updateWorkspace,
   diagnoseSession,
   executeScript,
+  exportScript,
 } from '../api/session'
 import { listTemplates, getTemplate } from '../api/templates'
 import {
@@ -25,7 +25,7 @@ import {
   setSessionExecEnv,
   listCondaEnvs,
 } from '../api/execEnv'
-import { getApiBaseUrl } from '../electron-api'
+import { getApiBaseUrl, saveFile, showItemInFolder } from '../electron-api'
 import type { TemplateDef, TemplateDetail, ExecResult } from '../types'
 
 export default function MainPage() {
@@ -37,7 +37,6 @@ export default function MainPage() {
     scriptPreview,
     errorContext,
     isLoading,
-    workspace,
     activeTab,
     qaMessages,
     editedScript,
@@ -45,7 +44,6 @@ export default function MainPage() {
     setSession,
     setLoading,
     setTemplates,
-    setWorkspace,
     setActiveTab,
     addQAMessage,
     updateLastQAMessage,
@@ -403,20 +401,6 @@ export default function MainPage() {
     }
   }
 
-  // ─── Update workspace ───────────────────────────────────────────
-  const handleUpdateWorkspace = async (path: string) => {
-    if (!sessionId) return
-    try {
-      const result = await updateWorkspace(sessionId, path)
-      setSession(result)
-      if (result.workspace) {
-        setWorkspace(result.workspace)
-      }
-    } catch (e) {
-      console.error('切换工作空间失败:', e)
-    }
-  }
-
   // ─── Exec env: verify ───────────────────────────────────────────
   const handleVerifyEnv = async (config: { type: string; env_name: string; shell: string; shell_path: string }) => {
     return verifyExecEnv(config)
@@ -432,6 +416,49 @@ export default function MainPage() {
   // ─── Exec env: list conda envs ──────────────────────────────────
   const handleListCondaEnvs = async () => {
     return listCondaEnvs()
+  }
+
+  // ─── Export script (DC-UX-11a) ──────────────────────────────────
+  const handleExportScript = async () => {
+    if (!sessionId || !taskContext?.template_id) return
+
+    // Determine default filename and filter based on execEnv shell
+    const shell = execEnv?.shell || 'cmd'
+    const extMap: Record<string, string> = {
+      bash: '.sh',
+      cmd: '.bat',
+      powershell: '.ps1',
+    }
+    const ext = extMap[shell] || '.bat'
+    const timestamp = Math.floor(Date.now() / 1000)
+    const defaultFilename = `script_${taskContext.template_id}_${timestamp}${ext}`
+
+    const filtersMap: Record<string, { name: string; extensions: string[] }[]> = {
+      bash: [{ name: 'Shell Script', extensions: ['sh'] }],
+      cmd: [{ name: 'Batch File', extensions: ['bat'] }],
+      powershell: [{ name: 'PowerShell Script', extensions: ['ps1'] }],
+    }
+
+    const outputPath = await saveFile({
+      title: '导出脚本',
+      defaultPath: defaultFilename,
+      filters: filtersMap[shell] || filtersMap.cmd,
+    })
+
+    if (!outputPath) return
+
+    try {
+      // Pass user-edited script content so backend writes verbatim
+      const result = await exportScript(sessionId, outputPath, editedScript || undefined)
+      if (result.success) {
+        setExecLog((prev) => [...prev, `✅ 脚本已导出: ${result.path} (${result.size} bytes)`])
+        // Auto-reveal exported file in file manager
+        showItemInFolder(result.path)
+      }
+    } catch (e) {
+      console.error('导出脚本失败:', e)
+      setExecLog((prev) => [...prev, `❌ 导出失败: ${e}`])
+    }
   }
 
   // ─── Render ─────────────────────────────────────────────────────
@@ -481,7 +508,6 @@ export default function MainPage() {
                     errorContext={errorContext}
                     paramValues={taskContext?.params || {}}
                     missingParams={taskContext?.missing_params}
-                    workspace={workspace}
                     execEnv={execEnv}
                     onScriptChange={setEditedScript}
                     onRefreshScript={handleRefreshScript}
@@ -494,7 +520,7 @@ export default function MainPage() {
                     }}
                     onEditParams={handleEditParams}
                     onNewTask={handleNewTask}
-                    onUpdateWorkspace={handleUpdateWorkspace}
+                    onExportScript={handleExportScript}
                     onVerifyEnv={handleVerifyEnv}
                     onSaveEnv={handleSaveEnv}
                     onListCondaEnvs={handleListCondaEnvs}
@@ -508,7 +534,6 @@ export default function MainPage() {
               state={state}
               templateDetail={selectedTemplate}
               paramValues={taskContext?.params || {}}
-              workspace={workspace}
               errorContext={errorContext}
               onLockTemplate={(id) =>
                 sessionId && lockTemplate(sessionId, id).then(setSession)

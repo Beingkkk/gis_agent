@@ -9,7 +9,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cli.main import main
-from core.workspace import Workspace
 
 
 class TestMainSuccessPath:
@@ -24,16 +23,12 @@ class TestMainSuccessPath:
     @patch("cli.main.ParamValidator")
     @patch("cli.main.TemplateRegistry")
     @patch("cli.main.scan_templates")
-    @patch("cli.main.get_workspace")
-    @patch("cli.main.initialize")
     @patch("cli.main.load_config")
     @patch("cli.main.parse_args")
     def test_main_successful_startup(
         self,
         mock_parse_args: MagicMock,
         mock_load_config: MagicMock,
-        mock_initialize: MagicMock,
-        mock_get_workspace: MagicMock,
         mock_scan_templates: MagicMock,
         mock_template_registry: MagicMock,
         mock_param_validator: MagicMock,
@@ -49,14 +44,9 @@ class TestMainSuccessPath:
         from cli.args import CLIArgs
         from core.models import TemplateDef
 
-        mock_parse_args.return_value = CLIArgs(workspace=tmp_path)
+        mock_parse_args.return_value = CLIArgs()
         mock_config = MagicMock()
-        mock_config.workspace.default_path = str(tmp_path)
         mock_load_config.return_value = mock_config
-
-        ws = Workspace(tmp_path)
-        mock_initialize.return_value = ws
-        mock_get_workspace.return_value = ws
 
         mock_scan_templates.return_value = [
             TemplateDef(id="t1", name="Test", description="", template_file="t.j2"),
@@ -68,7 +58,6 @@ class TestMainSuccessPath:
         result = main([])
 
         assert result == 0
-        mock_initialize.assert_called_once()
         mock_scan_templates.assert_called_once()
         mock_repl_instance.run.assert_called_once()
 
@@ -81,16 +70,12 @@ class TestMainSuccessPath:
     @patch("cli.main.ParamValidator")
     @patch("cli.main.TemplateRegistry")
     @patch("cli.main.scan_templates")
-    @patch("cli.main.get_workspace")
-    @patch("cli.main.initialize")
     @patch("cli.main.load_config")
     @patch("cli.main.parse_args")
     def test_main_welcome_message(
         self,
         mock_parse_args: MagicMock,
         mock_load_config: MagicMock,
-        mock_initialize: MagicMock,
-        mock_get_workspace: MagicMock,
         mock_scan_templates: MagicMock,
         mock_template_registry: MagicMock,
         mock_param_validator: MagicMock,
@@ -103,18 +88,13 @@ class TestMainSuccessPath:
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """Welcome message includes workspace path and template count."""
+        """Welcome message includes template count."""
         from cli.args import CLIArgs
         from core.models import TemplateDef
 
-        mock_parse_args.return_value = CLIArgs(workspace=tmp_path)
+        mock_parse_args.return_value = CLIArgs()
         mock_config = MagicMock()
-        mock_config.workspace.default_path = str(tmp_path)
         mock_load_config.return_value = mock_config
-
-        ws = Workspace(tmp_path)
-        mock_initialize.return_value = ws
-        mock_get_workspace.return_value = ws
 
         mock_scan_templates.return_value = [
             TemplateDef(id="t1", name="Test1", description="", template_file="a.j2"),
@@ -127,7 +107,6 @@ class TestMainSuccessPath:
         main([])
 
         captured = capsys.readouterr()
-        assert str(ws.root) in captured.out
         assert "2" in captured.out or "两" in captured.out or "模板" in captured.out
 
     @patch("cli.main.REPL")
@@ -139,16 +118,12 @@ class TestMainSuccessPath:
     @patch("cli.main.ParamValidator")
     @patch("cli.main.TemplateRegistry")
     @patch("cli.main.scan_templates")
-    @patch("cli.main.get_workspace")
-    @patch("cli.main.initialize")
     @patch("cli.main.load_config")
     @patch("cli.main.parse_args")
     def test_main_dry_run_flag(
         self,
         mock_parse_args: MagicMock,
         mock_load_config: MagicMock,
-        mock_initialize: MagicMock,
-        mock_get_workspace: MagicMock,
         mock_scan_templates: MagicMock,
         mock_template_registry: MagicMock,
         mock_param_validator: MagicMock,
@@ -163,14 +138,9 @@ class TestMainSuccessPath:
         """--dry-run flag is passed to REPL."""
         from cli.args import CLIArgs
 
-        mock_parse_args.return_value = CLIArgs(workspace=tmp_path, dry_run=True)
+        mock_parse_args.return_value = CLIArgs(dry_run=True)
         mock_config = MagicMock()
-        mock_config.workspace.default_path = str(tmp_path)
         mock_load_config.return_value = mock_config
-
-        ws = Workspace(tmp_path)
-        mock_initialize.return_value = ws
-        mock_get_workspace.return_value = ws
 
         mock_scan_templates.return_value = []
 
@@ -186,33 +156,6 @@ class TestMainSuccessPath:
 
 class TestMainFailurePaths:
     """Failure paths and exit codes."""
-
-    @patch("cli.main.parse_args")
-    @patch("cli.main.load_config")
-    def test_workspace_not_found(
-        self,
-        mock_load_config: MagicMock,
-        mock_parse_args: MagicMock,
-        tmp_path: Path,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        """Non-existent workspace returns exit code 2."""
-        from cli.args import CLIArgs
-
-        mock_parse_args.return_value = CLIArgs(workspace=Path("/nonexistent"))
-        mock_config = MagicMock()
-        mock_config.workspace.default_path = str(tmp_path)
-        mock_load_config.return_value = mock_config
-
-        result = main(["--workspace", "/nonexistent"])
-
-        assert result == 2
-        captured = capsys.readouterr()
-        assert (
-            "工作空间" in captured.out
-            or "Workspace" in captured.out
-            or "不存在" in captured.out
-        )
 
     @patch("cli.main.parse_args")
     @patch("cli.main.load_config")

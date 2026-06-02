@@ -14,11 +14,9 @@ from api.dependencies import (
     _reset_dependencies,
     get_session_manager,
     set_template_engine,
-    set_workspace,
 )
 from api.main import create_app
 from core.models import ParamDef, SessionState, TemplateDef
-from core.workspace import Workspace
 
 
 @pytest.fixture(autouse=True)
@@ -31,14 +29,6 @@ def reset_deps() -> None:
 def client() -> TestClient:
     """TestClient with basic app."""
     return TestClient(create_app())
-
-
-@pytest.fixture
-def mock_workspace(tmp_path: pytest.TempPathFactory) -> Workspace:
-    """Create a real Workspace in a temp directory."""
-    workspace = Workspace(tmp_path)
-    set_workspace(workspace)
-    return workspace
 
 
 @pytest.fixture
@@ -141,7 +131,6 @@ class TestExecuteWebSocket:
     def test_execute_websocket_connect(
         self,
         client: TestClient,
-        mock_workspace: Workspace,
         mock_template_engine: MagicMock,
     ) -> None:
         """Client can connect and disconnect cleanly."""
@@ -155,7 +144,6 @@ class TestExecuteWebSocket:
         self,
         mock_create: MagicMock,
         client: TestClient,
-        mock_workspace: Workspace,
         mock_template_engine: MagicMock,
     ) -> None:
         """Subprocess stdout is streamed line by line."""
@@ -194,7 +182,6 @@ class TestExecuteWebSocket:
         self,
         mock_create: MagicMock,
         client: TestClient,
-        mock_workspace: Workspace,
         mock_template_engine: MagicMock,
     ) -> None:
         """Execution completes with done signal including returncode."""
@@ -215,7 +202,6 @@ class TestExecuteWebSocket:
         self,
         mock_create: MagicMock,
         client: TestClient,
-        mock_workspace: Workspace,
         mock_template_engine: MagicMock,
     ) -> None:
         """Failed execution (non-zero exit) sends done with success=false."""
@@ -245,7 +231,6 @@ class TestExecuteWebSocket:
         self,
         mock_create: MagicMock,
         client: TestClient,
-        mock_workspace: Workspace,
         mock_template_engine: MagicMock,
     ) -> None:
         """Timeout sends done with error="timeout" and kills process."""
@@ -274,7 +259,6 @@ class TestExecuteWebSocket:
     def test_execute_invalid_session(
         self,
         client: TestClient,
-        mock_workspace: Workspace,
         mock_template_engine: MagicMock,
     ) -> None:
         """Invalid session_id is rejected with close code 1008."""
@@ -285,7 +269,6 @@ class TestExecuteWebSocket:
     def test_execute_no_script_preview(
         self,
         client: TestClient,
-        mock_workspace: Workspace,
         mock_template_engine: MagicMock,
     ) -> None:
         """Session not in SCRIPT_PREVIEW state sends error and closes."""

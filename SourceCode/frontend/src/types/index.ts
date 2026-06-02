@@ -38,7 +38,6 @@ export interface SessionSnapshot {
   script_preview: string | null
   error_context: ErrorContext | null
   history: ChatMessage[]
-  workspace: string
   user_script: string | null
   exec_env: ExecEnvSnapshot | null
 }

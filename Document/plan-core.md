@@ -118,7 +118,7 @@ def scan_templates(template_dir: Path) -> List[TemplateDef]:
 
 | 参数类型 | 校验内容 | 校验器 |
 |---------|---------|--------|
-| `file_path` | 非空、无遍历成分、在工作空间内、must_exist 时校验存在性 | `validate_file_path` |
+| `file_path` | 非空、must_exist 时校验文件系统存在性 | `validate_file_path` |
 | `crs` | EPSG 格式（`EPSG:\d+`）或 WKT 字符串 | `validate_crs` |
 | `format` | 在 GDAL 支持的格式列表中 | `validate_format` |
 | `string` | 非空、无特殊字符 | `validate_string` |

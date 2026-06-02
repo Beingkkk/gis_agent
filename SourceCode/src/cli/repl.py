@@ -14,7 +14,6 @@ from cli.executor import ExecutionResult, ScriptExecutor
 from core.models import ExecutionErrorContext, Session, SessionState
 from core.processor import SessionProcessor
 from core.registry import TemplateRegistry
-from core.workspace import Workspace
 from templates.engine import RenderedScript
 
 logger = logging.getLogger(__name__)
@@ -36,7 +35,6 @@ class REPL:
         executor: ScriptExecutor,
         slash_handler: SlashCommandHandler,
         registry: TemplateRegistry,
-        workspace: Workspace,
         dry_run: bool = False,
         input_fn: Optional[Callable[[str], str]] = None,
         output_fn: Optional[Callable[[str], None]] = None,
@@ -49,7 +47,6 @@ class REPL:
             executor: Script executor for SCRIPT_PREVIEW state.
             slash_handler: Slash command dispatcher.
             registry: Template registry for slash commands.
-            workspace: Current workspace for slash commands.
             dry_run: If True, preview scripts instead of executing.
             input_fn: Input function (default: builtin input).
             output_fn: Output function (default: builtin print).
@@ -60,7 +57,6 @@ class REPL:
         self._executor = executor
         self._slash_handler = slash_handler
         self._registry = registry
-        self._workspace = workspace
         self._dry_run = dry_run
         self._input_fn = input_fn if input_fn is not None else input
         self._output_fn = output_fn if output_fn is not None else print
@@ -93,7 +89,7 @@ class REPL:
 
             if user_input.startswith("/"):
                 session, response, action = self._slash_handler.handle(
-                    user_input, session, self._registry, self._workspace
+                    user_input, session, self._registry
                 )
                 if action == "QUIT":
                     self._output_fn(response)

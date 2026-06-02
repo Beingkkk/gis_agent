@@ -10,19 +10,12 @@ import pytest
 from cli.commands import SlashCommandHandler
 from core.models import Session, SessionState, TemplateDef
 from core.registry import TemplateRegistry
-from core.workspace import Workspace
 
 
 @pytest.fixture
 def handler() -> SlashCommandHandler:
     """SlashCommandHandler fixture."""
     return SlashCommandHandler()
-
-
-@pytest.fixture
-def workspace(tmp_path: Path) -> Workspace:
-    """Temporary workspace fixture."""
-    return Workspace(tmp_path)
 
 
 @pytest.fixture
@@ -59,11 +52,10 @@ class TestQuitCommand:
         handler: SlashCommandHandler,
         session: Session,
         registry: TemplateRegistry,
-        workspace: Workspace,
     ) -> None:
         """/quit returns QUIT action."""
         new_session, response, action = handler.handle(
-            "/quit", session, registry, workspace
+            "/quit", session, registry
         )
         assert action == "QUIT"
         assert "再见" in response or "quit" in response.lower()
@@ -73,10 +65,9 @@ class TestQuitCommand:
         handler: SlashCommandHandler,
         session: Session,
         registry: TemplateRegistry,
-        workspace: Workspace,
     ) -> None:
         """/q is alias for /quit."""
-        _, _, action = handler.handle("/q", session, registry, workspace)
+        _, _, action = handler.handle("/q", session, registry)
         assert action == "QUIT"
 
 
@@ -87,7 +78,6 @@ class TestClearCommand:
         self,
         handler: SlashCommandHandler,
         registry: TemplateRegistry,
-        workspace: Workspace,
     ) -> None:
         """/clear resets session to IDLE with empty state."""
         session = Session(
@@ -97,31 +87,13 @@ class TestClearCommand:
             params={"input": "test.shp"},
         )
         new_session, response, action = handler.handle(
-            "/clear", session, registry, workspace
+            "/clear", session, registry
         )
         assert action is None
         assert new_session.state == SessionState.IDLE
         assert new_session.template is None
         assert new_session.params == {}
         assert new_session.history == []
-
-
-class TestWorkspaceCommand:
-    """/workspace command."""
-
-    def test_workspace_shows_path(
-        self,
-        handler: SlashCommandHandler,
-        session: Session,
-        registry: TemplateRegistry,
-        workspace: Workspace,
-    ) -> None:
-        """/workspace shows current workspace root path."""
-        new_session, response, action = handler.handle(
-            "/workspace", session, registry, workspace
-        )
-        assert action is None
-        assert str(workspace.root) in response
 
 
 class TestTemplatesCommand:
@@ -132,11 +104,10 @@ class TestTemplatesCommand:
         handler: SlashCommandHandler,
         session: Session,
         registry: TemplateRegistry,
-        workspace: Workspace,
     ) -> None:
         """/templates lists all available templates."""
         new_session, response, action = handler.handle(
-            "/templates", session, registry, workspace
+            "/templates", session, registry
         )
         assert action is None
         assert "shp2geojson" in response
@@ -153,22 +124,19 @@ class TestStatusCommand:
         handler: SlashCommandHandler,
         session: Session,
         registry: TemplateRegistry,
-        workspace: Workspace,
     ) -> None:
         """/status shows IDLE state info."""
         new_session, response, action = handler.handle(
-            "/status", session, registry, workspace
+            "/status", session, registry
         )
         assert action is None
         assert "IDLE" in response
-        assert str(workspace.root) in response
         assert "0" in response  # history count
 
     def test_status_shows_param_collect(
         self,
         handler: SlashCommandHandler,
         registry: TemplateRegistry,
-        workspace: Workspace,
     ) -> None:
         """/status shows PARAM_COLLECT state with template."""
         session = Session(
@@ -176,7 +144,7 @@ class TestStatusCommand:
             template=registry.get_template("shp2geojson"),
             history=[],
         )
-        _, response, _ = handler.handle("/status", session, registry, workspace)
+        _, response, _ = handler.handle("/status", session, registry)
         assert "PARAM_COLLECT" in response
         assert "shp2geojson" in response
 
@@ -189,16 +157,14 @@ class TestHelpCommand:
         handler: SlashCommandHandler,
         session: Session,
         registry: TemplateRegistry,
-        workspace: Workspace,
     ) -> None:
         """/help lists available slash commands."""
         new_session, response, action = handler.handle(
-            "/help", session, registry, workspace
+            "/help", session, registry
         )
         assert action is None
         assert "/quit" in response
         assert "/clear" in response
-        assert "/workspace" in response
         assert "/templates" in response
         assert "/status" in response
         assert "/help" in response
@@ -212,11 +178,10 @@ class TestUnknownCommand:
         handler: SlashCommandHandler,
         session: Session,
         registry: TemplateRegistry,
-        workspace: Workspace,
     ) -> None:
         """Unknown command shows friendly error and /help hint."""
         new_session, response, action = handler.handle(
-            "/foo", session, registry, workspace
+            "/foo", session, registry
         )
         assert action is None
         assert (
@@ -229,8 +194,7 @@ class TestUnknownCommand:
         handler: SlashCommandHandler,
         session: Session,
         registry: TemplateRegistry,
-        workspace: Workspace,
     ) -> None:
         """Extra arguments after command are ignored."""
-        _, response, action = handler.handle("/quit now", session, registry, workspace)
+        _, response, action = handler.handle("/quit now", session, registry)
         assert action == "QUIT"

@@ -136,6 +136,43 @@ PROJ_LIB  ← {env_path}/Library/share/proj
 
 **决策**: 用户配置的执行环境绑定到 `Session` 对象，随会话生命周期存在。不持久化到 config.json。
 
+### DC-0105: 脚本执行临时化，导出与执行分离
+
+**决策**: 脚本执行时的临时文件不再写入工作空间，改为写入系统临时目录（`tempfile.gettempdir()`）。用户如需保存脚本，通过独立的"导出脚本"功能主动保存。
+
+**执行流程变更**:
+- 旧：`write_script(commands, workspace)` → `{workspace}/script_{uuid}.{ext}`
+- 新：`write_script_to_temp(commands)` → `{tempdir}/script_{uuid}.{ext}`，执行后清理
+
+**导出流程**（独立功能）:
+```
+用户点击"导出脚本"
+    │
+    ▼
+IPC saveFile(dialog) → 用户选择保存路径
+    │
+    ▼
+POST /session/{id}/export-script {output_path}
+    │
+    ▼
+后端渲染脚本 → write_script(commands, output_path)
+    │
+    ▼
+返回 {success, path, size}
+```
+
+**默认导出文件名**: `script_{template_id}_{timestamp}.{ext}`（ext 根据 shell 类型：`.bat` / `.sh` / `.ps1`）
+
+**理由**:
+- 工作空间不再被临时脚本文件污染，保持干净
+- 用户有明确的"保存脚本"意图时才生成持久化文件
+- 导出操作不影响会话状态，纯副作用操作
+- 临时目录由操作系统管理，无需应用维护清理策略
+
+**依赖关系**:
+- plan-ux DC-UX-11a（前端导出按钮 UX）依赖本决策
+- plan-electron 新增 `saveFile` IPC（导出时保存对话框）
+
 **流程**:
 ```
 用户在前端设置环境 → POST /session/{id}/exec-env → 后端验证 → 保存到 session
@@ -327,8 +364,32 @@ class ShellExecutor:
             env: 已构建的执行环境。
         """
 
-    def write_script(self, commands: List[str], workspace: Path) -> Path:
-        """将命令列表写入对应格式的脚本文件。"""
+    def write_script(self, commands: List[str], output_path: Path) -> Path:
+        """将命令列表写入指定路径的脚本文件。
+
+        Args:
+            commands: 命令行列表。
+            output_path: 目标文件完整路径（含文件名和后缀）。
+
+        Returns:
+            写入的文件路径。
+
+        Design:
+            DC-0103, DC-0105
+        """
+
+    def write_script_to_temp(self, commands: List[str]) -> Path:
+        """将命令列表写入系统临时目录的脚本文件，供执行使用。
+
+        文件名格式：script_{timestamp}_{uuid}.{ext}
+        执行完成后由调用方负责清理。
+
+        Returns:
+            临时脚本文件路径。
+
+        Design:
+            DC-0105
+        """
 
     async def execute(
         self,
@@ -452,11 +513,11 @@ POST /session/{id}/exec-env
     └──→ 回退：系统默认（os.environ）
     │
     ▼
-ShellExecutor.write_script(commands, workspace)
+ShellExecutor.write_script_to_temp(commands)
     │
-    ├──→ bash → 生成 {workspace}/script_{uuid}.sh
-    ├──→ cmd  → 生成 {workspace}/script_{uuid}.bat
-    └──→ powershell → 生成 {workspace}/script_{uuid}.ps1
+    ├──→ bash → 生成 {temp}/script_{uuid}.sh
+    ├──→ cmd  → 生成 {temp}/script_{uuid}.bat
+    └──→ powershell → 生成 {temp}/script_{uuid}.ps1
     │
     ▼
 ShellExecutor.execute(script_path, cwd=workspace)
@@ -464,7 +525,15 @@ ShellExecutor.execute(script_path, cwd=workspace)
     ├──→ bash → subprocess_exec(bash, script_path, env=..., cwd=...)
     ├──→ cmd  → subprocess_exec(cmd, "/c", script_path, env=..., cwd=...)
     └──→ powershell → subprocess_exec(powershell, "-File", script_path, ...)
+    │
+    ▼
+执行完成后清理临时脚本文件
 ```
+
+**设计说明**（DC-0105）：
+- 执行时的临时脚本写入系统临时目录（`tempfile.gettempdir()`），不再污染工作空间
+- 临时文件由 `execute` 调用方在执行完成后负责清理
+- 用户如需保留脚本，使用独立的"导出脚本"功能（DC-UX-11a）
 
 ---
 
@@ -474,14 +543,15 @@ ShellExecutor.execute(script_path, cwd=workspace)
 
 | 模块 | 接口 | 用途 |
 |------|------|------|
-| `core/workspace` | `Workspace.root` | 脚本文件写入目录 |
+| `tempfile.gettempdir()` | — | 脚本执行时临时文件写入目录（DC-0105） |
 
 ### 5.2 向下暴露
 
 | 接口 | 使用方 |
 |------|--------|
 | `EnvironmentBuilder.build()` | `api/routes/exec_env.py`（verify 端点） |
-| `ShellExecutor.write_script()` | `api/websocket/execute.py`（生成脚本） |
+| `ShellExecutor.write_script()` | `api/routes/session.py`（导出脚本） |
+| `ShellExecutor.write_script_to_temp()` | `api/websocket/execute.py`（执行时临时脚本） |
 | `ShellExecutor.execute()` | `api/websocket/execute.py`（启动子进程） |
 | `CondaEnvDetector.list_envs()` | `api/routes/exec_env.py`（下拉列表） |
 
@@ -515,9 +585,12 @@ ShellExecutor.execute(script_path, cwd=workspace)
 | EnvironmentBuilder — system 类型 | 仅使用系统 PATH，验证 GDAL 可用性 |
 | EnvironmentBuilder — conda 类型 | 推导完整环境变量，验证 GDAL 可用性 |
 | EnvironmentBuilder — auto shell | 自动探测并解析为具体 shell 类型 |
-| ShellExecutor — write_script (bash) | 生成 `.sh` 文件，包含 `set -euo pipefail` |
-| ShellExecutor — write_script (cmd) | 生成 `.bat` 文件，包含 `@echo off` |
+| ShellExecutor — write_script (bash) | 生成 `.sh` 文件到指定路径，包含 `set -euo pipefail` |
+| ShellExecutor — write_script (cmd) | 生成 `.bat` 文件到指定路径，包含 `@echo off` |
+| ShellExecutor — write_script_to_temp | 生成到系统临时目录，文件名含 uuid |
 | verify 端点 — 有效配置 | 返回 `valid: true` + shell/gdal 信息 |
+| 导出脚本端点 — 成功 | 按 shell 类型生成正确格式，写入用户指定路径 |
+| 导出脚本端点 — 路径不可写 | 返回 400 + 错误信息 |
 | verify 端点 — 无效 shell | 返回 `valid: false` + 错误信息 |
 | verify 端点 — 无效 conda 环境 | 返回 `valid: false` + 环境不存在 |
 | session exec-env 端点 — 保存成功 | session.exec_env 正确更新 |
@@ -541,6 +614,7 @@ ShellExecutor.execute(script_path, cwd=workspace)
 | P5 | DC-0102 | `CondaEnvDetector`（纯 Python） | 不引入 `conda` 库等额外依赖 |
 | — | DC-0100 | `api/routes/exec_env.py` | 运行时环境配置，不依赖 config.json |
 | — | DC-0104 | `Session.exec_env`, `with_exec_env()` | 会话级环境绑定 |
+| — | DC-0105 | `ShellExecutor.write_script_to_temp()`, `POST /session/{id}/export-script` | 执行临时化，导出与执行分离 |
 
 ---
 
@@ -548,5 +622,6 @@ ShellExecutor.execute(script_path, cwd=workspace)
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.2.0 | 2026-06-02 | **脚本执行临时化 + 导出分离**：新增 DC-0105；`ShellExecutor.write_script()` 改为接受任意 `output_path`；新增 `write_script_to_temp()` 用于执行时临时文件；执行流程从 workspace 改为 temp 目录；新增 `/session/{id}/export-script` API；更新 §5.2 向下暴露表 |
 | v1.1.0 | 2026-06-01 | DC-0100 标记为已实现。明确模块定位：独立块，仅在子进程执行时触发交互，不影响其他功能模块 |
 | v1.0.0 | 2026-06-01 | 初版。移除 config.json 中的 `gdal_bin` 配置；改为运行时通过 UI 设置执行环境；定义 ShellDetector、CondaEnvDetector、ShellExecutor、EnvironmentBuilder；新增 `/exec-env/verify` 和 `/session/{id}/exec-env` API；Session 新增 `exec_env` 字段 |

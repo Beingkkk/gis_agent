@@ -289,14 +289,20 @@ interface DataLink {
 
 | 状态 | 触发条件 | 界面内容 | 用户操作 |
 |------|---------|---------|---------|
-| **命令预览** | 确认参数后自动进入；或填参数过程中手动点击"预览命令" | 命令编辑器（显示生成的 bash）、参数摘要表 | 点击"刷新"更新命令、点击"执行"启动、点击"返回修改"回到参数面板 |
+| **命令预览** | 确认参数后自动进入；或填参数过程中手动点击"预览命令" | 命令编辑器（显示生成的 bash）、参数摘要表 | 点击"刷新"更新命令、点击"执行"启动、点击"导出脚本"选择目录保存、点击"返回修改"回到参数面板 |
 | **执行中** | 点击"执行"后 | 转圈状态条 + 实时日志输出（黑色终端风格） | 点击"取消"终止执行 |
-| **成功** | 执行返回码 0 | 绿色成功卡片 + 结果详情表（输出文件、大小、坐标系、耗时） | "打开输出目录"、"新任务" |
+| **成功** | 执行返回码 0 | 绿色成功卡片 + 结果详情表（输出文件、大小、坐标系、耗时） | "新任务" |
 | **失败** | 执行返回码非 0 | 红色失败卡片 + 错误输出高亮 + **一键诊断按钮** | "一键诊断"、"返回修改参数" |
 
 **命令预览刷新机制**：
 - 用户调整参数后，点击"刷新"按钮才重新生成并显示命令（非实时刷新）
 - 参数未填完时允许进入预览态，但"执行"按钮禁用，提示"还有 N 个必填参数"
+
+**导出脚本机制**（DC-UX-11a）：
+- 触发：命令预览态点击"导出脚本"按钮
+- 流程：前端调用 IPC `saveFile` → 用户选择保存路径和文件名 → 前端将路径发给后端 `POST /session/{id}/export-script` → 后端按当前 shell 类型生成对应格式的脚本文件 → 保存到用户指定路径
+- 默认文件名：`script_{template_id}_{timestamp}.{ext}`（ext 根据 shell 类型：`.bat` / `.sh` / `.ps1`）
+- 导出操作不影响当前会话状态，不触发状态机流转
 
 **执行历史策略**：单次任务内多次执行覆盖上一次的日志，始终只展示当前任务的最新状态。
 
@@ -337,7 +343,7 @@ interface DataLink {
 │ TopBar                                   │                      │
 ├──────────────────────────────────────────┼──────────────────────┤
 │ [🔍模板识别] [💬GIS问答] [⚡脚本执行]      │   参数/详情面板      │
-│ 📁 工作空间：...                          │   580px              │
+│                                          │   580px              │
 ├──────────────────────────────────────────┤                      │
 │                                          │                      │
 │  TAB 内容区                               │                      │
@@ -363,7 +369,7 @@ interface DataLink {
 # api/routes/session.py
 
 @router.post("/session", response_model=SessionResponse)
-async def create_session(workspace: Optional[str] = None) -> Session:
+async def create_session() -> Session:
     """创建新会话，返回 session_id 和初始状态。"""
 
 @router.post("/session/{session_id}/intent", response_model=SessionResponse)
@@ -405,14 +411,23 @@ async def submit_params(session_id: str, request: ParamsRequest) -> Session:
 async def execute_script(session_id: str, dry_run: bool = False) -> ExecutionResponse:
     """确认执行脚本。实际执行走 WebSocket，此接口仅触发。"""
 
+@router.post("/session/{session_id}/export-script")
+async def export_script(session_id: str, request: ExportScriptRequest) -> ExportScriptResponse:
+    """导出脚本到用户指定路径。
+
+    根据 session 的模板 + 参数 + 当前 shell 类型渲染脚本内容，
+    写入用户选择的本地文件路径。不影响会话状态。
+
+    Request:
+        {"output_path": "C:\\Users\\PC\\Desktop\\script_shp2geojson_1234567890.bat"}
+
+    Response:
+        {"success": true, "path": "...", "size": 256}
+    """
+
 @router.post("/session/{session_id}/clear")
 async def clear_session(session_id: str):
     """清空会话，重置为 IDLE。"""
-
-@router.post("/session/{session_id}/workspace", response_model=SessionResponse)
-async def update_session_workspace(session_id: str, request: WorkspaceRequest) -> Session:
-    """更新工作空间路径，验证目录存在后切换。
-    保留当前会话状态（template、params、history 等不变），仅变更默认 cwd 和输出基准目录。"""
 
 # api/routes/templates.py
 
@@ -734,12 +749,7 @@ npm run electron:build # electron-builder 打包
 
 ### 端口配置
 
-后端端口通过 `config/config.json` 的 `api.port` 配置，默认 18000：
-```json
-{
-  "api": { "host": "0.0.0.0", "port": 18000 }
-}
-```
+后端端口硬编码为 18000，由 Electron 主进程与 Python 子进程约定，无需用户配置：
 
 前端开发服务器通过 `frontend/.env` 同步代理目标：
 ```
@@ -782,6 +792,7 @@ UX 方案**不删除**现有 CLI 代码。`cli/` 目录保持完整，与 `api/`
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.10.0 | 2026-06-02 | **导出脚本**：DC-UX-11 命令预览态新增"导出脚本"按钮（DC-UX-11a）；成功态移除"打开输出目录"按钮（脚本不再自动写入 workspace） |
 | v1.9.0 | 2026-05-31 | **DiscoveryTab 意图匹配状态反馈**：§2 新增三种匹配结果的前端状态提示（识别中/已确认/未匹配）；§4.1 流程图补充前端反馈标注；移除冗余的 MatchedBanner 横幅，改为轻量状态条 |
 | v1.8.0 | 2026-05-31 | **切换工作空间保留会话状态**：`POST /session/{id}/workspace` 不再清空会话，仅变更默认 cwd 和输出基准目录；template、params、history、error_context 等全部保留；§3.1 `update_session_workspace` docstring 更新 |
 | v1.7.0 | 2026-05-31 | **API 分离 + Prompt 场景拆分**：§3.1 新增 `POST /session/{id}/chat` endpoint（Q&A 专用）；更新 DC-UX-10 为三 TAB 分离（模板识别 / GIS 问答 / 脚本执行），明确各 TAB 的后端 API 和行为约束；移除 `process_intent` 中的 `is_question` 判断逻辑；§4.1 流程图移除"探索性问题 → Q&A 文本回复"分支 |

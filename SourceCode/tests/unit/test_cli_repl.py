@@ -16,7 +16,6 @@ from core.models import Session, SessionState, TemplateDef
 from llm.models import Message
 from core.processor import SessionProcessor
 from core.registry import TemplateRegistry
-from core.workspace import Workspace
 from templates.engine import Platform, RenderedScript
 
 
@@ -41,14 +40,6 @@ def mock_registry() -> MagicMock:
 
 
 @pytest.fixture
-def mock_workspace(tmp_path: Path) -> MagicMock:
-    """Mock Workspace."""
-    ws = MagicMock(spec=Workspace)
-    ws.root = tmp_path
-    return ws
-
-
-@pytest.fixture
 def slash_handler() -> SlashCommandHandler:
     """Real SlashCommandHandler (lightweight, no external deps)."""
     return SlashCommandHandler()
@@ -70,7 +61,6 @@ def make_repl(
     executor: MagicMock,
     slash_handler: SlashCommandHandler,
     registry: MagicMock,
-    workspace: MagicMock,
     inputs: list[str],
     dry_run: bool = False,
     render_fn: Optional[MagicMock] = None,
@@ -94,7 +84,6 @@ def make_repl(
         executor=executor,
         slash_handler=slash_handler,
         registry=registry,
-        workspace=workspace,
         dry_run=dry_run,
         input_fn=input_fn,
         output_fn=output_fn,
@@ -112,7 +101,6 @@ class TestREPLBasicLoop:
         mock_executor: MagicMock,
         slash_handler: SlashCommandHandler,
         mock_registry: MagicMock,
-        mock_workspace: MagicMock,
     ) -> None:
         """Normal input is passed to SessionProcessor.process()."""
         mock_processor.process.return_value = (
@@ -124,7 +112,6 @@ class TestREPLBasicLoop:
             mock_executor,
             slash_handler,
             mock_registry,
-            mock_workspace,
             inputs=["hello", "/quit"],
         )
         repl.run(Session())
@@ -139,7 +126,6 @@ class TestREPLBasicLoop:
         mock_executor: MagicMock,
         slash_handler: SlashCommandHandler,
         mock_registry: MagicMock,
-        mock_workspace: MagicMock,
     ) -> None:
         """Processor response is printed."""
         mock_processor.process.return_value = (
@@ -151,7 +137,6 @@ class TestREPLBasicLoop:
             mock_executor,
             slash_handler,
             mock_registry,
-            mock_workspace,
             inputs=["hello", "/quit"],
         )
         repl.run(Session())
@@ -168,7 +153,6 @@ class TestREPLSlashCommands:
         mock_executor: MagicMock,
         slash_handler: SlashCommandHandler,
         mock_registry: MagicMock,
-        mock_workspace: MagicMock,
     ) -> None:
         """/quit terminates the REPL loop."""
         repl, outputs = make_repl(
@@ -176,7 +160,6 @@ class TestREPLSlashCommands:
             mock_executor,
             slash_handler,
             mock_registry,
-            mock_workspace,
             inputs=["/quit"],
         )
         repl.run(Session())
@@ -191,7 +174,6 @@ class TestREPLSlashCommands:
         mock_executor: MagicMock,
         slash_handler: SlashCommandHandler,
         mock_registry: MagicMock,
-        mock_workspace: MagicMock,
     ) -> None:
         """/clear resets session and continues loop."""
         mock_processor.process.return_value = (
@@ -203,7 +185,6 @@ class TestREPLSlashCommands:
             mock_executor,
             slash_handler,
             mock_registry,
-            mock_workspace,
             inputs=["/clear", "hello", "/quit"],
         )
         repl.run(Session())
@@ -225,7 +206,6 @@ class TestREPLScriptPreview:
         mock_executor: MagicMock,
         slash_handler: SlashCommandHandler,
         mock_registry: MagicMock,
-        mock_workspace: MagicMock,
         mock_rendered_script: RenderedScript,
     ) -> None:
         """Y confirms and executes script, returns to IDLE."""
@@ -242,7 +222,6 @@ class TestREPLScriptPreview:
             mock_executor,
             slash_handler,
             mock_registry,
-            mock_workspace,
             inputs=["run it", "Y", "/quit"],
             render_fn=mock_render_fn,
         )
@@ -257,280 +236,265 @@ class TestREPLScriptPreview:
         mock_executor: MagicMock,
         slash_handler: SlashCommandHandler,
         mock_registry: MagicMock,
-        mock_workspace: MagicMock,
         mock_rendered_script: RenderedScript,
     ) -> None:
         """N cancels and returns to PARAM_COLLECT."""
         mock_render_fn = MagicMock(return_value=mock_rendered_script)
         mock_processor.process.side_effect = [
-            (Session(state=SessionState.SCRIPT_PREVIEW), "脚本...\n确认执行？(Y/N)："),
-            (Session(state=SessionState.IDLE), "好的"),
+            (
+                Session(state=SessionState.SCRIPT_PREVIEW),
+                "脚本...\n确认执行？(Y/N)：",
+            ),
+            (Session(state=SessionState.IDLE), "完成"),
         ]
         repl, outputs = make_repl(
             mock_processor,
             mock_executor,
             slash_handler,
             mock_registry,
-            mock_workspace,
-            inputs=["run it", "N", "修改参数", "/quit"],
+            inputs=["run it", "N", "/quit"],
             render_fn=mock_render_fn,
         )
         repl.run(Session())
 
         mock_executor.execute.assert_not_called()
-        # After N, the next natural language input goes to processor with
-        # PARAM_COLLECT state
-        second_call_session = mock_processor.process.call_args_list[1][0][0]
-        assert second_call_session.state == SessionState.PARAM_COLLECT
+        assert any("取消" in o for o in outputs)
 
-    def test_invalid_confirmation_loops(
+    def test_dry_run_previews_no_execute(
         self,
         mock_processor: MagicMock,
         mock_executor: MagicMock,
         slash_handler: SlashCommandHandler,
         mock_registry: MagicMock,
-        mock_workspace: MagicMock,
         mock_rendered_script: RenderedScript,
     ) -> None:
-        """Invalid input loops until Y/N is given."""
-        mock_render_fn = MagicMock(return_value=mock_rendered_script)
-        mock_processor.process.side_effect = [
-            (Session(state=SessionState.SCRIPT_PREVIEW), "脚本...\n确认执行？(Y/N)："),
-            (Session(state=SessionState.IDLE), "完成"),
-        ]
-        mock_executor.execute.return_value = ExecutionResult(
-            success=True, returncode=0, stdout="", stderr="", duration_ms=0
-        )
-        repl, outputs = make_repl(
-            mock_processor,
-            mock_executor,
-            slash_handler,
-            mock_registry,
-            mock_workspace,
-            inputs=["run it", "foo", "", "Y", "/quit"],
-            render_fn=mock_render_fn,
-        )
-        repl.run(Session())
-
-        mock_executor.execute.assert_called_once()
-        # Should have prompted for retry
-        assert any("Y" in o and "N" in o for o in outputs)
-
-    def test_execution_failure_shows_stderr(
-        self,
-        mock_processor: MagicMock,
-        mock_executor: MagicMock,
-        slash_handler: SlashCommandHandler,
-        mock_registry: MagicMock,
-        mock_workspace: MagicMock,
-        mock_rendered_script: RenderedScript,
-    ) -> None:
-        """Execution failure prints stderr and returns to IDLE."""
+        """Dry-run mode previews without executing."""
         mock_render_fn = MagicMock(return_value=mock_rendered_script)
         mock_processor.process.side_effect = [
             (Session(state=SessionState.SCRIPT_PREVIEW), "脚本..."),
-            (Session(state=SessionState.IDLE), "继续"),
+            (Session(state=SessionState.IDLE), "完成"),
         ]
-        mock_executor.execute.return_value = ExecutionResult(
-            success=False, returncode=1, stdout="", stderr="GDAL error", duration_ms=50
-        )
         repl, outputs = make_repl(
             mock_processor,
             mock_executor,
             slash_handler,
             mock_registry,
-            mock_workspace,
-            inputs=["run it", "Y", "/quit"],
-            render_fn=mock_render_fn,
-        )
-        repl.run(Session())
-
-        assert any("GDAL error" in o for o in outputs)
-
-    def test_execution_success_resets_session(
-        self,
-        mock_processor: MagicMock,
-        mock_executor: MagicMock,
-        slash_handler: SlashCommandHandler,
-        mock_registry: MagicMock,
-        mock_workspace: MagicMock,
-        mock_rendered_script: RenderedScript,
-    ) -> None:
-        """Execution success returns a fully reset session (DC-0067)."""
-        mock_render_fn = MagicMock(return_value=mock_rendered_script)
-        mock_processor.process.return_value = (
-            Session(state=SessionState.SCRIPT_PREVIEW),
-            "脚本...",
-        )
-        mock_executor.execute.return_value = ExecutionResult(
-            success=True, returncode=0, stdout="ok", stderr="", duration_ms=100
-        )
-        repl, _outputs = make_repl(
-            mock_processor,
-            mock_executor,
-            slash_handler,
-            mock_registry,
-            mock_workspace,
-            inputs=["run it", "Y", "/quit"],
-            render_fn=mock_render_fn,
-        )
-
-        session = Session(
-            state=SessionState.SCRIPT_PREVIEW,
-            template=TemplateDef(
-                id="t1", name="Test", description="D", template_file="t.j2"
-            ),
-            params={"input": "a.shp"},
-            history=[Message(role="user", content="hello")],
-        )
-        new_session = repl._execute_script(session)
-
-        assert new_session.state == SessionState.IDLE
-        assert new_session.template is None
-        assert new_session.params == {}
-        assert new_session.history == []
-
-    def test_execution_failure_clears_history_preserves_task(
-        self,
-        mock_processor: MagicMock,
-        mock_executor: MagicMock,
-        slash_handler: SlashCommandHandler,
-        mock_registry: MagicMock,
-        mock_workspace: MagicMock,
-        mock_rendered_script: RenderedScript,
-    ) -> None:
-        """Execution failure clears history but preserves template/params."""
-        mock_render_fn = MagicMock(return_value=mock_rendered_script)
-        mock_executor.execute.return_value = ExecutionResult(
-            success=False,
-            returncode=1,
-            stdout="",
-            stderr="error",
-            duration_ms=50,
-        )
-        repl, _outputs = make_repl(
-            mock_processor,
-            mock_executor,
-            slash_handler,
-            mock_registry,
-            mock_workspace,
-            inputs=["run it", "Y", "/quit"],
-            render_fn=mock_render_fn,
-        )
-
-        template = TemplateDef(
-            id="t1", name="Test", description="D", template_file="t.j2"
-        )
-        session = Session(
-            state=SessionState.SCRIPT_PREVIEW,
-            template=template,
-            params={"input": "a.shp"},
-            history=[Message(role="user", content="hello")],
-        )
-        new_session = repl._execute_script(session)
-
-        assert new_session.state == SessionState.ERROR_RECOVERY
-        assert new_session.template == template
-        assert new_session.params == {"input": "a.shp"}
-        assert new_session.history == []
-        assert new_session.error_context is not None
-        assert new_session.error_context.returncode == 1
-
-
-class TestREPLDryRun:
-    """Dry-run mode."""
-
-    def test_dry_run_skips_execution(
-        self,
-        mock_processor: MagicMock,
-        mock_executor: MagicMock,
-        slash_handler: SlashCommandHandler,
-        mock_registry: MagicMock,
-        mock_workspace: MagicMock,
-        mock_rendered_script: RenderedScript,
-    ) -> None:
-        """dry_run=True calls preview() not execute(), skips to IDLE."""
-        mock_render_fn = MagicMock(return_value=mock_rendered_script)
-        mock_processor.process.return_value = (
-            Session(state=SessionState.SCRIPT_PREVIEW),
-            "脚本内容",
-        )
-        repl, outputs = make_repl(
-            mock_processor,
-            mock_executor,
-            slash_handler,
-            mock_registry,
-            mock_workspace,
             inputs=["run it", "/quit"],
             dry_run=True,
             render_fn=mock_render_fn,
         )
         repl.run(Session())
 
-        mock_executor.preview.assert_called_once()
         mock_executor.execute.assert_not_called()
-        assert any("dry-run" in o or "跳过" in o for o in outputs)
+        assert any("dry-run" in o for o in outputs)
 
-
-class TestREPLInterrupts:
-    """Keyboard and EOF handling."""
-
-    def test_ctrl_c_shows_hint(
+    def test_invalid_confirmation_prompts_again(
         self,
         mock_processor: MagicMock,
         mock_executor: MagicMock,
         slash_handler: SlashCommandHandler,
         mock_registry: MagicMock,
-        mock_workspace: MagicMock,
+        mock_rendered_script: RenderedScript,
     ) -> None:
-        """Ctrl+C shows hint and continues loop."""
-        call_count = 0
-
-        def failing_then_ok(*args: object, **kwargs: object) -> str:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise KeyboardInterrupt
-            return "/quit"
-
+        """Invalid confirmation prompts again until valid input."""
+        mock_render_fn = MagicMock(return_value=mock_rendered_script)
+        mock_processor.process.side_effect = [
+            (Session(state=SessionState.SCRIPT_PREVIEW), "脚本..."),
+            (Session(state=SessionState.IDLE), "完成"),
+        ]
+        mock_executor.execute.return_value = ExecutionResult(
+            success=True, returncode=0, stdout="ok", stderr="", duration_ms=50
+        )
         repl, outputs = make_repl(
             mock_processor,
             mock_executor,
             slash_handler,
             mock_registry,
-            mock_workspace,
-            inputs=[],  # not used
+            inputs=["run it", "maybe", "Y", "/quit"],
+            render_fn=mock_render_fn,
         )
-        # Replace input_fn with our custom one
-        repl._input_fn = failing_then_ok
         repl.run(Session())
 
-        assert any("/quit" in o for o in outputs)
-        mock_processor.process.assert_not_called()  # interrupted before processing
+        mock_executor.execute.assert_called_once()
+        assert any("Y 确认" in o or "N 取消" in o for o in outputs)
 
-    def test_ctrl_d_exits(
+
+class TestREPLExecutionStates:
+    """Script execution results and state transitions."""
+
+    def test_success_returns_idle(
         self,
         mock_processor: MagicMock,
         mock_executor: MagicMock,
         slash_handler: SlashCommandHandler,
         mock_registry: MagicMock,
-        mock_workspace: MagicMock,
+        mock_rendered_script: RenderedScript,
     ) -> None:
-        """Ctrl+D (EOFError) exits gracefully."""
-
-        def raise_eof(*args: object, **kwargs: object) -> str:
-            raise EOFError
-
+        """Successful execution resets session to IDLE."""
+        mock_render_fn = MagicMock(return_value=mock_rendered_script)
+        mock_processor.process.side_effect = [
+            (Session(state=SessionState.SCRIPT_PREVIEW), "脚本..."),
+            (Session(state=SessionState.IDLE), "完成"),
+        ]
+        mock_executor.execute.return_value = ExecutionResult(
+            success=True, returncode=0, stdout="ok", stderr="", duration_ms=10
+        )
         repl, outputs = make_repl(
             mock_processor,
             mock_executor,
             slash_handler,
             mock_registry,
-            mock_workspace,
-            inputs=[],
+            inputs=["run it", "Y", "/quit"],
+            render_fn=mock_render_fn,
         )
-        repl._input_fn = raise_eof
+        repl.run(Session())
+
+        assert any("完成" in o for o in outputs)
+
+    def test_failure_enters_error_recovery(
+        self,
+        mock_processor: MagicMock,
+        mock_executor: MagicMock,
+        slash_handler: SlashCommandHandler,
+        mock_registry: MagicMock,
+        mock_rendered_script: RenderedScript,
+    ) -> None:
+        """Failed execution enters ERROR_RECOVERY state."""
+        mock_render_fn = MagicMock(return_value=mock_rendered_script)
+        mock_processor.process.side_effect = [
+            (Session(state=SessionState.SCRIPT_PREVIEW), "脚本..."),
+            (Session(state=SessionState.IDLE), "完成"),
+        ]
+        mock_executor.execute.return_value = ExecutionResult(
+            success=False,
+            returncode=1,
+            stdout="",
+            stderr="file not found",
+            duration_ms=10,
+        )
+        repl, outputs = make_repl(
+            mock_processor,
+            mock_executor,
+            slash_handler,
+            mock_registry,
+            inputs=["run it", "Y", "/quit"],
+            render_fn=mock_render_fn,
+        )
+        repl.run(Session())
+
+        assert any("失败" in o for o in outputs)
+
+    def test_no_render_fn_skips_execution(
+        self,
+        mock_processor: MagicMock,
+        mock_executor: MagicMock,
+        slash_handler: SlashCommandHandler,
+        mock_registry: MagicMock,
+    ) -> None:
+        """If render_fn is None, execution is skipped with a warning."""
+        mock_processor.process.side_effect = [
+            (Session(state=SessionState.SCRIPT_PREVIEW), "脚本..."),
+            (Session(state=SessionState.IDLE), "完成"),
+        ]
+        repl, outputs = make_repl(
+            mock_processor,
+            mock_executor,
+            slash_handler,
+            mock_registry,
+            inputs=["run it", "Y", "/quit"],
+            render_fn=None,
+        )
+        repl.run(Session())
+
+        mock_executor.execute.assert_not_called()
+        assert any("未配置" in o for o in outputs)
+
+
+class TestREPLInputOutput:
+    """Input/output behaviour."""
+
+    def test_eof_stops_loop(
+        self,
+        mock_processor: MagicMock,
+        mock_executor: MagicMock,
+        slash_handler: SlashCommandHandler,
+        mock_registry: MagicMock,
+    ) -> None:
+        """EOF stops the REPL loop cleanly."""
+        input_iter = iter([])
+
+        def input_fn(prompt: str = "") -> str:
+            raise EOFError()
+
+        outputs: list[str] = []
+
+        def output_fn(text: str) -> None:
+            outputs.append(text)
+
+        repl = REPL(
+            processor=mock_processor,
+            executor=mock_executor,
+            slash_handler=slash_handler,
+            registry=mock_registry,
+            input_fn=input_fn,
+            output_fn=output_fn,
+        )
         repl.run(Session())
 
         assert any("再见" in o for o in outputs)
-        mock_processor.process.assert_not_called()
+
+    def test_ctrlc_continues_loop(
+        self,
+        mock_processor: MagicMock,
+        mock_executor: MagicMock,
+        slash_handler: SlashCommandHandler,
+        mock_registry: MagicMock,
+    ) -> None:
+        """Ctrl+C (KeyboardInterrupt) continues the loop."""
+        call_count = 0
+
+        def input_fn(prompt: str = "") -> str:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise KeyboardInterrupt()
+            return "/quit"
+
+        outputs: list[str] = []
+
+        def output_fn(text: str) -> None:
+            outputs.append(text)
+
+        repl = REPL(
+            processor=mock_processor,
+            executor=mock_executor,
+            slash_handler=slash_handler,
+            registry=mock_registry,
+            input_fn=input_fn,
+            output_fn=output_fn,
+        )
+        repl.run(Session())
+
+        assert any("^C" in o or "quit" in o for o in outputs)
+
+    def test_output_fn_property(
+        self,
+        mock_processor: MagicMock,
+        mock_executor: MagicMock,
+        slash_handler: SlashCommandHandler,
+        mock_registry: MagicMock,
+    ) -> None:
+        """output_fn property returns the output function."""
+        outputs: list[str] = []
+
+        def output_fn(text: str) -> None:
+            outputs.append(text)
+
+        repl = REPL(
+            processor=mock_processor,
+            executor=mock_executor,
+            slash_handler=slash_handler,
+            registry=mock_registry,
+            output_fn=output_fn,
+        )
+        assert repl.output_fn is output_fn

@@ -24,6 +24,12 @@ export interface ElectronAPI {
     title?: string
     defaultPath?: string
   }): Promise<string | null>
+  saveFile(options?: {
+    title?: string
+    defaultPath?: string
+    filters?: { name: string; extensions: string[] }[]
+  }): Promise<string | null>
+  showItemInFolder(filePath: string): Promise<void>
   getApiBaseUrl(): Promise<string | null>
   windowControl: WindowControlAPI
 }
@@ -39,6 +45,16 @@ contextBridge.exposeInMainWorld('electron', {
     options?: Parameters<ElectronAPI['selectDirectory']>[0]
   ): Promise<string | null> => {
     return ipcRenderer.invoke('dialog:selectDirectory', options)
+  },
+
+  saveFile: async (
+    options?: Parameters<ElectronAPI['saveFile']>[0]
+  ): Promise<string | null> => {
+    return ipcRenderer.invoke('dialog:saveFile', options)
+  },
+
+  showItemInFolder: async (filePath: string): Promise<void> => {
+    return ipcRenderer.invoke('shell:showItemInFolder', filePath)
   },
 
   getApiBaseUrl: async (): Promise<string | null> => {

@@ -51,7 +51,7 @@
 │  ┌──────────────┐  ┌─────────────────┐  │
 │  │ BrowserWindow│  │ child_process   │  │
 │  │  (React UI)  │  │  spawn(python)  │  │
-│  │              │  │  → FastAPI :8000│  │
+│  │              │  │  → FastAPI :18000│  │
 │  └──────┬───────┘  └─────────────────┘  │
 │         │ IPC (文件对话框)               │
 │         ▼                                │
@@ -79,7 +79,7 @@
 
 ### DC-E02: IPC 接口最小化原则
 
-**决策**: Electron 预加载脚本只暴露 3 个 API：`selectFile`、`selectDirectory`、`getApiBaseUrl`。禁止暴露完整的 `fs`、`path`、`child_process` 等 Node.js 模块。
+**决策**: Electron 预加载脚本只暴露 4 个 API：`selectFile`、`selectDirectory`、`saveFile`、`getApiBaseUrl`。禁止暴露完整的 `fs`、`path`、`child_process` 等 Node.js 模块。
 
 **接口**:
 
@@ -95,6 +95,11 @@ interface ElectronAPI {
     title?: string;
     defaultPath?: string;
   }): Promise<string | null>;
+  saveFile(options?: {
+    title?: string;
+    defaultPath?: string;
+    filters?: { name: string; extensions: string[] }[];
+  }): Promise<string | null>;
   getApiBaseUrl(): Promise<string | null>;
 }
 ```
@@ -106,7 +111,7 @@ interface ElectronAPI {
 
 ### DC-E03: Python 后端进程由 Electron 主进程托管
 
-**决策**: Electron 主进程在 `app.whenReady()` 后启动 Python FastAPI 子进程，在 `app.quit()` 前终止子进程。后端端口从 `config.json` 动态读取（默认 18000），而非硬编码。
+**决策**: Electron 主进程在 `app.whenReady()` 后启动 Python FastAPI 子进程，在 `app.quit()` 前终止子进程。后端端口硬编码为 18000，由 Electron 主进程与 Python 子进程约定，无需用户配置。
 
 **启动流程**:
 
@@ -117,7 +122,7 @@ app.whenReady().then(async () => {
   const pythonProc = await startPythonBackend();
   
   // 2. 等待后端就绪（轮询 /health 或固定延时）
-  await waitForBackend('http://localhost:8000');
+  await waitForBackend('http://localhost:18000');
   
   // 3. 创建窗口
   createMainWindow();
@@ -204,20 +209,6 @@ GIS-Agent-Setup.exe
 - GDAL + 地理库依赖复杂，打包容易出错
 - 目标用户为 GIS 开发者，具备 conda 安装能力
 - 源码分发便于用户自定义模板和配置
-
-### DC-E06: 工作空间路径控件自适应宽度
-
-**决策**: `TopBar` 中的工作空间路径显示区域由固定 `max-w-[200px]` 改为自适应宽度，优先显示完整路径。采用 `min-w-0 flex-1` + `truncate` 组合，让路径在可用空间内尽可能展示，超出时尾部截断并保留 `title` tooltip。
-
-**改造点**:
-
-| 文件 | 原实现 | 新实现 |
-|------|--------|--------|
-| `TopBar.tsx` | `max-w-[200px] truncate` 固定宽度 | `min-w-0 flex-1 truncate` 弹性自适应 |
-
-**理由**:
-- 路径信息是用户定位工作上下文的关键，固定宽度在宽屏下浪费空间且难以辨识
-- Flex 布局下配合 `min-w-0` 可正确触发 `truncate`，同时允许伸展
 
 ### DC-E07: 无边框窗口 + 自定义标题栏
 
@@ -313,6 +304,12 @@ interface SelectDirectoryOptions {
   defaultPath?: string;
 }
 
+interface SaveFileOptions {
+  title?: string;
+  defaultPath?: string;
+  filters?: { name: string; extensions: string[] }[];
+}
+
 interface WindowControlAPI {
   minimize(): Promise<void>;
   maximize(): Promise<void>;
@@ -327,6 +324,10 @@ contextBridge.exposeInMainWorld('electron', {
 
   selectDirectory: async (options?: SelectDirectoryOptions): Promise<string | null> => {
     return ipcRenderer.invoke('dialog:selectDirectory', options);
+  },
+
+  saveFile: async (options?: SaveFileOptions): Promise<string | null> => {
+    return ipcRenderer.invoke('dialog:saveFile', options);
   },
 
   getApiBaseUrl: async (): Promise<string | null> => {
@@ -370,6 +371,11 @@ ipcMain.handle('dialog:selectDirectory', async (_, options) => {
     properties: ['openDirectory'],
   });
   return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('dialog:saveFile', async (_, options) => {
+  const result = await dialog.showSaveDialog(mainWindow, options);
+  return result.canceled ? null : result.filePath;
 });
 
 ipcMain.handle('app:getApiBaseUrl', () => {
@@ -556,6 +562,7 @@ function createPythonManager(): PythonProcessManager {
 |------|--------|
 | `window.electron.selectFile()` | `ParamForm.tsx` |
 | `window.electron.selectDirectory()` | `ChatArea.tsx`, `ParamForm.tsx` |
+| `window.electron.saveFile()` | `ExecTab.tsx`（导出脚本） |
 | `window.electron.getApiBaseUrl()` | `api/client.ts`, `MainPage.tsx` |
 
 ### 5.3 新增依赖
@@ -598,6 +605,7 @@ function createPythonManager(): PythonProcessManager {
 |---------|--------|
 | 端到端启动 | Electron 启动 → Python 启动 → 窗口加载 → 前端显示 |
 | 文件对话框 | 点击浏览 → 对话框打开 → 选择路径 → 前端显示绝对路径 |
+| 保存文件对话框 | 点击导出 → 对话框打开 → 选择保存路径 → 后端写入文件 |
 | 后端崩溃恢复 | 强制 kill Python → 前端检测到断开 → 提示用户 |
 
 ### 7.3 Mock 策略
@@ -619,6 +627,7 @@ function createPythonManager(): PythonProcessManager {
 | P5 | DC-E05 | — | 不引入后端生产依赖，Electron 仅构建依赖 |
 | UX-2 | DC-E06 | `TopBar.tsx` | 工作空间路径自适应宽度显示 |
 | UX-3 | DC-E07 | `electron/main.ts`, `TopBar.tsx` | 无边框窗口 + 自定义标题栏 + 窗口控制按钮 |
+| — | DC-E02 | `electron/preload.ts` `saveFile` | 导出脚本保存对话框（plan-exec-env DC-0105） |
 
 ---
 
@@ -626,6 +635,7 @@ function createPythonManager(): PythonProcessManager {
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.3.0 | 2026-06-02 | 新增 `saveFile` IPC 接口（`dialog:saveFile`），支持导出脚本时的保存对话框；DC-E02 接口数从 3 扩展到 4 |
 | v1.2.0 | 2026-05-31 | 新增 DC-E06（工作空间路径自适应）、DC-E07（无边框窗口 + 自定义标题栏 + 窗口控制按钮） |
 | v1.1.0 | 2026-05-31 | 废弃浏览器 UI 回退；移除 `isElectron` 字段；新增 `getApiBaseUrl` IPC；后端端口改为从 config.json 动态读取；路由改为 HashRouter |
 | v1.0.0 | 2026-05-31 | 初版，定义 Electron 壳 + 独立 Python 后端方案 |

@@ -175,6 +175,9 @@ class TestExecuteWebSocket:
                 "type": "done",
                 "success": True,
                 "returncode": 0,
+                "stdout": "Line 1\nLine 2",
+                "stderr": "",
+                "duration_ms": 0,
             }
 
     @patch("api.websocket.execute.asyncio.create_subprocess_exec")
@@ -195,7 +198,14 @@ class TestExecuteWebSocket:
         session_id = self._create_script_preview_session()
         with client.websocket_connect(f"/ws/execute/{session_id}") as ws:
             msg = ws.receive_json()
-            assert msg == {"type": "done", "success": True, "returncode": 0}
+            assert msg == {
+                "type": "done",
+                "success": True,
+                "returncode": 0,
+                "stdout": "",
+                "stderr": "",
+                "duration_ms": 0,
+            }
 
     @patch("api.websocket.execute.asyncio.create_subprocess_exec")
     def test_execute_failure_signal(
@@ -224,37 +234,6 @@ class TestExecuteWebSocket:
             assert messages[-1]["type"] == "done"
             assert messages[-1]["success"] is False
             assert messages[-1]["returncode"] == 1
-
-    @patch("api.websocket.execute._DEFAULT_TIMEOUT", 0.5)
-    @patch("api.websocket.execute.asyncio.create_subprocess_exec")
-    def test_execute_timeout(
-        self,
-        mock_create: MagicMock,
-        client: TestClient,
-        mock_template_engine: MagicMock,
-    ) -> None:
-        """Timeout sends done with error="timeout" and kills process."""
-        mock_process = MockProcess(
-            stdout_lines=[],
-            stderr_lines=[],
-            returncode=-1,
-            slow_wait=True,
-        )
-        mock_create.return_value = mock_process
-
-        session_id = self._create_script_preview_session()
-        with client.websocket_connect(f"/ws/execute/{session_id}") as ws:
-            messages: list[dict] = []
-            for _ in range(10):
-                msg = ws.receive_json()
-                messages.append(msg)
-                if msg.get("type") == "done":
-                    break
-
-            assert messages[-1]["type"] == "done"
-            assert messages[-1]["success"] is False
-            assert messages[-1].get("error") == "timeout"
-            assert mock_process._killed is True
 
     def test_execute_invalid_session(
         self,

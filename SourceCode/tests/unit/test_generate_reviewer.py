@@ -137,5 +137,8 @@ class TestLLMTemplateReviewer:
 
         result = reviewer.review(valid_template)
 
-        assert result.passed is False
-        assert "parse failed" in result.issues[0].message.lower()
+        # Trust-degrade: unparseable review JSON defaults to passed=True
+        # because TemplateDefinition already passed generator validation
+        # and runtime has ScriptSecurityChecker (DC-0086).
+        assert result.passed is True
+        assert len(result.issues) == 0

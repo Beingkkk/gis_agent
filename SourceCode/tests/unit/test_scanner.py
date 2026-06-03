@@ -275,4 +275,4 @@ def test_scan_real_templates() -> None:
     # Verify optional param parsing
     of_param = next(p for p in info.params if p.name == "of")
     assert of_param.required is False
-    assert of_param.type == "string"
+    assert of_param.type == "enum"

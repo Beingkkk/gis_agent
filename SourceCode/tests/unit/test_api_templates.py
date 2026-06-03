@@ -185,7 +185,7 @@ class TestGetTemplateDetail:
         resp = client.get("/api/templates/shp2geojson")
         data = resp.json()
         params = data["params"]
-        assert len(params) == 3
+        assert len(params) == 4
 
         input_param = params[0]
         assert input_param["name"] == "input"
@@ -193,6 +193,11 @@ class TestGetTemplateDetail:
         assert input_param["required"] is True
         assert input_param["description"] == "输入SHP文件路径"
         assert "default" not in input_param or input_param.get("default") is None
+
+        output_param = params[1]
+        assert output_param["name"] == "output"
+        assert output_param["type"] == "file_path"
+        assert output_param["required"] is True
 
         t_srs = params[2]
         assert t_srs["name"] == "t_srs"

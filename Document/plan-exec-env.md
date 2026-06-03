@@ -395,9 +395,13 @@ class ShellExecutor:
         self,
         script_path: Path,
         cwd: Path,
-        timeout: int = 300,
     ) -> asyncio.subprocess.Process:
-        """启动脚本执行子进程。"""
+        """启动脚本执行子进程。
+
+        不设固定超时，由子进程自然完成。GDAL 数据处理可能耗时数小时，
+        强制超时会导致用户任务被异常中断。调用方通过 WebSocket 实时展示
+        执行日志，用户可自主决定是否取消。
+        """
 ```
 
 ### 3.4 新增 API 端点
@@ -622,6 +626,7 @@ ShellExecutor.execute(script_path, cwd=workspace)
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.4.0 | 2026-06-03 | **移除脚本执行超时**：§3.3 `ShellExecutor.execute` 签名移除 `timeout` 参数；docstring 更新——不设固定超时，由子进程自然完成，GDAL 数据处理可能耗时数小时；§4.2 流程说明同步更新 |
 | v1.3.0 | 2026-06-02 | **临时目录改为项目 cache/**：DC-0105 更新，临时脚本从 `tempfile.gettempdir()`（Windows 系统 Temp）改为项目根目录 `./cache/`（自动创建），避免跨盘路径问题和权限困扰；同步更新 `cli/executor.py` |
 | v1.2.0 | 2026-06-02 | **脚本执行临时化 + 导出分离**：新增 DC-0105；`ShellExecutor.write_script()` 改为接受任意 `output_path`；新增 `write_script_to_temp()` 用于执行时临时文件；执行流程从 workspace 改为 temp 目录；新增 `/session/{id}/export-script` API；更新 §5.2 向下暴露表 |
 | v1.1.0 | 2026-06-01 | DC-0100 标记为已实现。明确模块定位：独立块，仅在子进程执行时触发交互，不影响其他功能模块 |

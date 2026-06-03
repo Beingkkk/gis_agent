@@ -18,6 +18,7 @@ interface DiscoveryTabProps {
   candidates: CandidateTemplate[]
   state: SessionState
   isLoading: boolean
+  lockedTemplateName?: string | null
   onSelectTemplate: (template: TemplateDef) => void
   onSelectCandidate: (templateId: string) => void
   onSendIntent: (text: string) => void
@@ -103,6 +104,7 @@ export default function DiscoveryTab({
   candidates,
   state,
   isLoading,
+  lockedTemplateName,
   onSelectTemplate,
   onSelectCandidate,
   onSendIntent,
@@ -169,6 +171,9 @@ export default function DiscoveryTab({
     const text = searchQuery.trim()
     if (!text || isLoading) return
     onSendIntent(text)
+    // 发送意图后清空搜索，避免过滤结果残留导致"未找到匹配模板"的误导显示
+    setSearchQuery('')
+    setActiveTag('all')
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -246,7 +251,7 @@ export default function DiscoveryTab({
               >
                 <p className="text-xs text-emerald-700 font-medium"
                 >
-                  ✓ 已确认模板，请填写参数
+                  ✓ 已匹配模板 <strong>{lockedTemplateName || '未知'}</strong>，请填写参数
                 </p>
               </div>
             )}

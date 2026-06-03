@@ -269,8 +269,8 @@ export default function MainPage() {
             const result: ExecResult = {
               success: msg.success,
               returncode: msg.returncode || 0,
-              stdout: msg.stdout || execLog.join('\n'),
-              stderr: msg.stderr || '',
+              stdout: msg.stdout ?? '',
+              stderr: msg.stderr ?? '',
               duration_ms: msg.duration_ms || 0,
               output_path: msg.output_path,
             }
@@ -340,6 +340,7 @@ export default function MainPage() {
   const handleEditParams = () => {
     if (sessionId && selectedTemplate) {
       setExecResult(null)
+      setExecLog([])
       lockTemplate(sessionId, selectedTemplate.id)
         .then((s) => setSession(s))
         .catch(() => {})
@@ -445,6 +446,7 @@ export default function MainPage() {
                     candidates={taskContext?.candidates || []}
                     state={state}
                     isLoading={isLoading}
+                    lockedTemplateName={taskContext?.template_name}
                     onSelectTemplate={handleSelectTemplate}
                     onSelectCandidate={handleSelectCandidate}
                     onSendIntent={handleDiscoverySend}

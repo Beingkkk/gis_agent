@@ -24,9 +24,6 @@ from core.models import ExecutionErrorContext, SessionState
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_TIMEOUT = 300
-
-
 def _cleanup_temp_script(script_path: Path) -> None:
     """Remove temporary script file if it exists."""
     try:
@@ -175,8 +172,9 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
     )
 
     try:
-        # Wait for process completion with timeout
-        returncode = await asyncio.wait_for(process.wait(), timeout=_DEFAULT_TIMEOUT)
+        # Wait for process completion — no timeout; GDAL data processing
+        # may legitimately take hours.  The frontend shows live output.
+        returncode = await process.wait()
         # Ensure readers finish (drain remaining output)
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
         duration_ms = int((time.time() - start_time) * 1000)
@@ -225,42 +223,6 @@ async def handle_execute_websocket(websocket: WebSocket, session_id: str) -> Non
                 "duration_ms": duration_ms,
             }
         )
-    except asyncio.TimeoutError:
-        logger.error("Script execution timed out after %s seconds", _DEFAULT_TIMEOUT)
-        try:
-            process.kill()
-            await process.wait()
-        except Exception:
-            pass
-        stdout_task.cancel()
-        stderr_task.cancel()
-        duration_ms = int((time.time() - start_time) * 1000)
-        # Timeout → ERROR_RECOVERY
-        error_ctx = ExecutionErrorContext(
-            returncode=-1,
-            stdout="\n".join(stdout_lines),
-            stderr="Execution timed out after {} seconds".format(_DEFAULT_TIMEOUT),
-            duration_ms=duration_ms,
-        )
-        new_session = (
-            session.with_state(SessionState.ERROR_RECOVERY)
-            .with_error(error_ctx)
-        )
-        session_manager.update_session(session_id, new_session)
-        try:
-            await websocket.send_json(
-                {
-                    "type": "done",
-                    "success": False,
-                    "returncode": -1,
-                    "stdout": "\n".join(stdout_lines),
-                    "stderr": "Execution timed out after {} seconds".format(_DEFAULT_TIMEOUT),
-                    "duration_ms": duration_ms,
-                    "error": "timeout",
-                }
-            )
-        except Exception:
-            pass
     except WebSocketDisconnect:
         logger.debug("Execute WebSocket disconnected: %s", session_id)
         try:

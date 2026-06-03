@@ -690,14 +690,12 @@ class ShellExecutor:
         self,
         script_path: Path,
         cwd: Path,
-        timeout: int = 300,
     ) -> asyncio.subprocess.Process:
         """Start a subprocess to execute the script.
 
         Args:
             script_path: Path to the script file.
             cwd: Working directory for the subprocess.
-            timeout: Maximum execution time in seconds.
 
         Returns:
             The asyncio subprocess process object.

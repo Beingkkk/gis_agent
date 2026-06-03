@@ -198,7 +198,7 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
-**Production dependencies** (locked): `anthropic`, `jinja2` — no others without explicit approval per constitution.md P5.
+**Production dependencies** (locked): `anthropic`, `jinja2`, `json5` (ADR-0002) — no others without explicit approval per constitution.md P5.
 
 **Environment variable overrides** (sensitive fields and common config):
 
@@ -334,7 +334,7 @@ Hard constraints from `Document/spec.md`:
 - **P2 (Show before execute)**: The UI must display the full script and require explicit user confirmation before execution
 - **P3 (Minimal permissions)**: Output paths are user-specified via file dialog (absolute paths). Timestamps are appended to prevent silent overwrites. Paths are normalized via `resolve()`.
 - **P4 (Template knowledge only)**: Usage guidance knowledge comes exclusively from J2 template metadata (`@concept`, `@note`, `@common_error`); basic concepts may be answered from LLM parametric knowledge. No external API calls for knowledge.
-- **P5 (Minimal deps)**: Production dependencies are locked to `anthropic`, `jinja2`
+- **P5 (Minimal deps)**: Production dependencies are locked to `anthropic`, `jinja2`, `json5` (ADR-0002)
 
 ## Key Files
 
@@ -349,6 +349,7 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `Document/plan-j2-generate.md` | J2 Template Generator: dual-mode (online + CLI batch), shared generation engine (DC-0094), multi-file import (DC-0095), WebSocket streaming generation (DC-0096) |
 | `Document/plan-electron.md` | Electron shell architecture, IPC design, Python process lifecycle |
 | `Document/plan-exec-env.md` | Execution environment config: ShellDetector, CondaEnvDetector, ShellExecutor; DC-0101~DC-0105 |
+| `Document/ADR-0002-introduce-json5.md` | Architecture decision: `json5` added to production deps for LLM JSON output容错 parsing |
 | `src/api/routes/session.py` | Two-stage intent matching API (DC-0098) + `POST /chat` for Q&A + `POST /diagnose` for lazy error diagnosis + `POST /export-script` for explicit script export (DC-UX-11a) |
 | `src/api/websocket/chat.py` | Q&A WebSocket handler: streams LLM output via `/ws/chat/{id}` (DC-UX-04). Reads `session.qa_history` as conversation context and persists user+assistant messages back to `qa_history` after each round (DC-UX-14) |
 | `src/api/websocket/execute.py` | Execution WebSocket handler: subprocess stdout/stderr streaming (DC-0048) |
@@ -357,7 +358,7 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `src/llm/prompts.py` | PromptBuilder with 5 scenario-specific system prompts (DC-0071): intent / template-qa / gis-expert / param / diagnosis |
 | `src/llm/qa.py` | `answer_question()` — code-level branching: `locked_template` determines template-knowledge vs GIS-expert mode |
 | `src/llm/diagnosis.py` | `analyze_execution_error()` — One-shot LLM error diagnosis (no history, DC-0106). Prompt requires a 【修复命令参考】 markdown code block when `can_auto_fix=true`. Returns structured `ErrorDiagnosis` (cause, suggestion, fixed_params, confidence, can_auto_fix). |
-| `src/llm/template_generator.py` | **Shared generation engine** (DC-0094): `SYSTEM_PROMPT` + few-shot, `parse_generated_response()`, `sanitize_params()`, `auto_complete_params()`, `assemble_j2_body()` (assembles LLM JSON into complete .j2 file with comment header + `@echo off` + command body), `generate_template_sync()`, `generate_template_stream()`. |
+| `src/llm/template_generator.py` | **Shared generation engine** (DC-0094, ADR-0002): `SYSTEM_PROMPT` + few-shot, `parse_generated_response()` (uses `json5` as primary parser for bare keys/single quotes/trailing commas, with lightweight fallback repairs for newlines/escapes/unescaped quotes), `sanitize_params()`, `auto_complete_params()`, `assemble_j2_body()` (assembles LLM JSON into complete .j2 file with comment header + `@echo off` + command body), `generate_template_sync()`, `generate_template_stream()`. |
 | `frontend/electron/main.ts` | Electron main process: frameless window, Python child process, IPC handlers (file dialogs + window controls) |
 | `frontend/electron/preload.ts` | `contextBridge` preload script exposing `selectFile`, `selectDirectory`, `getApiBaseUrl`, `windowControl` |
 | `frontend/src/electron-api.ts` | Renderer-side IPC wrappers including `WindowControlAPI` (minimize/maximize/close) |

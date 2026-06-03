@@ -104,16 +104,15 @@ async def handle_generator_websocket(websocket: WebSocket) -> None:
                 loop,
             )
 
-        full_text = await asyncio.to_thread(
-            generate_template_stream,
-            client=llm_client,
-            document_text=document_text,
-            config=config,
-            on_chunk=on_chunk,
-        )
-
-        # Parse result
+        # Stream generation (includes internal retry on parse failure)
         try:
+            full_text = await asyncio.to_thread(
+                generate_template_stream,
+                client=llm_client,
+                document_text=document_text,
+                config=config,
+                on_chunk=on_chunk,
+            )
             parsed = parse_generated_response(full_text)
         except ValueError as exc:
             logger.error("Failed to parse generated template: %s", exc)

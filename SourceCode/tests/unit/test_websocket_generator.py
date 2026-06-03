@@ -131,6 +131,8 @@ class TestGeneratorWebSocket:
         llm_client.chat_stream.return_value = iter([
             "this is not json at all",
         ])
+        # Retry also returns invalid JSON so both attempts fail
+        llm_client.chat.return_value = "still not invalid json"
         set_llm_client(llm_client)
 
         with client.websocket_connect("/ws/generator/generate") as ws:

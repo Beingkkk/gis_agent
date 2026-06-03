@@ -10,6 +10,8 @@ import pytest
 
 from llm.models import Message
 from llm.template_generator import (
+    _fix_json_keys,
+    _fix_json_string_issues,
     assemble_j2_body,
     auto_complete_params,
     build_generation_messages,
@@ -70,6 +72,60 @@ class TestParseGeneratedResponse:
         """Truly unparseable text raises ValueError."""
         with pytest.raises(ValueError):
             parse_generated_response("this is not json at all")
+
+    def test_fix_unescaped_newlines_in_strings(self) -> None:
+        """Raw newlines inside JSON string values are escaped to \\n."""
+        text = '{"template_id": "test", "description": "Line one\nLine two"}'
+        result = parse_generated_response(text)
+        assert result["template_id"] == "test"
+        assert result["description"] == "Line one\nLine two"
+
+    def test_fix_trailing_commas(self) -> None:
+        """Trailing commas before closing brace/bracket are removed."""
+        text = '{"template_id": "test", "name": "Test",}'
+        result = parse_generated_response(text)
+        assert result["template_id"] == "test"
+        assert result["name"] == "Test"
+
+    def test_fix_combined_issues(self) -> None:
+        """Multiple issues (bare keys, unescaped newlines, trailing commas) are handled."""
+        text = '{template_id: "test", name: "Test", notes: ["Note\none",],}'
+        result = parse_generated_response(text)
+        assert result["template_id"] == "test"
+        assert result["notes"] == ["Note\none"]
+
+    def test_ast_literal_eval_fallback(self) -> None:
+        """Python-style dict with bare keys and True/False/None parses via ast fallback."""
+        text = "{template_id: 'test', name: 'Test', required: true, nullable: null}"
+        result = parse_generated_response(text)
+        assert result["template_id"] == "test"
+        assert result["name"] == "Test"
+        assert result["required"] is True
+        assert result["nullable"] is None
+
+
+class TestFixJsonStringIssues:
+    """Tests for _fix_json_string_issues."""
+
+    def test_escapes_newlines_inside_strings(self) -> None:
+        text = '{"desc": "line one\nline two"}'
+        result = _fix_json_string_issues(text)
+        assert result == '{"desc": "line one\\nline two"}'
+
+    def test_escapes_carriage_returns_inside_strings(self) -> None:
+        text = '{"desc": "line one\rline two"}'
+        result = _fix_json_string_issues(text)
+        assert result == '{"desc": "line one\\rline two"}'
+
+    def test_leaves_escaped_newlines_intact(self) -> None:
+        text = '{"desc": "line one\\nline two"}'
+        result = _fix_json_string_issues(text)
+        assert result == '{"desc": "line one\\nline two"}'
+
+    def test_leaves_json_outside_strings_untouched(self) -> None:
+        text = '{"a": 1, "b": 2}'
+        result = _fix_json_string_issues(text)
+        assert result == '{"a": 1, "b": 2}'
 
 
 class TestSanitizeParams:
@@ -242,7 +298,7 @@ class TestGenerateTemplateStream:
         assert result_text == '{"template_id": "test_stream", "name": "Stream"}'
 
     def test_streaming_empty_response(self) -> None:
-        """Empty stream returns empty string."""
+        """Empty stream returns empty string without retry."""
         client = MagicMock()
         client.chat_stream.return_value = iter([])
 
@@ -257,6 +313,51 @@ class TestGenerateTemplateStream:
 
         assert chunks == []
         assert result_text == ""
+        # Empty response should NOT trigger a retry
+        client.chat.assert_not_called()
+
+    def test_streaming_retry_on_parse_failure(self) -> None:
+        """First stream unparseable, retry returns valid text."""
+        client = MagicMock()
+        client.chat_stream.return_value = iter([
+            'not valid json',
+        ])
+        client.chat.return_value = (
+            '{"template_id": "retry_ok", "name": "Retry", '
+            '"description": "Works", "body": "echo ok", '
+            '"params": [], "concepts": [], "notes": []}'
+        )
+
+        chunks: list[str] = []
+
+        result_text = generate_template_stream(
+            client=client,
+            document_text="Simple tool",
+            config={},
+            on_chunk=lambda c: chunks.append(c),
+        )
+
+        assert chunks == ['not valid json']
+        # Should return the retry text, not the original stream
+        assert '"template_id": "retry_ok"' in result_text
+        # Retry should use non-streaming chat
+        client.chat.assert_called_once()
+        call_args = client.chat.call_args
+        assert call_args.kwargs["temperature"] == 0.2
+
+    def test_streaming_retry_exhausted_raises(self) -> None:
+        """Both stream and retry fail to parse → raises ValueError."""
+        client = MagicMock()
+        client.chat_stream.return_value = iter(['not valid json'])
+        client.chat.return_value = 'still not valid json'
+
+        with pytest.raises(ValueError, match="JSON parse failed"):
+            generate_template_stream(
+                client=client,
+                document_text="Simple tool",
+                config={},
+                on_chunk=lambda c: None,
+            )
 
 
 class TestAssembleJ2Body:

@@ -239,11 +239,15 @@ SourceCode/model/**
 SourceCode/config/config.json
 
 # Script execution cache (runtime temp files, auto-created)
+cache/
 SourceCode/cache/
 
 # Template generator runtime files (regenerated on each run)
 SourceCode/data/templates/.generate_state.json
 SourceCode/data/templates/.review_queue.jsonl
+
+# Default execution environment config (user preference)
+SourceCode/data/exec_env_default.json
 
 # Old template backup (temporary, to be removed)
 SourceCode/data/templates-old/

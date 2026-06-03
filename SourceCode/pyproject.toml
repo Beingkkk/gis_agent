@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "anthropic",
     "jinja2",
+    "json5",
 ]
 
 [project.scripts]

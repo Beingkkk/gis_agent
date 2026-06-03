@@ -6,7 +6,9 @@ Design:
     DC-0094
 """
 
+import ast
 import json
+import json5
 import logging
 import re
 from typing import Any, Callable
@@ -117,6 +119,10 @@ def _strip_markdown_json(text: str) -> str:
     return text.strip()
 
 
+# Valid JSON escape sequences per RFC 8259.
+_VALID_JSON_ESCAPES: set[str] = {'"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u'}
+
+
 def _fix_json_keys(text: str) -> str:
     """Fix unquoted JSON object keys in LLM output.
 
@@ -130,11 +136,176 @@ def _fix_json_keys(text: str) -> str:
     return fixed
 
 
+def _fix_json_invalid_escapes(text: str) -> str:
+    r"""Fix invalid escape sequences inside JSON string values.
+
+    LLMs frequently output Windows paths (``C:\Users\...``) or other
+    text containing backslashes that are not valid JSON escapes.
+    In JSON only ``\\``, ``\\\"``, ``\/``, ``\\b``, ``\\f``, ``\\n``,
+    ``\\r``, ``\\t`` and ``\\uXXXX`` are valid inside strings.
+
+    Args:
+        text: JSON-like text that may contain invalid escapes.
+
+    Returns:
+        Text with invalid escapes converted to doubled backslashes.
+    """
+    result: list[str] = []
+    in_string = False
+    escaped = False
+
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if not in_string:
+            if char == '"':
+                in_string = True
+            result.append(char)
+            i += 1
+        else:
+            if escaped:
+                if char == 'u':
+                    # \uXXXX — verify 4 hex digits follow
+                    hex_part = text[i + 1 : i + 5]
+                    if (
+                        len(hex_part) == 4
+                        and all(c in "0123456789abcdefABCDEF" for c in hex_part)
+                    ):
+                        result.append(char)
+                    else:
+                        # Invalid \u — double the preceding backslash
+                        result.append("\\")
+                        result.append(char)
+                elif char not in _VALID_JSON_ESCAPES:
+                    # Invalid escape (e.g. \U, \x, \d) — double the backslash
+                    result.append("\\")
+                    result.append(char)
+                else:
+                    result.append(char)
+                escaped = False
+                i += 1
+            elif char == '\\':
+                result.append(char)
+                escaped = True
+                i += 1
+            elif char == '"':
+                in_string = False
+                result.append(char)
+                i += 1
+            else:
+                result.append(char)
+                i += 1
+
+    return "".join(result)
+
+
+def _fix_unescaped_quotes_by_error(text: str, exc: json.JSONDecodeError) -> str | None:
+    """Try to fix unescaped quotes using the JSON parse error position.
+
+    When ``json.loads`` fails with *Expecting ',' delimiter* or similar,
+    it often means a string was prematurely closed by an unescaped quote
+    inside the string value.  We look backwards from the error position
+    for the nearest unescaped ``\"`` and try adding a backslash before it.
+
+    Args:
+        text: The text that failed to parse.
+        exc: The ``json.JSONDecodeError`` raised by ``json.loads``.
+
+    Returns:
+        Fixed text if a repair was found, otherwise ``None``.
+    """
+    error_pos = exc.pos if hasattr(exc, "pos") else None
+    if error_pos is None or error_pos <= 0:
+        return None
+
+    # Walk backwards from the error position looking for an unescaped quote.
+    # If fixing one quote still fails, recurse to fix additional quotes.
+    for i in range(error_pos - 1, -1, -1):
+        if text[i] == '"' and (i == 0 or text[i - 1] != "\\"):
+            candidate = text[:i] + "\\" + text[i:]
+            try:
+                json.loads(candidate)
+                return candidate
+            except json.JSONDecodeError as exc2:
+                # There may be multiple unescaped quotes — try fixing the next one
+                sub_fixed = _fix_unescaped_quotes_by_error(candidate, exc2)
+                if sub_fixed is not None:
+                    return sub_fixed
+                continue
+
+    return None
+
+
+def _fix_json_string_issues(text: str) -> str:
+    """Fix unescaped control characters inside JSON string values.
+
+    LLMs frequently output raw newlines or unescaped quotes inside
+    string values (e.g. in ``command_template`` or ``description``).
+    This walks the text character-by-character to accurately track
+    whether we are inside a string and escapes offending characters.
+
+    Args:
+        text: JSON-like text that may contain unescaped characters.
+
+    Returns:
+        Text with unescaped newlines and carriage returns inside strings
+        converted to ``\\n`` / ``\\r``.
+    """
+    result: list[str] = []
+    in_string = False
+    escaped = False
+
+    for char in text:
+        if not in_string:
+            if char == '"':
+                in_string = True
+            result.append(char)
+        else:
+            if escaped:
+                result.append(char)
+                escaped = False
+            elif char == '\\':
+                result.append(char)
+                escaped = True
+            elif char == '"':
+                in_string = False
+                result.append(char)
+            elif char == '\n':
+                result.append('\\n')
+            elif char == '\r':
+                result.append('\\r')
+            else:
+                result.append(char)
+
+    return "".join(result)
+
+
+def _clean_json(text: str) -> str:
+    """Apply all safe JSON fix heuristics in a consistent order.
+
+    The order matters: fix string internals (newlines, escapes) before
+    structural fixes (keys, trailing commas) so structural patterns are
+    matched against clean string boundaries.
+    """
+    text = _fix_json_string_issues(text)     # unescaped newlines / \r
+    text = _fix_json_invalid_escapes(text)   # C:\Users style backslashes
+    text = _fix_json_keys(text)              # bare keys (for json path)
+    return text
+
+
 def parse_generated_response(text: str) -> dict[str, Any]:
     """Parse LLM response text into a dict using multiple fallback strategies.
 
-    Tries: direct parse → strip markdown fences → fix bare keys →
-    extract {...} block → fix bare keys on extracted.
+    Tries a progressively more forgiving sequence:
+
+    1. **json5** — handles bare keys, single-quoted strings, trailing commas.
+    2. Light-weight cleanup (markdown strip + newline/escape fix) + **json5**.
+    3. Extract ``{...}`` block + **json5**.
+    4. Full cleanup (add bare-key fix) + **json.loads** + back-tracking
+       quote repair for unescaped double quotes inside strings.
+    5. ``ast.literal_eval`` as the final fallback.
+
+    Design: DC-0094, ADR-0002
 
     Args:
         text: Raw LLM response text.
@@ -147,33 +318,69 @@ def parse_generated_response(text: str) -> dict[str, Any]:
     """
     cleaned = _strip_markdown_json(text)
 
-    strategies: list[str] = [cleaned]
+    # --- Strategy 1: json5 (bare keys, single quotes, trailing commas) ---
+    try:
+        return json5.loads(cleaned)  # type: ignore[no-any-return]
+    except ValueError:
+        pass
 
-    # Fix bare keys
-    fixed = _fix_json_keys(cleaned)
+    # --- Strategy 2: fix newlines/escapes + json5 ---
+    fixed = _fix_json_string_issues(_fix_json_invalid_escapes(cleaned))
     if fixed != cleaned:
-        strategies.append(fixed)
+        try:
+            return json5.loads(fixed)  # type: ignore[no-any-return]
+        except ValueError:
+            pass
 
-    # Extract first {...} block
+    # --- Strategy 3: extract {...} block + json5 ---
     first_brace = cleaned.find("{")
     last_brace = cleaned.rfind("}")
     if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
         extracted = cleaned[first_brace : last_brace + 1]
-        strategies.append(extracted)
-        fixed_extracted = _fix_json_keys(extracted)
-        if fixed_extracted != extracted:
-            strategies.append(fixed_extracted)
-
-    last_error: Exception | None = None
-    for attempt, candidate in enumerate(strategies):
         try:
-            return json.loads(candidate)  # type: ignore[no-any-return]
-        except json.JSONDecodeError as exc:
-            last_error = exc
-            logger.debug("JSON parse strategy %d failed: %s", attempt + 1, exc)
-            continue
+            return json5.loads(extracted)  # type: ignore[no-any-return]
+        except ValueError:
+            pass
+        extracted_fixed = _fix_json_string_issues(_fix_json_invalid_escapes(extracted))
+        if extracted_fixed != extracted:
+            try:
+                return json5.loads(extracted_fixed)  # type: ignore[no-any-return]
+            except ValueError:
+                pass
 
-    raise ValueError(f"JSON parse failed after {len(strategies)} strategies: {last_error}")
+    # --- Strategy 4: json with full repairs (for unescaped quotes) ---
+    # json5 doesn't expose precise error positions, so we fall back to
+    # json.loads for the back-tracking quote repair which needs char positions.
+    json_ready = _fix_json_keys(_fix_json_string_issues(_fix_json_invalid_escapes(cleaned)))
+    last_error: Exception | None = None
+    try:
+        return json.loads(json_ready)  # type: ignore[no-any-return]
+    except json.JSONDecodeError as exc:
+        last_error = exc
+        fixed_quotes = _fix_unescaped_quotes_by_error(json_ready, exc)
+        if fixed_quotes is not None:
+            try:
+                return json.loads(fixed_quotes)  # type: ignore[no-any-return]
+            except json.JSONDecodeError as exc2:
+                last_error = exc2
+
+    # --- Strategy 5: ast.literal_eval (Python dict literal) ---
+    try:
+        ast_result = ast.literal_eval(_fix_json_keys(cleaned))
+        if isinstance(ast_result, dict):
+            logger.info("Parsed LLM output using ast.literal_eval fallback")
+            return ast_result  # type: ignore[no-any-return]
+    except (ValueError, SyntaxError) as exc:
+        logger.debug("AST parse fallback failed: %s", exc)
+
+    # Log raw text on failure to aid debugging
+    preview = text[:800] if len(text) > 800 else text
+    logger.warning(
+        "JSON parse failed after all strategies. Raw text preview:\n%s",
+        preview,
+    )
+
+    raise ValueError(f"JSON parse failed: {last_error}")
 
 
 # ---------------------------------------------------------------------------
@@ -453,6 +660,11 @@ def generate_template_stream(
     Uses LLMClient.chat_stream() to yield text chunks in real-time.
     The caller's on_chunk callback receives each chunk as it is generated.
 
+    If the streamed output cannot be parsed as valid JSON, a silent retry
+    is performed using a non-streaming call with a "pure JSON" hint.
+    The retry output is NOT streamed to the caller — only the final text
+    is returned — so the caller should re-parse the returned text.
+
     Args:
         client: LLMClient instance.
         document_text: Cleaned GDAL documentation text.
@@ -460,11 +672,18 @@ def generate_template_stream(
         on_chunk: Callback invoked for each text chunk.
 
     Returns:
-        Full concatenated response text (for parsing after stream completes).
+        Full concatenated response text.  If the first stream failed to
+        parse, this is the text from the retry attempt.
+
+    Raises:
+        ValueError: If JSON parsing fails after the retry attempt.
+        Exception: If LLM call fails (propagated from client.chat_stream
+            or client.chat).
     """
     messages = build_generation_messages(document_text)
 
-    logger.info("Streaming template generation (temp=0.1)")
+    # Attempt 1: stream
+    logger.info("Streaming template generation (attempt 1, temp=0.1)")
     chunks: list[str] = []
     for chunk in client.chat_stream(
         system_prompt=SYSTEM_PROMPT,
@@ -474,4 +693,40 @@ def generate_template_stream(
         chunks.append(chunk)
         on_chunk(chunk)
 
-    return "".join(chunks)
+    full_text = "".join(chunks)
+
+    # Empty response — nothing to parse, return as-is
+    if not full_text.strip():
+        return full_text
+
+    # Verify the streamed output is parseable
+    try:
+        parse_generated_response(full_text)
+        return full_text
+    except ValueError as exc:
+        logger.info("Stream parse failed (attempt 1): %s", exc)
+
+    # Attempt 2: retry silently (non-streaming) with adjusted prompt
+    logger.info("Retrying generation (attempt 2, temp=0.2)")
+    retry_messages = messages + [
+        Message(role="assistant", content=full_text),
+        Message(
+            role="user",
+            content="Your previous response could not be parsed as valid JSON. "
+            "Please output ONLY valid JSON, no markdown code blocks, no extra text.",
+        ),
+    ]
+    retry_text = client.chat(
+        system_prompt=SYSTEM_PROMPT,
+        messages=retry_messages,
+        temperature=0.2,
+    )
+
+    # Verify retry output is parseable before returning
+    try:
+        parse_generated_response(retry_text)
+    except ValueError as exc2:
+        logger.error("Generation parse failed after retry: %s", exc2)
+        raise ValueError(f"JSON parse failed after retry: {exc2}") from exc2
+
+    return retry_text

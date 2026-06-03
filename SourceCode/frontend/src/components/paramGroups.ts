@@ -27,6 +27,22 @@ export const GROUP_RULES: { name: string; keywords: string[] }[] = [
     ],
   },
   {
+    name: '栅格选项',
+    keywords: [
+      'band', 'bands', 'srcband', 'dstband', 'burn', 'add_alpha', 'rgba',
+      'combine_bands', 'color_map', 'palette_file', 'color_interpretation',
+      'color_selection', 'band_count', 'zones_band', 'weights_band',
+    ],
+  },
+  {
+    name: '图层设置',
+    keywords: [
+      'layer', 'nln', 'active_layer', 'layer_name', 'lyr_name',
+      'method_layer', 'like_layer', 'zones_layer', 'layer_only',
+      'no_create_empty_layers',
+    ],
+  },
+  {
     name: '高级选项',
     keywords: [
       'overwrite', 'quiet', 'multi', 'dstalpha', 'update', 'append',
@@ -38,9 +54,22 @@ export const GROUP_RULES: { name: string; keywords: string[] }[] = [
 
 export const FALLBACK_GROUP = '其他选项'
 
+/** GDAL 标准缩写：精确匹配，避免与 command/config 等误匹配 */
+const GDAL_SHORTHANDS: Record<string, string> = {
+  co: '高级选项',
+  lco: '高级选项',
+  dsco: '高级选项',
+}
+
 /** 按参数名推断所属分组 */
 export function inferParamGroup(paramName: string): string {
   const lower = paramName.toLowerCase()
+
+  // 优先处理 GDAL 标准缩写（精确匹配，避免 includes 误匹配）
+  if (lower in GDAL_SHORTHANDS) {
+    return GDAL_SHORTHANDS[lower]
+  }
+
   for (const rule of GROUP_RULES) {
     if (rule.keywords.some((k) => lower === k || lower.includes(k))) {
       return rule.name

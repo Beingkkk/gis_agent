@@ -2,10 +2,10 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.13.0 |
+| 版本 | v1.15.0 |
 | 状态 | 设计基线 |
 | 作者 | - |
-| 日期 | 2026-06-02 |
+| 日期 | 2026-06-03 |
 
 ---
 
@@ -215,12 +215,16 @@ interface DataLink {
 
 | 分组名 | 匹配规则（参数名关键词） |
 |--------|------------------------|
-| 输入输出 | `input`, `output`, `of`, `format`, `input_layer`, `output_layer`, `output_dir` |
-| 坐标系设置 | `s_srs`, `t_srs`, `srs`, `crs`, `rpc`, `geoloc` |
-| 变换选项 | `resampling`, `xres`, `yres`, `order`, `et`, `te`, `ts`, `tr`, `tap` |
-| 裁剪与范围 | `cutline`, `crop_to_cutline`, `projwin`, `srcwin`, `extent` |
-| 高级选项 | `overwrite`, `quiet`, `multi`, `dstalpha`, `update`, `append`, `upsert`, `skip_errors`, `processes`, `nodata` |
+| 输入输出 | `input`, `output`, `of`, `format`, `input_layer`, `output_layer`, `output_dir`, `source`, `dest`, `in`, `out` |
+| 坐标系设置 | `s_srs`, `t_srs`, `srs`, `crs`, `rpc`, `geoloc`, `a_srs` |
+| 变换选项 | `resampling`, `xres`, `yres`, `order`, `et`, `te`, `ts`, `tr`, `tap`, `wo`, `ot`, `scale`, `outsize` |
+| 裁剪与范围 | `cutline`, `crop_to_cutline`, `projwin`, `srcwin`, `extent`, `clip`, `bbox` |
+| 栅格选项 | `band`, `bands`, `srcband`, `dstband`, `burn`, `add_alpha`, `rgba`, `combine_bands`, `color_map`, `palette_file`, `color_interpretation`, `color_selection`, `band_count`, `zones_band`, `weights_band` |
+| 图层设置 | `layer`, `nln`, `active_layer`, `layer_name`, `lyr_name`, `method_layer`, `like_layer`, `zones_layer`, `layer_only`, `no_create_empty_layers` |
+| 高级选项 | `overwrite`, `quiet`, `multi`, `dstalpha`, `update`, `append`, `upsert`, `skip_errors`, `processes`, `nodata`, `mask`, `creation_option`, `layer_creation_option`，以及精确匹配的 GDAL 缩写 `co`, `lco`, `dsco` |
 | 其他选项 | 未匹配到的参数统一归入此组 |
+
+**匹配优先级**：先精确匹配 GDAL 缩写（避免 `co` 与 `command`/`config` 等发生 `includes` 误匹配），再按顺序匹配规则表。
 
 **理由**:
 - 垂直单列布局在参数超过 8 个时产生大量滚动，体验差
@@ -837,7 +841,7 @@ UX 方案**不删除**现有 CLI 代码。`cli/` 目录保持完整，与 `api/`
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
-| v1.14.0 | 2026-06-03 | **移除脚本执行超时**：DC-UX-05 理由更新——脚本执行不设固定超时，GDAL 数据处理（如大栅格重投影、批量矢量转换）可能耗时数小时，强制超时会导致用户任务被异常中断；前端通过 WebSocket 实时输出日志，用户可自主决定是否取消 |
+| v1.15.0 | 2026-06-03 | **参数分组扩展**：DC-UX-08 分组规则更新——新增"栅格选项"（`band`/`burn`/`color_map` 等）、"图层设置"（`layer`/`nln`/`active_layer` 等）两个分组；高级选项补充 `creation_option` 并增加 GDAL 标准缩写 `co`/`lco`/`dsco` 的精确匹配机制（避免与 `command`/`config` 等发生 `includes` 误匹配）；输入输出补充 `source`/`dest`/`in`/`out` 关键词 |
 | v1.13.0 | 2026-06-02 | **诊断体验优化**：DC-UX-12 更新诊断 Prompt 设计要点——增加【修复命令参考】输出要求、收紧 `can_auto_fix` 判定规则（明确排除模板渲染逻辑错误类问题）、诊断结果面板改用 `ReactMarkdown` 渲染 suggestion 中的 markdown 代码块；§3.2 `ExecuteWebSocket` done 消息补全 `stdout`/`stderr`/`duration_ms` 字段 |
 | v1.12.0 | 2026-06-02 | **Q&A 历史隔离**：新增 DC-UX-14（WebSocket Q&A 写回 `qa_history`）、DC-UX-15（QATab 消息完全隔离，前端独立维护 `qaMessages`）；§3.1 更新 `process_intent`（classify_intent 不传 history，DC-0106）和 `chat_question`（使用 `qa_history`，DC-0107）；§3.2 更新 `ChatWebSocket` 说明；§3.3 `SessionSnapshot` 标注 `qa_history` 不向前端透传 |
 | v1.11.0 | 2026-06-02 | **诊断流程简化**：DC-UX-12 从"一键诊断+跳转 Q&A TAB"改为"自动诊断+结果直接展示在脚本执行 TAB"；移除一键诊断按钮；失败态操作简化为"修改参数"/"放弃任务"；执行中态新增"执行命令"展示 |

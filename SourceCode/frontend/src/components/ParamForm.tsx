@@ -305,6 +305,8 @@ function ParamSection({
     '坐标系设置': 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
     '变换选项': 'M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15',
     '裁剪与范围': 'M4 4h16v16H4zM4 12h16M12 4v16',
+    '栅格选项': 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
+    '图层设置': 'M12 2L2 7l10 5 10-5-10-5zM2 12l10 5 10-5M2 17l10 5 10-5',
     '高级选项': 'M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4',
   }
 
@@ -313,6 +315,8 @@ function ParamSection({
     '坐标系设置': 'bg-pink-50 text-pink-600',
     '变换选项': 'bg-violet-50 text-violet-600',
     '裁剪与范围': 'bg-amber-50 text-amber-600',
+    '栅格选项': 'bg-emerald-50 text-emerald-600',
+    '图层设置': 'bg-sky-50 text-sky-600',
     '高级选项': 'bg-slate-100 text-slate-500',
   }
 

@@ -382,7 +382,7 @@ export default function GeneratorPage() {
 
       {/* Step indicator */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center gap-2 max-w-3xl mx-auto">
+        <div className="flex items-center gap-2 max-w-5xl mx-auto">
           {steps.map((s, i) => (
             <div key={s.num} className="flex items-center">
               <button
@@ -416,7 +416,7 @@ export default function GeneratorPage() {
 
       {/* Content */}
       <main className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-5xl mx-auto">
           {/* Global error banner */}
           {errorMsg && (
             <div className="mb-4 rounded-lg bg-red-50 border border-red-200 p-4">

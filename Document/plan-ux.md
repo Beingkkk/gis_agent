@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.15.0 |
+| 版本 | v1.16.0 |
 | 状态 | 设计基线 |
 | 作者 | - |
 | 日期 | 2026-06-03 |
@@ -400,6 +400,79 @@ interface DataLink {
 - `SessionSnapshot` 不再包含 `qa_history`，减少每次 API 调用的 payload
 
 **与 DC-0107 的关系**：后端 `Session.qa_history` ↔ 前端 `useSession.qaMessages` 是读写分离的镜像：后端写（WebSocket handler）、前端读（本地状态）。两者不直接同步，但都按 (user, assistant) 顺序累积。
+
+### DC-UX-16: 前端 UI 字体与视觉层次优化
+
+**问题**：当前前端大量使用 `text-[10px]`~`text-[13px]` 固定小字号，元素高度和间距偏紧凑，整体视觉显得拥挤、不够专业。具体表现：
+
+- 标签/徽章 `text-[10px]`（10px）→ 阅读困难，尤其在高 DPI 屏幕
+- 描述/辅助文字 `text-[11px]`（11px）→ 偏小
+- Tab 文字 `text-[12.5px]`（12.5px）→ 偏小
+- 卡片标题 `text-[13px]`（13px）→ 缺乏层次
+- 输入框 `h-8`（32px）、按钮 `h-9`（36px）→ 点击区域偏小
+- 卡片内边距 `p-6`（24px）→ 内容拥挤
+
+**决策**：系统性地重构前端排版尺度，统一使用 Tailwind 标准尺寸类，不再使用魔法数字 `text-[Npx]`。
+
+**1. Tailwind 字体尺寸覆盖**（`tailwind.config.js`）：
+
+| Tailwind 类 | 配置值 | 用途 | 对比原魔法数字 |
+|---|---|---|---|
+| `text-2xs` | 12px / 16px 行高 | 徽章、标签、极次要信息 | 替代 `text-[10px]`（+20%） |
+| `text-xs` | 13px / 18px 行高 | 辅助文字、类型标签、提示 | 替代 `text-[11px]`（+18%） |
+| `text-sm` | 14px / 20px 行高 | 正文、参数名、Tab 文字、按钮 | 替代 `text-[12.5px]`（+12%） |
+| `text-base` | 16px / 22px 行高 | 标题、卡片主标题、重要标签 | 替代 `text-[13px]`（+23%） |
+| `text-lg` | 18px / 26px 行高 | 页面标题、步骤标题 | 新增 |
+| `text-xl` | 20px / 28px 行高 | 大标题、空状态提示 | 保持 |
+
+**2. 元素尺寸放大**：
+
+| 元素 | 当前 | 目标 | 理由 |
+|---|---|---|---|
+| 输入框高度 | `h-8`（32px） | `h-10`（40px） | 符合桌面软件标准输入框高度 |
+| 按钮高度 | `h-9`（36px） | `h-10`~`h-11`（40~44px） | 增大点击区域，视觉更稳重 |
+| 参数行高 | ~40px | ~48px | 文字放大后行高同步增加 |
+| 卡片内边距 | `p-6`（24px） | `p-8`（32px） | 内容呼吸感增强 |
+| 表单元素间距 | `gap-2`（8px） | `gap-3`（12px） | 减少拥挤感 |
+| 分组标题 padding | `py-2.5`（10px） | `py-3.5`（14px） | 分隔更明显 |
+
+**3. 视觉层次增强**：
+
+- **标题加粗**：卡片标题从 `font-semibold`（600）提升为 `font-bold`（700），与正文拉开层次
+- **分隔线加重**：分组之间边框从 `border-slate-100` 提升为 `border-slate-200`，增强结构感
+- **阴影增强**：卡片阴影从 `shadow-sm` 提升为 `shadow` 或 `shadow-md`，增加浮层感
+- **图标放大**：section 图标容器从 `w-5 h-5` 提升到 `w-6 h-6`
+
+**4. 魔法数字清理范围**：
+
+涉及文件（按影响程度排序）：
+1. `components/ParamForm.tsx` — 参数表单（最核心的用户交互区域）
+2. `components/TemplateCardList.tsx` — 模板卡片网格
+3. `components/TopBar.tsx` — 顶部导航栏
+4. `components/TabBar.tsx` — TAB 切换栏
+5. `components/QATab.tsx` — 问答区域
+6. `components/ExecStatusPanel.tsx` — 执行结果面板
+7. `components/ScriptPreview.tsx` — 脚本预览
+8. `components/ChatArea.tsx` — 聊天消息
+9. `components/DetailPanel.tsx` — 右侧面板
+10. `pages/GeneratorPage.tsx` — 模板生成向导
+11. `pages/PipelinePage.tsx` — 流水线页面
+
+**实施原则**：
+- 不再引入新的 `text-[Npx]` 魔法数字；所有字号必须使用 Tailwind 标准类
+- 统一替换使用 `replace_all` 批量处理，然后逐个文件微调布局
+- 间距和尺寸调整与字号同步进行，避免文字变大后元素溢出
+- GeneratorPage 和 PipelinePage 作为独立全屏页面，可适度放宽内容区宽度
+
+**理由**：
+- 桌面软件用户预期 14~16px 的正文字号；当前 10~13px 的魔法数字远低于行业惯例
+- 增大元素尺寸和间距后，界面从"紧凑的信息面板"转变为"专业的桌面工作台"
+- 统一使用 Tailwind 标准类后，维护成本降低，新增组件有明确的字号规范可参考
+- 高 DPI/4K 显示器越来越普及，小字号在这些设备上几乎无法阅读
+
+**局限**：
+- 涉及 10+ 个文件，改动面广，需仔细回归测试各 TAB 和页面的布局
+- 右侧面板宽度 580px 在字号放大后可能显得不足，若出现横向溢出需考虑扩宽至 640px
 
 ---
 
@@ -841,7 +914,7 @@ UX 方案**不删除**现有 CLI 代码。`cli/` 目录保持完整，与 `api/`
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
-| v1.15.0 | 2026-06-03 | **参数分组扩展**：DC-UX-08 分组规则更新——新增"栅格选项"（`band`/`burn`/`color_map` 等）、"图层设置"（`layer`/`nln`/`active_layer` 等）两个分组；高级选项补充 `creation_option` 并增加 GDAL 标准缩写 `co`/`lco`/`dsco` 的精确匹配机制（避免与 `command`/`config` 等发生 `includes` 误匹配）；输入输出补充 `source`/`dest`/`in`/`out` 关键词 |
+| v1.16.0 | 2026-06-03 | **UI 字体与视觉层次优化**：新增 DC-UX-16，系统性地重构前端排版尺度——覆盖 Tailwind fontSize（`text-2xs`~`text-xl` 全层级定义），清理所有 `text-[Npx]` 魔法数字；元素尺寸放大（输入框 `h-8`→`h-10`、按钮 `h-9`→`h-11`、卡片内边距 `p-6`→`p-8`）；视觉层次增强（标题加粗、分隔线加重、阴影增强）；明确 11 个待清理文件的实施范围和原则 |
 | v1.13.0 | 2026-06-02 | **诊断体验优化**：DC-UX-12 更新诊断 Prompt 设计要点——增加【修复命令参考】输出要求、收紧 `can_auto_fix` 判定规则（明确排除模板渲染逻辑错误类问题）、诊断结果面板改用 `ReactMarkdown` 渲染 suggestion 中的 markdown 代码块；§3.2 `ExecuteWebSocket` done 消息补全 `stdout`/`stderr`/`duration_ms` 字段 |
 | v1.12.0 | 2026-06-02 | **Q&A 历史隔离**：新增 DC-UX-14（WebSocket Q&A 写回 `qa_history`）、DC-UX-15（QATab 消息完全隔离，前端独立维护 `qaMessages`）；§3.1 更新 `process_intent`（classify_intent 不传 history，DC-0106）和 `chat_question`（使用 `qa_history`，DC-0107）；§3.2 更新 `ChatWebSocket` 说明；§3.3 `SessionSnapshot` 标注 `qa_history` 不向前端透传 |
 | v1.11.0 | 2026-06-02 | **诊断流程简化**：DC-UX-12 从"一键诊断+跳转 Q&A TAB"改为"自动诊断+结果直接展示在脚本执行 TAB"；移除一键诊断按钮；失败态操作简化为"修改参数"/"放弃任务"；执行中态新增"执行命令"展示 |

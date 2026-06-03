@@ -29,10 +29,15 @@ from api.dependencies import (
     get_validator,
 )
 from core.diagnosis import build_diagnosis_context
-from core.exec_env import ExecEnvironment, ShellExecutor, ShellType
+from core.exec_env import (
+    EnvironmentBuilder,
+    ExecEnvDefaultStore,
+    ExecEnvironment,
+    ShellExecutor,
+    ShellType,
+)
 from core.matching import score_template_match
 from core.models import ExecutionErrorContext, Session, SessionState
-
 from llm.diagnosis import analyze_execution_error
 from llm.intent import classify_intent
 from llm.models import ErrorDiagnosis, Message, TemplateInfo
@@ -168,7 +173,10 @@ def _build_session_response(session_id: str, session: Session) -> SessionRespons
     script_preview: Optional[str] = None
     if session.user_script:
         script_preview = session.user_script
-    elif session.state in (SessionState.SCRIPT_PREVIEW, SessionState.ERROR_RECOVERY) and template:
+    elif (
+        session.state in (SessionState.SCRIPT_PREVIEW, SessionState.ERROR_RECOVERY)
+        and template
+    ):
         try:
             engine = get_template_engine()
             rendered = engine.render(template, session.params)
@@ -200,15 +208,19 @@ def _build_session_response(session_id: str, session: Session) -> SessionRespons
                 "can_auto_fix": session.error_context.diagnosis.can_auto_fix,
             }
 
-    # Build exec_env snapshot if configured (DC-0104)
+    # Build exec_env snapshot if configured (DC-0104, DC-0106)
     exec_env_snapshot: Optional[ExecEnvSnapshot] = None
     if session.exec_env is not None:
-        env_type_str = "conda" if "GDAL_DATA" in session.exec_env.env_vars else "system"
+        env_type_str = "conda" if session.exec_env.env_name else "system"
         exec_env_snapshot = ExecEnvSnapshot(
             type=env_type_str,
             shell=session.exec_env.shell.value,
             shell_path=str(session.exec_env.shell_executable),
-            env_name="",
+            env_name=(
+                session.exec_env.env_name
+                if isinstance(getattr(session.exec_env, "env_name", None), str)
+                else ""
+            ),
             gdal_available=session.exec_env.gdal_available,
             gdal_version=session.exec_env.gdal_version,
         )
@@ -255,6 +267,26 @@ async def create_session(
         SessionResponse with session_id and initial IDLE state.
     """
     session_id, session = session_manager.create_session()
+
+    # Try to auto-apply persisted default exec env (DC-0106)
+    default_config = ExecEnvDefaultStore.load_default()
+    if default_config is not None:
+        try:
+            builder = EnvironmentBuilder(default_config)
+            env = builder.build()
+            if env.gdal_available:
+                session = session.with_exec_env(env)
+                session_manager.update_session(session_id, session)
+                logger.info(
+                    "Auto-applied default exec env to session=%s (shell=%s, gdal=%s)",
+                    session_id,
+                    env.shell.value,
+                    env.gdal_version,
+                )
+        except Exception as exc:
+            logger.warning("Failed to auto-apply default exec env: %s", exc)
+            # Non-fatal: session proceeds without default env
+
     return _build_session_response(session_id, session)
 
 
@@ -301,9 +333,7 @@ async def process_intent(
 
     # --- Phase 0: Score ALL templates once (shared for all routes) ---
     all_templates = registry.list_templates()
-    scored = [
-        (t, score_template_match(t, user_input)) for t in all_templates
-    ]
+    scored = [(t, score_template_match(t, user_input)) for t in all_templates]
     scored.sort(key=lambda x: x[1], reverse=True)
     best_score = scored[0][1] if scored else 0
 
@@ -314,9 +344,7 @@ async def process_intent(
         new_session = (
             session.with_state(SessionState.PARAM_COLLECT)
             .with_template(best_template)
-            .with_history(
-                Message(role="user", content=request.input)
-            )
+            .with_history(Message(role="user", content=request.input))
         )
         session_manager.update_session(session_id, new_session)
         return _build_session_response(session_id, new_session)
@@ -368,9 +396,7 @@ async def process_intent(
             new_session = (
                 session.with_state(SessionState.PARAM_COLLECT)
                 .with_template(selected)
-                .with_history(
-                    Message(role="user", content=request.input)
-                )
+                .with_history(Message(role="user", content=request.input))
             )
             session_manager.update_session(session_id, new_session)
             return _build_session_response(session_id, new_session)
@@ -387,9 +413,7 @@ async def process_intent(
             new_session = (
                 session.with_state(SessionState.INTENT_CONFIRM)
                 .with_candidates(top_candidates)
-                .with_history(
-                    Message(role="user", content=request.input)
-                )
+                .with_history(Message(role="user", content=request.input))
             )
             session_manager.update_session(session_id, new_session)
             return _build_session_response(session_id, new_session)
@@ -402,9 +426,7 @@ async def process_intent(
     new_session = (
         session.with_state(SessionState.INTENT_CONFIRM)
         .with_candidates(top_candidates)
-        .with_history(
-            Message(role="user", content=request.input)
-        )
+        .with_history(Message(role="user", content=request.input))
     )
     session_manager.update_session(session_id, new_session)
     return _build_session_response(session_id, new_session)
@@ -457,20 +479,11 @@ async def chat_question(
         )
     except Exception as exc:
         logger.warning("LLM Q&A failed: %s", exc)
-        reply = (
-            "抱歉，当前无法调用 LLM 回答你的问题。"
-            "请稍后重试。"
-        )
+        reply = "抱歉，当前无法调用 LLM 回答你的问题。请稍后重试。"
 
-    new_session = (
-        session
-        .with_qa_history(
-            Message(role="user", content=request.input)
-        )
-        .with_qa_history(
-            Message(role="assistant", content=reply)
-        )
-    )
+    new_session = session.with_qa_history(
+        Message(role="user", content=request.input)
+    ).with_qa_history(Message(role="assistant", content=reply))
     session_manager.update_session(session_id, new_session)
     return _build_session_response(session_id, new_session)
 
@@ -550,10 +563,7 @@ async def submit_params(
     missing = sorted(required - provided)
 
     if missing:
-        new_session = (
-            session.with_state(SessionState.PARAM_COLLECT)
-            .clear_user_script()
-        )
+        new_session = session.with_state(SessionState.PARAM_COLLECT).clear_user_script()
         for name, value in merged_params.items():
             new_session = new_session.with_param(name, value)
         session_manager.update_session(session_id, new_session)
@@ -736,9 +746,7 @@ async def diagnose_execution(
 
     error_ctx = session.error_context
     if error_ctx is None:
-        raise HTTPException(
-            status_code=400, detail="No error context in session"
-        )
+        raise HTTPException(status_code=400, detail="No error context in session")
 
     if error_ctx.diagnosis is not None:
         # Diagnosis already performed — return cached result

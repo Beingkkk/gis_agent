@@ -6,10 +6,10 @@
  * Design: DC-UX-11, DC-UX-12
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import CmdEditor from './CmdEditor'
 import ExecStatusPanel from './ExecStatusPanel'
-import type { ExecResult, ErrorContext, TemplateDetail, ExecEnvVerifyRequest, ExecEnvVerifyResponse } from '../types'
+import type { ExecResult, ErrorContext, TemplateDetail, ExecEnvVerifyRequest, ExecEnvVerifyResponse, ExecEnvSnapshot } from '../types'
 
 export type ExecPhase = 'preview' | 'executing' | 'success' | 'failure'
 
@@ -33,7 +33,7 @@ interface ExecTabProps {
   /** 未填完的必填参数 */
   missingParams?: string[]
   /** 当前执行环境配置 */
-  execEnv?: { type: string; shell: string; env_name: string; gdal_available: boolean; gdal_version: string } | null
+  execEnv?: ExecEnvSnapshot | null
   /** 脚本编辑回调 */
   onScriptChange: (script: string) => void
   /** 刷新脚本（根据当前参数重新生成） */
@@ -50,8 +50,8 @@ interface ExecTabProps {
   onExportScript?: () => void
   /** 环境验证回调 */
   onVerifyEnv?: (config: ExecEnvVerifyRequest) => Promise<ExecEnvVerifyResponse>
-  /** 环境保存回调 */
-  onSaveEnv?: (config: ExecEnvVerifyRequest) => Promise<void>
+  /** 环境保存回调（返回是否成功保存为默认配置） */
+  onSaveEnv?: (config: ExecEnvVerifyRequest) => Promise<boolean>
   /** 获取 conda 环境列表 */
   onListCondaEnvs?: () => Promise<string[]>
 }
@@ -100,21 +100,63 @@ export default function ExecTab({
   const [verifyResult, setVerifyResult] = useState<ExecEnvVerifyResponse | null>(null)
   const [verifyLoading, setVerifyLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [saveDefaultError, setSaveDefaultError] = useState<string | null>(null)
   const [condaEnvs, setCondaEnvs] = useState<string[]>([])
+  const hasInitSync = useRef(false)
 
-  /** 展开环境面板时拉取 conda 环境列表 */
+  /** 首次 execEnv 可用时同步到本地状态（初始化/自动加载默认配置） */
+  useEffect(() => {
+    if (execEnv && !hasInitSync.current) {
+      setEnvType(execEnv.type === 'conda' ? 'conda' : 'system')
+      setShellType(execEnv.shell || 'auto')
+      setShellPath(execEnv.shell_path || '')
+      // env_name only applies to conda; system always clears it
+      if (execEnv.type === 'conda') {
+        setEnvName(execEnv.env_name || '')
+      } else {
+        setEnvName('')
+      }
+      hasInitSync.current = true
+    }
+  }, [execEnv])
+
+  /** 展开/收起环境面板 */
   const handleToggleEnvPanel = useCallback(async () => {
     const next = !envPanelOpen
     setEnvPanelOpen(next)
-    if (next && onListCondaEnvs) {
-      try {
-        const envs = await onListCondaEnvs()
-        setCondaEnvs(envs)
-      } catch (e) {
-        console.error('获取 conda 环境列表失败:', e)
+    setSaveSuccess(false)
+    setSaveDefaultError(null)
+    if (next) {
+      // 同步非 envName 的配置
+      if (execEnv) {
+        setEnvType(execEnv.type === 'conda' ? 'conda' : 'system')
+        setShellType(execEnv.shell || 'auto')
+        setShellPath(execEnv.shell_path || '')
+      }
+      // Always fetch conda env list (regardless of current type, for switching)
+      if (onListCondaEnvs) {
+        try {
+          const envs = await onListCondaEnvs()
+          setCondaEnvs(envs)
+          // Match env_name only when current execEnv is conda
+          if (execEnv?.type === 'conda') {
+            if (execEnv.env_name && envs.includes(execEnv.env_name)) {
+              setEnvName(execEnv.env_name)
+            } else {
+              setEnvName('')
+            }
+          } else {
+            setEnvName('')
+          }
+        } catch (e) {
+          console.error('获取 conda 环境列表失败:', e)
+          setCondaEnvs([])
+          setEnvName('')
+        }
       }
     }
-  }, [envPanelOpen, onListCondaEnvs])
+  }, [envPanelOpen, onListCondaEnvs, execEnv])
 
   const handleVerify = async () => {
     if (!onVerifyEnv) return
@@ -145,16 +187,24 @@ export default function ExecTab({
   const handleSave = async () => {
     if (!onSaveEnv) return
     setSaveLoading(true)
+    setSaveSuccess(false)
+    setSaveDefaultError(null)
     try {
-      await onSaveEnv({
+      const defaultSaved = await onSaveEnv({
         type: envType,
         env_name: envName,
         shell: shellType,
         shell_path: shellPath,
       })
+      setSaveSuccess(true)
+      if (!defaultSaved) {
+        setSaveDefaultError('已应用到当前会话，但默认配置保存失败')
+      }
       setEnvPanelOpen(false)
     } catch (e) {
       console.error('环境保存失败:', e)
+      setSaveSuccess(false)
+      setSaveDefaultError('环境保存失败')
     } finally {
       setSaveLoading(false)
     }
@@ -178,7 +228,7 @@ export default function ExecTab({
           <path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.1a2 2 0 01-1-1.72v-.51a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z" />
           <circle cx="12" cy="12" r="3" />
         </svg>
-        {hasEnv ? '环境已配置' : '环境设置'}
+        {hasEnv ? (saveSuccess ? '已保存为默认' : '环境已配置') : '环境设置'}
       </button>
     )
   }
@@ -226,7 +276,10 @@ export default function ExecTab({
                 <label className="block text-[11px] text-slate-500 mb-1">Shell 类型</label>
                 <select
                   value={shellType}
-                  onChange={(e) => setShellType(e.target.value)}
+                  onChange={(e) => {
+                    setShellType(e.target.value)
+                    setShellPath('')
+                  }}
                   className="w-full h-8 px-2 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:border-blue-400"
                 >
                   <option value="auto">自动探测</option>
@@ -240,7 +293,21 @@ export default function ExecTab({
                 <label className="block text-[11px] text-slate-500 mb-1">环境类型</label>
                 <select
                   value={envType}
-                  onChange={(e) => setEnvType(e.target.value as 'system' | 'conda')}
+                  onChange={async (e) => {
+                    const newType = e.target.value as 'system' | 'conda'
+                    setEnvType(newType)
+                    if (newType === 'conda' && onListCondaEnvs && condaEnvs.length === 0) {
+                      try {
+                        const envs = await onListCondaEnvs()
+                        setCondaEnvs(envs)
+                      } catch (err) {
+                        console.error('获取 conda 环境列表失败:', err)
+                      }
+                    }
+                    if (newType === 'system') {
+                      setEnvName('')
+                    }
+                  }}
                   className="w-full h-8 px-2 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:border-blue-400"
                 >
                   <option value="system">系统默认</option>
@@ -330,6 +397,12 @@ export default function ExecTab({
                     )}
                   </div>
                 )}
+              </div>
+            )}
+            {/* Default save error */}
+            {saveDefaultError && (
+              <div className="rounded-md px-3 py-2 text-[11px] bg-amber-50 text-amber-700 border border-amber-200">
+                ⚠ {saveDefaultError}
               </div>
             )}
           </div>

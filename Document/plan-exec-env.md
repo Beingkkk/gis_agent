@@ -134,7 +134,35 @@ PROJ_LIB  ← {env_path}/Library/share/proj
 
 ### DC-0104: Session 级环境绑定
 
-**决策**: 用户配置的执行环境绑定到 `Session` 对象，随会话生命周期存在。不持久化到 config.json。
+**决策**: 用户配置的执行环境绑定到 `Session` 对象，随会话生命周期存在。不持久化到 config.json。`clear_session`（用户点击"新任务"）时保留 `exec_env`，避免用户重复配置。
+
+### DC-0106: 执行环境配置持久化（v1.5.0）
+
+**决策**: 执行环境配置支持持久化到本地 JSON 文件，下次启动时自动应用。
+
+**存储位置**: `SourceCode/data/exec_env_default.json`（项目数据目录，不在 `config.json` 中）
+
+**理由**:
+- 保持 `config.json` 职责单一（仅 LLM 配置），不混入运行时环境配置
+- 文件位于项目内部，便于 Electron 打包和迁移
+- 与 DC-0100 不矛盾：用户仍可在运行时动态设置，只是增加了"记忆"能力
+
+**交互设计**:
+- 用户在 ExecTab 中配置环境 → 点击【测试环境】→ 验证通过 → 点击【保存】
+- 【保存】按钮同时完成两件事：（1）绑定到当前 session（已有行为）；（2）写入 `exec_env_default.json`（新增）
+- UI 上增加"已保存为默认配置"视觉反馈，用户明确知道配置已持久化
+- 下次启动应用创建 session 时，自动读取默认配置并应用
+
+**新增 API 端点**:
+- `GET /exec-env/default` — 读取持久化的默认配置（无配置时返回 204）
+- `POST /exec-env/default` — 保存默认配置（需验证通过后写入）
+
+**修改点**:
+- `create_session`: 读取默认配置 → 如果存在则 `EnvironmentBuilder.build()` → 绑定到 session
+- `clear_session`: 保留原 session 的 `exec_env`，用户点击"新任务"时环境配置不丢失
+- `ExecEnvDefaultStore`: 独立的存储类，处理文件读写
+  - `save_default()`: 仅当 `type == conda` 时写入 `env_name`
+  - `load_default()`: 当 `type == system` 时强制 `env_name = ""`
 
 ### DC-0105: 脚本执行临时化，导出与执行分离
 
@@ -173,18 +201,31 @@ POST /session/{id}/export-script {output_path}
 - plan-ux DC-UX-11a（前端导出按钮 UX）依赖本决策
 - plan-electron 新增 `saveFile` IPC（导出时保存对话框）
 
-**流程**:
+**流程（更新后，DC-0106）**:
 ```
 用户在前端设置环境 → POST /session/{id}/exec-env → 后端验证 → 保存到 session
-                                                            │
-                                                            ▼
-执行脚本时：session.exec_env ?? 系统默认环境（os.environ + PATH）
+                                      │                              │
+                                      │                              ▼
+                                      │                    同时 POST /exec-env/default
+                                      │                              │
+                                      │                              ▼
+                                      │                    写入 data/exec_env_default.json
+                                      │                              │
+                                      ▼                              ▼
+                         下次 create_session 时：
+                              ├──→ 读取 exec_env_default.json
+                              ├──→ EnvironmentBuilder.build() 验证
+                              └──→ 自动绑定到 session.exec_env
+                              │
+                              ▼
+                         执行脚本时：session.exec_env ?? 系统默认环境
 ```
 
 **理由**:
 - 会话级绑定：不同任务可使用不同 conda 环境
-- 不持久化：简化实现，避免配置文件读写权限问题
-- 回退安全：未配置时直接使用系统环境，不影响基本功能
+- 持久化：保存后自动记忆，下次启动无需重新设置
+- 回退安全：无默认配置时直接使用系统环境，不影响基本功能
+- 即时生效：保存后立即写入文件，下次启动自动应用
 
 ---
 
@@ -447,6 +488,30 @@ async def set_session_exec_env(
 
     先调用 EnvironmentBuilder.build() 验证，验证通过后保存到 session.exec_env。
     """
+
+
+@router.get("/exec-env/default")
+async def get_default_exec_env() -> ExecEnvVerifyRequest:
+    """读取持久化的默认执行环境配置。
+
+    Returns:
+        默认配置对象（与 ExecEnvVerifyRequest 同结构）。
+
+    无配置时返回 204 No Content。
+    """
+
+
+@router.post("/exec-env/default")
+async def save_default_exec_env(
+    request: ExecEnvVerifyRequest,
+) -> dict[str, str]:
+    """保存默认执行环境配置。
+
+    先验证环境可用性，通过后将配置写入 data/exec_env_default.json。
+
+    Returns:
+        {"status": "saved"}
+    """
 ```
 
 ### 3.5 Health 端点（简化）
@@ -629,5 +694,6 @@ ShellExecutor.execute(script_path, cwd=workspace)
 | v1.4.0 | 2026-06-03 | **移除脚本执行超时**：§3.3 `ShellExecutor.execute` 签名移除 `timeout` 参数；docstring 更新——不设固定超时，由子进程自然完成，GDAL 数据处理可能耗时数小时；§4.2 流程说明同步更新 |
 | v1.3.0 | 2026-06-02 | **临时目录改为项目 cache/**：DC-0105 更新，临时脚本从 `tempfile.gettempdir()`（Windows 系统 Temp）改为项目根目录 `./cache/`（自动创建），避免跨盘路径问题和权限困扰；同步更新 `cli/executor.py` |
 | v1.2.0 | 2026-06-02 | **脚本执行临时化 + 导出分离**：新增 DC-0105；`ShellExecutor.write_script()` 改为接受任意 `output_path`；新增 `write_script_to_temp()` 用于执行时临时文件；执行流程从 workspace 改为 temp 目录；新增 `/session/{id}/export-script` API；更新 §5.2 向下暴露表 |
+| v1.5.0 | 2026-06-03 | 新增 DC-0106：执行环境配置持久化。`POST /exec-env/default` 保存默认配置，`GET /exec-env/default` 读取，`create_session` 自动应用；前端保存时同步持久化 |
 | v1.1.0 | 2026-06-01 | DC-0100 标记为已实现。明确模块定位：独立块，仅在子进程执行时触发交互，不影响其他功能模块 |
 | v1.0.0 | 2026-06-01 | 初版。移除 config.json 中的 `gdal_bin` 配置；改为运行时通过 UI 设置执行环境；定义 ShellDetector、CondaEnvDetector、ShellExecutor、EnvironmentBuilder；新增 `/exec-env/verify` 和 `/session/{id}/exec-env` API；Session 新增 `exec_env` 字段 |

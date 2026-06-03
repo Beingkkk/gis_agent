@@ -71,6 +71,32 @@ class TestSessionManager:
         assert found.template is None
         assert found.params == {}
 
+    def test_clear_session_preserves_exec_env(self) -> None:
+        from pathlib import Path
+        from core.exec_env import ExecEnvironment, ShellType
+
+        sm = SessionManager()
+        session_id, session = sm.create_session()
+        env = ExecEnvironment(
+            env_vars={"PATH": "/usr/bin"},
+            shell=ShellType.BASH,
+            shell_executable=Path("/bin/bash"),
+            gdal_available=True,
+            gdal_version="3.8.0",
+        )
+        session = session.with_exec_env(env)
+        sm.update_session(session_id, session)
+
+        sm.clear_session(session_id)
+        found = sm.get_session(session_id)
+        assert found is not None
+        assert found.state == SessionState.IDLE
+        assert found.exec_env is not None
+        assert found.exec_env.shell == ShellType.BASH
+        assert found.exec_env.gdal_version == "3.8.0"
+        assert found.template is None
+        assert found.params == {}
+
     def test_clear_session_not_found(self) -> None:
         sm = SessionManager()
         # Should not raise for non-existent session

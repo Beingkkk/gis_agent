@@ -6,18 +6,25 @@ Design: plan-exec-env v1.1.0 (DC-0101 ~ DC-0104)
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from api.dependencies import get_session_manager
-from api.routes.session import SessionResponse, _build_session_response, _get_session_or_404
+from api.routes.session import (
+    SessionResponse,
+    _build_session_response,
+    _get_session_or_404,
+)
 from core.exec_env import (
     CondaEnvDetector,
     EnvironmentBuilder,
     ExecEnvConfig,
+    ExecEnvDefaultStore,
     ExecEnvType,
+    ShellDetector,
 )
 
 logger = logging.getLogger(__name__)
@@ -227,3 +234,91 @@ async def list_conda_envs() -> CondaEnvsResponse:
     """
     envs = CondaEnvDetector.list_envs()
     return CondaEnvsResponse(envs=envs)
+
+
+@router.get("/exec-env/default", response_model=ExecEnvVerifyRequest)
+async def get_default_exec_env() -> Union[ExecEnvVerifyRequest, JSONResponse]:
+    """Read the persisted default execution environment configuration.
+
+    Returns:
+        Default environment config if exists.
+        204 No Content if no default config has been saved.
+
+    Design:
+        DC-0106
+    """
+    config = ExecEnvDefaultStore.load_default()
+    if config is None:
+        return JSONResponse(status_code=204, content=None)
+
+    return ExecEnvVerifyRequest(
+        type=config.type.value,
+        env_name=config.env_name,
+        shell=config.shell,
+        shell_path=config.shell_path,
+    )
+
+
+@router.post("/exec-env/default")
+async def save_default_exec_env(
+    request: ExecEnvVerifyRequest,
+) -> dict[str, str]:
+    """Persist the execution environment configuration to local file.
+
+    Light validation only (shell + conda env existence).
+    GDAL verification is skipped — user already verified via /exec-env/verify.
+
+    Args:
+        request: Environment configuration to persist.
+
+    Returns:
+        {"status": "saved"} on success.
+
+    Raises:
+        HTTPException: 400 if configuration is invalid.
+
+    Design:
+        DC-0106
+    """
+    try:
+        env_type = ExecEnvType(request.type)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid env type: {request.type}"
+        ) from exc
+
+    config = ExecEnvConfig(
+        type=env_type,
+        env_name=request.env_name,
+        shell=request.shell,
+        shell_path=request.shell_path,
+    )
+
+    # Light validation: shell existence + conda env existence (DC-0106)
+    try:
+        ShellDetector.resolve_shell(config.shell, config.shell_path)
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Shell validation failed: {exc}"
+        ) from exc
+
+    if config.type == ExecEnvType.CONDA:
+        if not config.env_name:
+            raise HTTPException(
+                status_code=400, detail="Conda environment name is required"
+            )
+        env_path = CondaEnvDetector.resolve_env_path(config.env_name)
+        if env_path is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Conda environment not found: {config.env_name}",
+            )
+
+    ExecEnvDefaultStore.save_default(config)
+    logger.info(
+        "Default exec env saved (type=%s, shell=%s, env_name=%s)",
+        config.type.value,
+        config.shell,
+        config.env_name,
+    )
+    return {"status": "saved"}

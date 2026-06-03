@@ -25,9 +25,10 @@ import {
   verifyExecEnv,
   setSessionExecEnv,
   listCondaEnvs,
+  saveDefaultExecEnv,
 } from '../api/execEnv'
 import { getApiBaseUrl, saveFile, showItemInFolder } from '../electron-api'
-import type { TemplateDef, TemplateDetail, ExecResult } from '../types'
+import type { TemplateDef, TemplateDetail, ExecResult, ExecEnvVerifyRequest, ExecEnvVerifyResponse } from '../types'
 
 export default function MainPage() {
   const {
@@ -378,15 +379,23 @@ export default function MainPage() {
   }
 
   // ─── Exec env: verify ───────────────────────────────────────────
-  const handleVerifyEnv = async (config: { type: string; env_name: string; shell: string; shell_path: string }) => {
+  const handleVerifyEnv = async (config: ExecEnvVerifyRequest): Promise<ExecEnvVerifyResponse> => {
     return verifyExecEnv(config)
   }
 
   // ─── Exec env: save ─────────────────────────────────────────────
-  const handleSaveEnv = async (config: { type: string; env_name: string; shell: string; shell_path: string }) => {
-    if (!sessionId) return
+  const handleSaveEnv = async (config: ExecEnvVerifyRequest): Promise<boolean> => {
+    if (!sessionId) return false
     const result = await setSessionExecEnv(sessionId, config)
     setSession(result)
+    // Also persist as default for next startup (DC-0106)
+    try {
+      await saveDefaultExecEnv(config)
+      return true
+    } catch (e) {
+      console.error('保存默认环境配置失败:', e)
+      return false
+    }
   }
 
   // ─── Exec env: list conda envs ──────────────────────────────────

@@ -115,6 +115,7 @@ class TestSetSessionExecEnv:
             mock_env.gdal_available = True
             mock_env.gdal_version = "GDAL 3.9.0"
             mock_env.env_vars = {"PATH": "/fake/bin"}
+            mock_env.env_name = ""
 
             mock_builder = MagicMock()
             mock_builder.build.return_value = mock_env

@@ -74,13 +74,18 @@ class SessionManager:
     def clear_session(self, session_id: str) -> None:
         """Reset session to IDLE state.
 
-        Creates a fresh Session and stores it. If session_id
-        does not exist, creates it with a fresh Session.
+        Creates a fresh Session and stores it. Preserves exec_env
+        so the user does not need to reconfigure the execution
+        environment after clicking "New Task".
 
         Args:
             session_id: UUID string.
         """
-        self._sessions[session_id] = Session()
+        old = self._sessions.get(session_id)
+        if old is not None:
+            self._sessions[session_id] = Session(exec_env=old.exec_env)
+        else:
+            self._sessions[session_id] = Session()
 
 
 # Module-level singleton instance

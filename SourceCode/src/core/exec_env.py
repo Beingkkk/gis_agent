@@ -15,6 +15,7 @@ Design: plan-exec-env v1.1.0 (DC-0101, DC-0102, DC-0103, DC-0104)
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import platform
@@ -81,6 +82,105 @@ class ExecEnvironment:
     shell_executable: Path
     gdal_available: bool
     gdal_version: str = ""
+    env_name: str = ""  # 保留原始配置中的 conda 环境名（DC-0106）
+
+
+# ---------------------------------------------------------------------------
+# ExecEnvDefaultStore
+# ---------------------------------------------------------------------------
+
+
+class ExecEnvDefaultStore:
+    """Persistent storage for default execution environment configuration.
+
+    Saves validated environment settings to a local JSON file so that
+    the next application startup can auto-apply them (DC-0106).
+
+    Design:
+        DC-0106
+    """
+
+    _DEFAULT_FILENAME = "exec_env_default.json"
+
+    @classmethod
+    def _get_default_path(cls) -> Path:
+        """Return the path to the default config file.
+
+        Located at {project_root}/SourceCode/data/exec_env_default.json.
+        """
+        # src/core/exec_env.py -> project root is 3 levels up
+        project_root = Path(__file__).resolve().parents[2]
+        data_dir = project_root / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir / cls._DEFAULT_FILENAME
+
+    @classmethod
+    def load_default(cls) -> Optional[ExecEnvConfig]:
+        """Load persisted default environment configuration.
+
+        Returns:
+            ExecEnvConfig if a saved config exists and is valid, else None.
+        """
+        path = cls._get_default_path()
+        if not path.exists():
+            return None
+
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Failed to load default exec env config: %s", exc)
+            return None
+
+        if not isinstance(raw, dict):
+            logger.warning("Invalid default exec env config format")
+            return None
+
+        try:
+            env_type = ExecEnvType(raw.get("type", "system"))
+            # env_name only applies to conda; system always uses empty string
+            env_name = (
+                raw.get("env_name", "")
+                if env_type == ExecEnvType.CONDA
+                else ""
+            )
+            return ExecEnvConfig(
+                type=env_type,
+                env_name=env_name,
+                shell=raw.get("shell", "auto"),
+                shell_path=raw.get("shell_path", ""),
+            )
+        except (ValueError, TypeError) as exc:
+            logger.warning("Invalid default exec env config values: %s", exc)
+            return None
+
+    @classmethod
+    def save_default(cls, config: ExecEnvConfig) -> None:
+        """Persist environment configuration to local file.
+
+        Only saves env_name for conda environments; system environments
+        do not have a conda env_name.
+
+        Args:
+            config: Validated execution environment configuration.
+        """
+        path = cls._get_default_path()
+        data: dict[str, str] = {
+            "type": config.type.value,
+            "shell": config.shell,
+            "shell_path": config.shell_path,
+        }
+        # Only save env_name for conda environments (DC-0106)
+        if config.type == ExecEnvType.CONDA:
+            data["env_name"] = config.env_name
+        try:
+            path.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            logger.info("Default exec env saved to %s", path)
+        except OSError as exc:
+            logger.error("Failed to save default exec env config: %s", exc)
+            raise
 
 
 # ---------------------------------------------------------------------------
@@ -195,9 +295,7 @@ class ShellDetector:
         if custom_path is not None:
             if custom_path.exists() and custom_path.is_file():
                 return custom_path.resolve()
-            raise FileNotFoundError(
-                f"Custom shell path not found: {custom_path}"
-            )
+            raise FileNotFoundError(f"Custom shell path not found: {custom_path}")
 
         # Resolve via shutil.which for standard shells
         cmd_map = {
@@ -286,9 +384,7 @@ class CondaEnvDetector:
             ).exists():
                 return prefix_path.parent
             # Otherwise it may be the base itself
-            if (prefix_path / "conda.exe").exists() or (
-                prefix_path / "conda"
-            ).exists():
+            if (prefix_path / "conda.exe").exists() or (prefix_path / "conda").exists():
                 return prefix_path
             # Check for envs/ directory as indicator
             if (prefix_path.parent / "envs").is_dir():
@@ -329,7 +425,6 @@ class CondaEnvDetector:
                     if candidate_path.exists():
                         return candidate_path
         else:
-            home = os.environ.get("HOME", "~")
             for path_str in cls._UNIX_CONDA_PATHS:
                 path = Path(path_str).expanduser()
                 if path.exists():
@@ -482,7 +577,7 @@ class EnvironmentBuilder:
 
     def __init__(self, config: ExecEnvConfig) -> None:
         """Args:
-            config: User-provided execution environment configuration.
+        config: User-provided execution environment configuration.
         """
         self.config = config
 
@@ -544,11 +639,10 @@ class EnvironmentBuilder:
             shell_executable=shell_path,
             gdal_available=gdal_available,
             gdal_version=gdal_version,
+            env_name=self.config.env_name,
         )
 
-    def _verify_gdal(
-        self, env_vars: Dict[str, str]
-    ) -> tuple[bool, str]:
+    def _verify_gdal(self, env_vars: Dict[str, str]) -> tuple[bool, str]:
         """Verify GDAL is available by running ogr2ogr --version.
 
         Args:
@@ -570,7 +664,9 @@ class EnvironmentBuilder:
                 return (True, version_line)
             return (False, result.stderr.strip()[:200])
         except subprocess.TimeoutExpired:
-            logger.warning("GDAL verification timed out after %ds", self._VERIFY_TIMEOUT)
+            logger.warning(
+                "GDAL verification timed out after %ds", self._VERIFY_TIMEOUT
+            )
             return (False, "验证超时")
         except FileNotFoundError:
             logger.warning("ogr2ogr not found in PATH")
@@ -594,7 +690,7 @@ class ShellExecutor:
 
     def __init__(self, env: ExecEnvironment) -> None:
         """Args:
-            env: Resolved execution environment.
+        env: Resolved execution environment.
         """
         self.env = env
 
@@ -620,10 +716,7 @@ class ShellExecutor:
                 body_parts.append("if errorlevel 1 exit /b 1")
             body = "\n".join(body_parts) + "\n"
         elif shell == ShellType.POWERSHELL:
-            header = (
-                "#Requires -Version 5.1\n"
-                "$ErrorActionPreference = 'Stop'\n"
-            )
+            header = "#Requires -Version 5.1\n$ErrorActionPreference = 'Stop'\n"
             body = "\n".join(commands) + "\n"
         else:
             raise ValueError(f"Unsupported shell: {shell}")

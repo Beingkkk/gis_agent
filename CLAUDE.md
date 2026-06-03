@@ -176,7 +176,30 @@ ogr2ogr --version
 "/c/Users/PC/.conda/envs/gis-agent/python" --version
 ```
 
+**Installing Python dependencies**:
+
+```bash
+cd SourceCode
+
+# Production dependencies only
+pip install -e .
+
+# Development (includes test + lint tools, FastAPI backend deps)
+pip install -e ".[dev]"
+```
+
 **Production dependencies** (locked): `anthropic`, `jinja2` — no others without explicit approval per constitution.md P5.
+
+**Environment variable overrides** (sensitive fields and common config):
+
+```bash
+export GISAGENT_LLM_AUTH_KEY="sk-your-key"
+export GISAGENT_LLM_BASE_URL="https://api.example.com"
+export GISAGENT_API_PORT=19000        # if 18000 is occupied
+export VITE_API_PORT=19000            # frontend dev proxy, keep in sync with API port
+```
+
+Naming rule: `GISAGENT_` + config path (uppercase, `_` separated). Takes precedence over `config.json`.
 
 **GDAL execution environment**: Script execution environment is configured at runtime via the ExecTab environment panel (not in `config.json`). Users select shell type (`bash`/`cmd`/`powershell`) and optionally a conda environment. The backend validates GDAL availability on demand. `shutil.which('ogr2ogr')` can be used to verify the backend can locate GDAL binaries.
 
@@ -390,7 +413,6 @@ After adding a template, restart the application to pick it up (templates are sc
 - The `llm/` module is the **only** code allowed to import `anthropic` (CODE-3). Never add anthropic imports outside `llm/`.
 - `PromptBuilder` provides **5 scenario-specific methods** (`build_intent_prompt`, `build_template_qa_prompt`, `build_gis_expert_prompt`, `build_param_prompt`, `build_diagnosis_prompt`). Do not add new catch-all methods — each LLM call scene gets its own dedicated prompt.
 - `Document/Resource/` is gitignored; do not commit its contents.
-- `SourceCode/model/embedding/` contains large model files (deprecated per ADR-0001, no longer used at runtime); should not be committed.
 - `SourceCode/config/config.json` is gitignored; never commit credentials.
 - The Electron desktop app (`frontend/`) is the sole active entry point.
 - Script execution writes temporary scripts to `./cache/` (project-relative, auto-created; DC-0105 v1.3.0), not to workspace or system temp. Users export scripts explicitly via the "Export Script" button (DC-UX-11a) which opens a save dialog and reveals the file in the file manager.

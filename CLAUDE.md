@@ -10,6 +10,8 @@ The project provides an Electron desktop application (`frontend/` + `api/`) as t
 
 The project strictly follows Specification-Driven Design: no code without a preceding design document.
 
+**Local config**: `CLAUDE.local.md` (project root, not checked in) contains environment-specific paths (Conda location, pytest working directory constraints). It is loaded alongside this file.
+
 ## Development Workflow (Specification-Driven)
 
 This project enforces a **design-first, document-driven, code-last** workflow. Any code change must have a supporting design document.
@@ -59,6 +61,14 @@ Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker
 - GDAL commands are rendered via Jinja2 templates in `data/templates/` — **never** string-concatenated
 - LLM calls (`anthropic`) are encapsulated in `llm/` only (CODE-3)
 - Session is immutable — every state transition returns a new `Session` instance via `with_*` methods
+
+**Frontend tech stack** (not obvious from filenames):
+- React 18 + TypeScript + Vite
+- TailwindCSS with custom config (`frontend/tailwind.config.js`): primary color scale (`#eff6ff` → `#1e3a8a`), `borderRadius: { sm: 8px, DEFAULT: 12px, lg: 16px }`, custom shadows, Inter/Noto Sans SC font stack
+- Zustand (`useSession`) for minimal UI state; `qaMessages` is local-only (DC-UX-15)
+- Axios (`api/client.ts`) with dynamic baseURL via IPC
+- ReactMarkdown + remark-gfm for diagnosis suggestion rendering
+- HashRouter (required for `file://` protocol)
 
 ## Module Design (Cross-Cutting Concerns)
 
@@ -203,6 +213,13 @@ Naming rule: `GISAGENT_` + config path (uppercase, `_` separated). Takes precede
 
 **GDAL execution environment**: Script execution environment is configured at runtime via the ExecTab environment panel (not in `config.json`). Users select shell type (`bash`/`cmd`/`powershell`) and optionally a conda environment. The backend validates GDAL availability on demand. `shutil.which('ogr2ogr')` can be used to verify the backend can locate GDAL binaries.
 
+**Tailwind customizations** (`frontend/tailwind.config.js`):
+- `primary` color scale (50-900) using blue family
+- `borderRadius`: sm=8px, DEFAULT=12px, lg=16px
+- `boxShadow`: softer shadows (0-8% opacity)
+- `fontFamily`: Inter + Noto Sans SC for sans, JetBrains Mono for mono
+- When modifying frontend styles, prefer these custom tokens over raw values
+
 ## Commands
 
 ### Python (backend)
@@ -345,6 +362,7 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `frontend/electron/preload.ts` | `contextBridge` preload script exposing `selectFile`, `selectDirectory`, `getApiBaseUrl`, `windowControl` |
 | `frontend/src/electron-api.ts` | Renderer-side IPC wrappers including `WindowControlAPI` (minimize/maximize/close) |
 | `frontend/src/components/TopBar.tsx` | Custom title bar with draggable region and window control buttons (DC-E07) |
+| `frontend/src/components/Layout.tsx` | Two-column layout (DC-UX-13): main panel (flex-1, min-w-[480px]) + right detail panel (580px). Used by MainPage only |
 | `frontend/src/api/client.ts` | Axios instance with dynamic absolute baseURL via IPC |
 | `frontend/src/hooks/useWebSocket.ts` | Generic WebSocket hook used by ExecTab and QATab |
 | `frontend/src/main.tsx` | Entry point using `HashRouter` (required for `file://` protocol) |
@@ -352,7 +370,7 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `frontend/src/components/DiscoveryTab.tsx` | Template discovery TAB: unified input box (local filter + intent send), card grid, candidate mode |
 | `frontend/src/components/QATab.tsx` | GIS Q&A TAB: chat stream, locked-template badge |
 | `frontend/src/components/ExecTab.tsx` | Script execution TAB: command preview / executing / success / failure states + runtime exec-env panel + export script button (DC-UX-11a) |
-| `frontend/src/components/paramGroups.ts` | Shared parameter grouping rules (input/output, CRS, transform, clip, advanced) used by ParamForm and DetailPanel |
+| `frontend/src/components/paramGroups.ts` | Parameter grouping rules: 输入输出, 坐标系设置, 变换选项, 裁剪与范围, **栅格选项**, **图层设置**, 高级选项. Includes `GDAL_SHORTHANDS` exact-match for `co`/`lco`/`dsco` |
 | `frontend/src/api/health.ts` | Health API client — basic status check |
 | `frontend/src/api/pipeline.ts` | Pipeline API client — preview and execute multi-step pipelines |
 | `frontend/src/components/TabBar.tsx` | TAB switcher bar (Discovery / Q&A / Exec) with message count badge |

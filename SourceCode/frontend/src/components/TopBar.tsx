@@ -19,6 +19,7 @@ import {
 interface TopBarProps {
   state?: SessionState
   title?: string
+  backTo?: string
 }
 
 function stateLabel(state: SessionState): { text: string; color: string } {
@@ -155,7 +156,7 @@ function WindowControls() {
 
 /* ─── Main TopBar Component ────────────────────────────────── */
 
-export default function TopBar({ state, title }: TopBarProps) {
+export default function TopBar({ state, title, backTo }: TopBarProps) {
   const label = state ? stateLabel(state) : null
   const isElectron = !!window.electron
 
@@ -169,11 +170,23 @@ export default function TopBar({ state, title }: TopBarProps) {
       className="h-[38px] flex-shrink-0 border-b border-gray-200/80 bg-gradient-to-r from-white via-white to-slate-50/60 flex items-center select-none shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
       style={{ WebkitAppRegion: 'drag' }}
     >
-      {/* ── Left: App branding ── */}
+      {/* ── Left: Back button + App branding ── */}
       <div
         className="flex items-center gap-2.5 px-4 h-full flex-shrink-0"
         style={{ WebkitAppRegion: 'no-drag' }}
       >
+        {backTo && (
+          <Link
+            to={backTo}
+            className="flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all duration-150"
+            title="返回"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12H5" />
+              <path d="M12 19l-7-7 7-7" />
+            </svg>
+          </Link>
+        )}
         <div className="w-[18px] h-[18px] rounded-[5px] flex items-center justify-center flex-shrink-0"
           style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' }}
         >
@@ -210,19 +223,6 @@ export default function TopBar({ state, title }: TopBarProps) {
         className="flex items-center gap-0.5 h-full flex-shrink-0 pl-2"
         style={{ WebkitAppRegion: 'no-drag' }}
       >
-        <Link
-          to="/pipeline"
-          className="text-[11px] font-medium text-slate-500 hover:text-blue-600 px-2.5 py-1 rounded-md hover:bg-slate-50 transition-all duration-150"
-        >
-          Pipeline
-        </Link>
-        <Link
-          to="/generator"
-          className="text-[11px] font-medium text-slate-500 hover:text-blue-600 px-2.5 py-1 rounded-md hover:bg-slate-50 transition-all duration-150"
-        >
-          模板生成器
-        </Link>
-
         <div className="w-px h-4 bg-gray-200 mx-1.5" />
 
         {isElectron && <WindowControls />}

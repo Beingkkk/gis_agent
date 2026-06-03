@@ -17,7 +17,7 @@ interface QATabProps {
   isStreaming?: boolean
   lockedTemplateName?: string | null
   onSendMessage: (text: string) => void
-  onClearMessages: () => void
+  onClearMessages: () => void | Promise<void>
 }
 
 export default function QATab({
@@ -29,11 +29,14 @@ export default function QATab({
   onClearMessages,
 }: QATabProps) {
   const [inputText, setInputText] = useState('')
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom (skip when messages are cleared to avoid
+  // smooth-scroll animation from a far scroll position blocking interaction)
   useEffect(() => {
+    if (messages.length === 0) return
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
@@ -60,10 +63,19 @@ export default function QATab({
     }
   }
 
-  const handleClear = () => {
-    if (window.confirm('确定要清空问答历史吗？')) {
-      onClearMessages()
-    }
+  const handleClearClick = () => {
+    setShowClearConfirm(true)
+  }
+
+  const handleConfirmClear = async () => {
+    setShowClearConfirm(false)
+    await onClearMessages()
+    textareaRef.current?.focus()
+  }
+
+  const handleCancelClear = () => {
+    setShowClearConfirm(false)
+    textareaRef.current?.focus()
   }
 
   return (
@@ -87,7 +99,7 @@ export default function QATab({
           {/* Clear button */}
           {messages.length > 0 && (
             <button
-              onClick={handleClear}
+              onClick={handleClearClick}
               className="text-[11px] font-medium px-2.5 py-[5px] rounded-md border border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-all flex items-center gap-1"
               title="清空问答历史"
             >
@@ -162,6 +174,38 @@ export default function QATab({
           按 Enter 发送，Shift + Enter 换行
         </p>
       </div>
+
+      {/* Clear confirm dialog — replaces window.confirm() to avoid Electron focus bug */}
+      {showClearConfirm && (
+        <div
+          className="absolute inset-0 bg-black/30 flex items-center justify-center z-50"
+          onClick={handleCancelClear}
+        >
+          <div
+            className="bg-white rounded-xl shadow-lg px-6 py-5 max-w-[320px] w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-slate-900 mb-2">确认清空</h3>
+            <p className="text-[13px] text-slate-500 leading-relaxed mb-5">
+              确定要清空问答历史吗？清空后不可恢复。
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={handleCancelClear}
+                className="text-[13px] px-3.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmClear}
+                className="text-[13px] px-3.5 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-all"
+              >
+                确定清空
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

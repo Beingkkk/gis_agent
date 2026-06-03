@@ -2,10 +2,10 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v2.0.0 |
-| 状态 | 草案 |
+| 版本 | v3.2.0 |
+| 状态 | 在线模式 v3.2.0 已实现，CLI 集成测试待补充 |
 | 作者 | - |
-| 日期 | 2026-05-30 |
+| 日期 | 2026-06-03 |
 
 ---
 
@@ -387,34 +387,114 @@ System: 你是一名 GDAL 命令行专家。根据提供的文档提取信息，
 - 只有 `warning` 级别 issue → 根据配置选择"自动修复后通过"或"进入人工队列"
 - 无任何 issue → 直接通过
 
-### DC-0088: 提取器接口抽象，预留通用文档输入
+### DC-0088: 文档提取器——文件导入与噪音过滤
 
-**决策**: `HtmlExtractor` 不直接耦合 GDAL HTML 结构，而是输出一个通用的 `ExtractedDoc` 结构（含 title、synopsis、description、options 列表）。当前实现针对 GDAL Sphinx HTML，但接口设计允许未来接入 Markdown、man page 等其他文档格式。
+**决策**: 在线模式支持通过文件上传导入 HTML/Markdown 文档。后端提供独立的 `HtmlExtractor` 和 `MarkdownExtractor`，在 LLM 生成前清理文档噪音（导航栏、脚本、样式、YAML frontmatter 等），减少 token 消耗并提升生成质量。
 
 **理由**:
-- 用户扩展 J2 功能需要提供通用入口：用户上传任意工具的 HTML/Markdown 文档，工具分析后生成 J2
-- `ExtractedDoc` 作为 LLM 生成阶段的统一输入，屏蔽底层文档格式差异
-- 未来只需新增 Extractor 实现（如 `MarkdownExtractor`），无需改动生成/审核/渲染逻辑
+- 原始 HTML 文档含有大量导航、脚本、样式等 LLM 无关内容，直接输入浪费 token 且干扰生成质量
+- Markdown 文档常包含 YAML frontmatter、链接语法等格式化噪音，需要预处理
+- 提取与 LLM 生成解耦：用户可在导入后预览清洗结果，不满意可手动编辑后再生成
+- 复用标准库实现，零额外依赖（`html.parser.HTMLParser`）
 
-**ExtractedDoc 结构**:
-```python
-@dataclass
-class ExtractedDoc:
-    title: str           # 工具名称
-    synopsis: str        # 命令用法摘要（可选）
-    description: str     # 功能描述
-    options: list[dict]  # 参数列表，每项含 name、description、required_hint
+**支持的文件格式**:
+| 格式 | 扩展名 | 清洗策略 |
+|------|--------|---------|
+| HTML | `.html`, `.htm` | 移除 `script/style/nav/footer/header/aside` 等噪音标签，提取正文文本 |
+| Markdown | `.md`, `.markdown` | 移除 YAML frontmatter，转换链接为纯文本，清理粗体/斜体标记 |
+
+**在线模式导入流程**:
+```
+用户选择文件 (.html/.md)
+    │
+    ▼
+前端 FileReader 读取原始内容
+    │
+    ▼
+POST /generator/parse-document {content, file_type}
+    │
+    ▼
+HtmlExtractor / MarkdownExtractor 清洗
+    │
+    ▼
+返回清洗后文本 → 前端填入输入框
+    │
+    ▼
+用户确认/编辑后 → 进入 Step 2 生成
 ```
 
-**预留扩展点**:
-```
-                  ┌─ GDALHtmlExtractor (当前)
-用户文档 ──→ Extractor Interface ──┤
-                  └─ MarkdownExtractor (预留)
-                           │
-                           ▼
-                    ExtractedDoc ──→ LLMGenerator
-```
+**代码位置**:
+- `templates/extractors.py` — `HtmlExtractor`（基于 `HTMLParser`） + `MarkdownExtractor`
+- `api/routes/generator.py` — `POST /generator/parse-document`
+- `frontend/src/pages/GeneratorPage.tsx` — Step 1 文件导入 UI
+
+### DC-0094: 统一模板生成引擎
+
+**决策**: 将 CLI 批量模式 (`scripts/generate/generator.py`) 的完整生成引擎（系统提示词、few-shot 示例、鲁棒 JSON 解析、参数补全、重试逻辑）提取到 `src/llm/template_generator.py`，使在线交互模式和 CLI 批量模式共用同一套生成逻辑。
+
+**理由**:
+- 当前在线模式使用简化提示词（20 行）+ 3 策略 JSON 解析，生成质量明显弱于 CLI 的完整引擎
+- DC-0090 已声明两种模式底层逻辑统一，但当前实现存在漂移
+- 提取为共享模块后，prompt 优化和解析策略改进只需修改一处
+
+**共享逻辑清单**（提取后）:
+| 逻辑 | 在线模式调用 | CLI 批量模式调用 |
+|------|------------|-----------------|
+| 系统提示词 + few-shot | `template_generator.SYSTEM_PROMPT` | `template_generator.SYSTEM_PROMPT` |
+| JSON 解析（含 bare key 修复） | `template_generator.parse_generated_response()` | `template_generator.parse_generated_response()` |
+| 参数补全（未声明变量→boolean） | `template_generator.auto_complete_params()` | `template_generator.auto_complete_params()` |
+| 参数清洗（required+default 冲突） | `template_generator.sanitize_params()` | `template_generator.sanitize_params()` |
+| 同步生成（含重试） | `template_generator.generate_template_sync()` | `template_generator.generate_template_sync()` |
+| 流式生成 | `template_generator.generate_template_stream()` | — |
+| **.j2 组装（JSON → 完整模板文件）** | `template_generator.assemble_j2_body()` | `renderer.py::render_j2()` |
+
+**返回格式**: 共享引擎返回 `dict[str, Any]`（解析后的 LLM JSON），由调用方转换为各自的输出格式（API → `GeneratedTemplateResponse`，CLI → `TemplateDefinition`）。
+
+**API 层组装**: 在线模式的 `POST /generator/generate` 和 `WS /ws/generator/generate` 在收到 LLM 返回的 JSON 后，调用 `assemble_j2_body()` 将结构化数据组装为完整 `.j2` 文件内容（含 `{# @id/@name/@param... #}` comment header + `@echo off` + 命令体 + `REM Done`），与 CLI 的 `renderer.py::render_j2()` 输出格式一致。这样前端预览和保存的始终是可直接放入 `data/templates/` 的标准 `.j2` 文件。
+
+### DC-0095: 多文件导入与 Token 预算检查
+
+**决策**: `POST /generator/parse-document` 支持多文件数组输入。合并清洗后的文本，计算预估 token 数。**Token 预算检查只在调用 LLM 前执行**（`POST /generator/generate` 和 `WS /ws/generator/generate`），`parse-document` 本身不拦截，用户可自由导入文件并预览清洗结果。
+
+**理由**:
+- GDAL 文档常分散在多个 HTML 页面中，单文件导入限制用户体验
+- `LLMClient._truncate_messages()` 会在后台静默截断超长输入，导致关键参数信息丢失、生成质量下降
+- 清洗结果预览是用户决策的一部分，不应因 token 数而阻断导入流程
+- 拦截点后置到 LLM 调用前，符合"提取后、输入 LLM 前判断"的直觉
+
+**Token 预算**:
+- 预估公式: `total_cleaned_chars // 4`（与 `LLMClient._estimate_tokens` 相同启发式）
+- 预算上限: **12000 tokens**（Claude 200K 上下文，预留约 12000 给用户文档 + ~1500 给 system prompt / few-shot examples）
+- 检查位置:
+  - `POST /generator/generate` → HTTP 413
+  - `WS /ws/generator/generate` → error frame（stage=validation）
+  - `parse-document` → **不检查**，始终返回 200
+
+**前端 UX**:
+- Step 1 显示预估 token 数和 `12000` 上限参考
+- 超预算时显示**黄色警告**（不阻止"下一步"），提示"文档较长，生成可能需要更长时间"
+- Step 2 "生成模板"按钮不因 token 数禁用，由后端在调用 LLM 时统一拦截
+
+**合并策略**: 多份清洗后文本按文件顺序拼接，用 `---\n` 分隔。
+
+### DC-0096: WebSocket 流式模板生成
+
+**决策**: 新增 WebSocket 端点 `/ws/generator/generate`（无 `session_id`，模板生成器独立于 Session 状态机）。前端通过 WebSocket 接收 LLM 生成的实时 chunk，消除 HTTP 30s 超时问题。
+
+**理由**:
+- LLM 模板生成本身需要 20-60s，HTTP 30s 超时频繁触发
+- CODE-5 要求流式交互必须使用 WebSocket
+- 实时显示生成过程提升用户信任度（"正在分析文档..." → 逐步看到 JSON 结构输出）
+
+**协议**:
+- Client → Server: `{"type": "start", "document_text": "...", "config": {"category": "...", "tool_source": "..."}}`
+- Server → Client (streaming): `{"type": "chunk", "content": "..."}`
+- Server → Client (complete): `{"type": "done", "result": {"template_id": "...", ...}}`
+- Server → Client (error): `{"type": "error", "message": "...", "stage": "generation|parsing|validation"}`
+
+**前端集成**: Step 2 点击"生成模板"后建立 WebSocket 连接，显示流式面板（实时文本预览 + 取消按钮）。生成完成后自动进入 Step 3。
+
+**HTTP Fallback**: `POST /generator/generate` 保留为同步备用，内部调用 `generate_template_sync()`。
 
 ---
 
@@ -479,6 +559,88 @@ class ExtractedDoc:
   ]
 }
 ```
+
+#### `POST /api/generator/parse-document`
+
+将原始 HTML/Markdown 文档清洗为 LLM 可用的纯文本。支持单文件或多文件。
+
+**Request** (多文件):
+```json
+{
+  "files": [
+    {"content": "<!DOCTYPE html><html>...</html>", "file_type": "html"},
+    {"content": "# gdalwarp\n...", "file_type": "markdown"}
+  ]
+}
+```
+
+**Response**:
+```json
+{
+  "files": [
+    {"file_type": "html", "raw_chars": 15000, "cleaned_chars": 3200},
+    {"file_type": "markdown", "raw_chars": 8000, "cleaned_chars": 2100}
+  ],
+  "document_text": "... merged text with --- separators ...",
+  "total_raw_chars": 23000,
+  "total_cleaned_chars": 5300,
+  "estimated_tokens": 1325
+}
+```
+
+**错误处理**:
+- `400` — `files` 为空数组或包含不支持的 `file_type`
+- `parse-document` 本身**不检查** token 预算，始终返回 200（含 `estimated_tokens` 供前端参考）
+
+**设计**: DC-0088, DC-0095
+
+#### `WS /ws/generator/generate`
+
+流式模板生成 WebSocket（无 `session_id`，模板生成器独立于 Session 状态机）。
+
+**连接**: `ws://<host>:<port>/ws/generator/generate`
+
+**Client → Server** (连接建立后发送):
+```json
+{"type": "start", "document_text": "...", "config": {"category": "vector", "tool_source": "GDAL"}}
+```
+
+**Server → Client** (流式输出):
+```json
+{"type": "chunk", "content": "..."}
+```
+
+**Server → Client** (生成完成，返回结构化结果):
+```json
+{
+  "type": "done",
+  "result": {
+    "template_id": "ogr2ogr_convert",
+    "name": "矢量格式转换",
+    "description": "...",
+    "body": "{# @id ogr2ogr_convert #}\n...",
+    "params": [{"name": "input", "type": "file_path", "required": true}],
+    "concepts": ["..."],
+    "notes": ["..."]
+  }
+}
+```
+
+**Server → Client** (错误):
+```json
+{"type": "error", "message": "...", "stage": "generation|parsing|validation"}
+```
+
+**错误场景**:
+| stage | 触发条件 |
+|-------|---------|
+| `validation` | document_text 为空 / token 预算超限 / 协议消息格式错误 |
+| `generation` | LLM API 调用失败（网络/认证/限流） |
+| `parsing` | LLM 输出不符合 JSON 格式，解析失败 |
+
+**设计**: DC-0096
+
+---
 
 #### `POST /api/generator/save`
 
@@ -571,7 +733,7 @@ python scripts/generate_templates.py \
 **布局**:
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  J2 模板生成器                              [返回主应用]      │
+│  [←] GIS Agent    J2 模板生成器                    ─ □ ✕    │
 ├──────────────────────────────────────────────────────────────┤
 │  [1 文档] ── [2 配置] ── [3 预览] ── [4 审查] ── [5 保存]     │
 ├──────────────────────────────────────────────────────────────┤
@@ -584,17 +746,69 @@ python scripts/generate_templates.py \
 └──────────────────────────────────────────────────────────────┘
 ```
 
+**左上角返回按钮**（DC-UX-07a）：`TopBar` 组件支持 `backTo` prop，当传入 `"/"` 时在左上角 Logo 旁显示返回箭头，点击路由回主应用。
+
 ### 4.2 五步向导
 
 | 步骤 | 标题 | 内容 | 操作 |
 |------|------|------|------|
-| **1** | 输入文档 | 大文本框，粘贴 GDAL HTML 文档或命令说明 | 下一步 |
-| **2** | 配置属性 | 分类选择（vector/raster/general/database）、工具来源输入 | 上一步 / 生成模板 |
+| **1** | 输入文档 | 粘贴文本 **或** 导入多个文件（.html/.md），文件经后端解析器清洗后填入文本框，显示每文件原始→清洗字符数统计 + 总预估 token 数。token 超限时显示黄色警告（不阻止流程） | 下一步 |
+| **2** | 配置属性 | 分类选择（vector/raster/general/database）、工具来源输入。点击"生成模板"后建立 WebSocket 连接，显示流式生成面板（实时文本预览 + 取消按钮） | 上一步 / 生成模板 / 取消 |
 | **3** | 预览结果 | 展示生成的模板元数据（ID、名称、参数列表）+ 模板体代码预览 | 上一步 / 编辑模板 / 安全审查 |
 | **4** | 审查结果 | 安全校验结果展示（通过/失败 + 错误列表）。通过时显示保存按钮 | 上一步 / 保存模板 |
 | **5** | 保存成功 | 成功提示、保存路径、返回主应用 / 再生成一个 | - |
 
-### 4.3 Step 3 编辑器交互
+### 4.3 Step 1 多文件导入 UI
+
+Step 1 文件导入区域支持多文件选择：
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  [选择文件]  支持 .html、.md 格式，自动提取正文并去除噪音      │
+├──────────────────────────────────────────────────────────────┤
+│  📄 ogr2ogr.html      HTML      15,000 → 3,200 字符    [×]  │
+│  📄 gdalwarp.md       Markdown   8,000 → 2,100 字符    [×]  │
+├──────────────────────────────────────────────────────────────┤
+│  总计: 23,000 → 5,300 字符  预估 token: 1,325                │
+└──────────────────────────────────────────────────────────────┘
+```
+
+- `<input type="file" multiple accept=".html,.htm,.md,.markdown">`
+- 每文件显示：文件名、类型标签、原始字符数、清洗后字符数、删除按钮
+- 底部显示总计和预估 token（`total_cleaned_chars // 4`）
+- `estimated_tokens > 12000` 时：黄色警告横幅（"文档较长，生成可能需要更长时间"），不阻止"下一步"
+- 删除单个文件后重新计算总计
+- Step 2 "生成模板"按钮不因 token 数禁用
+
+### 4.4 Step 2 流式生成面板
+
+点击"生成模板"后，配置表单下方展开流式面板：
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  ⚙️ 正在生成模板...                                    [取消] │
+├──────────────────────────────────────────────────────────────┤
+│  {                                                           │
+│    "template_id": "ogr2ogr_convert",                         │
+│    "name": "矢量格式转换",                                    │
+│    ...                                                       │
+│  }                                                           │
+└──────────────────────────────────────────────────────────────┘
+```
+
+- 面板内实时显示累积的 LLM 输出（等宽字体，自动滚动到底部）
+- "取消"按钮调用 `ws.close()`，终止生成
+- 生成完成后面板自动收起，进入 Step 3
+- 生成失败时面板显示错误信息，保留"重试"按钮
+
+**WebSocket 连接流程**:
+1. 构建 URL：`ws://` + `getApiBaseUrl().replace('http://', '')` + `/ws/generator/generate`
+2. `new WebSocket(url)` → `onopen` → `send({type: "start", document_text, config})`
+3. 接收 `chunk` → 追加到 `streamedText` → 面板实时更新
+4. 接收 `done` → `setGenerated(result)` → `setStep(3)` → `ws.close()`
+5. 接收 `error` → `setErrorMsg(message)` → `ws.close()`
+
+### 4.5 Step 3 编辑器交互
 
 Step 3（预览）支持两种视图模式：
 - **只读预览**：展示 LLM 生成的模板体，代码高亮显示
@@ -620,11 +834,14 @@ Step 5 保存成功后：
 
 | 异常场景 | 处理策略 |
 |---------|---------|
-| LLM API 调用失败 | 前端展示错误提示，保留用户输入，允许重试 |
-| LLM 输出不符合 JSON | 尝试 markdown JSON 剥离，仍失败则前端展示"生成失败，请检查输入文档是否包含足够的命令信息" |
+| 文档超出 token 预算 | Step 1 黄色警告（不阻止"下一步"）；后端 `parse-document` 返回 `estimated_tokens`；`POST /generator/generate` 返回 413；WebSocket 返回 `{"type": "error", "stage": "validation"}` |
+| LLM API 调用失败 | WebSocket 发送 `{"type": "error", "stage": "generation"}`；前端展示错误提示，保留用户输入，允许重试 |
+| LLM 输出不符合 JSON | WebSocket 发送 `{"type": "error", "stage": "parsing"}`；前端展示"生成失败，请检查输入文档是否包含足够的命令信息" |
 | J2 渲染语法错误 | 前端 Step 4 展示错误详情，提供"返回编辑"按钮 |
-| 安全校验发现危险模式 | 前端 Step 4 红色提示，列出具体问题，禁止保存 |
+| 安全校验发现危险模式 | `ScriptSecurityChecker` 对模板文件内容（含 Jinja2 语法）做检查：Jinja2 filter `{{ var \| quote }}` 中的 `\|` 不是 shell 管道，需跳过；真正的 shell 管道/分隔符（`\|`, `;`, `&&` 等）仍被拦截。前端 Step 4 红色提示，列出具体问题，禁止保存 |
 | 模板 ID 已存在 | `409` 响应，前端提示"模板已存在，是否覆盖？"，用户确认后带 `overwrite=true` 重试 |
+| WebSocket 连接失败 | 前端显示"连接失败，请重试"，提供回退到 HTTP 生成按钮 |
+| 用户取消生成 | 前端 `ws.close()`，后端停止 chunk 发送；前端恢复"生成模板"按钮 |
 
 ### 5.2 CLI 批量模式
 
@@ -645,12 +862,34 @@ Step 5 保存成功后：
 
 | 测试用例 | 目标 |
 |---------|------|
-| `test_generator_api_generate` | 验证 `/generator/generate` 能正确调用 LLM 并返回结构化数据 |
+| `test_generator_api_generate` | 验证 `/generator/generate` 能正确调用共享引擎并返回结构化数据 |
+| `test_generator_api_generate_token_budget` | 验证 document_text 超过 12000 tokens 时返回 413 |
 | `test_generator_api_validate_pass` | 验证有效模板通过安全校验和语法校验 |
 | `test_generator_api_validate_fail_security` | 验证包含危险模式的模板返回 `valid=false` |
 | `test_generator_api_save_success` | 验证保存后文件存在且触发注册表重扫描 |
 | `test_generator_api_save_conflict` | 验证重复保存返回 `409`，覆盖后成功 |
 | `test_generator_api_save_categorized` | 验证模板按 category 保存到子目录 |
+| `test_generator_api_parse_html` | 验证 HTML 文档清洗：移除 script/nav/footer，保留正文 |
+| `test_generator_api_parse_markdown` | 验证 Markdown 清洗：移除 frontmatter，转换链接为纯文本 |
+| `test_generator_api_parse_multi_file` | 验证多文件合并清洗，含预估 token 数 |
+| `test_generator_api_parse_large_document` | 验证 `parse-document` 不拦截大文件，始终返回 200（含 estimated_tokens） |
+| `test_generator_api_parse_invalid_type` | 验证不支持的 file_type 返回 400 |
+| `test_websocket_generator_connect` | 验证 WebSocket 连接建立和 start 消息接收 |
+| `test_websocket_generator_stream_chunks` | 验证 chunk 帧按序到达 |
+| `test_websocket_generator_done_with_result` | 验证 done 帧包含完整解析结果 |
+| `test_websocket_generator_error_token_budget` | 验证超长文档（>12000 tokens）返回 error 帧（stage=validation） |
+| `test_websocket_generator_error_parse_fail` | 验证 LLM 输出非 JSON 时返回 error 帧（stage=parsing） |
+| `test_llm_template_generator_parse_fences` | 验证 markdown ```json 代码块剥离 |
+| `test_llm_template_generator_parse_bare_keys` | 验证未加引号的 JSON key 自动修复 |
+| `test_llm_template_generator_sanitize_required_default` | 验证 required=true + default → required=false |
+| `test_llm_template_generator_sanitize_enum_no_options` | 验证空 enum options → 占位符 |
+| `test_llm_template_generator_auto_complete_vars` | 验证模板体中未声明变量自动补全为 boolean |
+| `test_llm_template_generator_sync_retry` | 验证首次解析失败后自动重试（temp 0.1→0.2） |
+| `test_llm_template_generator_stream_chunks` | 验证 streaming 模式下 on_chunk 接收完整文本 |
+| `test_html_extractor_noise_removal` | 验证 HtmlExtractor 跳过噪音标签（script/style/nav/footer） |
+| `test_html_extractor_block_tags` | 验证块级标签引入换行 |
+| `test_markdown_extractor_frontmatter` | 验证 YAML frontmatter 移除 |
+| `test_markdown_extractor_links` | 验证 `[text](url)` → `text` |
 
 ### 6.2 CLI 批量模式测试
 
@@ -701,9 +940,18 @@ Step 5 保存成功后：
 | T-GEN-WEB-02 | 实现 `POST /generator/validate` API | - | ✅ |
 | T-GEN-WEB-03 | 实现 `POST /generator/save` API（含自动分类存储、热加载） | T-GEN-WEB-02 | ✅ |
 | T-GEN-WEB-04 | 前端 `GeneratorPage.tsx` 五步向导页面 | - | ✅ |
-| T-GEN-WEB-05 | 前端模板体编辑器（编辑模式 + 重新校验） | T-GEN-WEB-04 | ⬜ |
+| T-GEN-WEB-05 | 前端模板体编辑器（编辑模式 + 重新校验） | T-GEN-WEB-04 | ✅ |
 | T-GEN-WEB-06 | 导航栏集成 GeneratorPage 入口 | - | ✅ |
-| T-GEN-WEB-07 | 保存成功后注册表热加载 + 前端提示 | T-GEN-WEB-03 | ⬜ |
+| T-GEN-WEB-07 | 保存成功后注册表热加载 + 前端提示 | T-GEN-WEB-03 | ✅ |
+| T-GEN-WEB-08 | 文档提取器：HtmlExtractor + MarkdownExtractor（标准库实现） | - | ✅ |
+| T-GEN-WEB-09 | 文件导入 UI：Step 1 支持 .html/.md 导入 + 清洗结果预览 | T-GEN-WEB-08 | ✅ |
+| T-GEN-WEB-10 | TopBar 返回按钮（backTo prop，GeneratorPage 传入 "/"） | DC-UX-07a | ✅ |
+| T-GEN-WEB-11 | 统一生成引擎：提取 CLI 的完整引擎到 `src/llm/template_generator.py` | DC-0094 | ✅ |
+| T-GEN-WEB-12 | API 路由改用共享引擎：`POST /generator/generate` 调用 `generate_template_sync()` | T-GEN-WEB-11 | ✅ |
+| T-GEN-WEB-13 | 多文件导入：`POST /generator/parse-document` 支持文件数组 + token 预算检查（后置到 generate） | DC-0095 | ✅ |
+| T-GEN-WEB-14 | 前端多文件 UI：Step 1 文件列表 + token 统计 + 超限黄色警告（不阻止下一步） | T-GEN-WEB-13 | ✅ |
+| T-GEN-WEB-15 | WebSocket 流式生成：`/ws/generator/generate` 端点 + 前端流式面板 | DC-0096 | ✅ |
+| T-GEN-WEB-16 | CLI 批量模式适配：导入共享引擎，保持向后兼容 | T-GEN-WEB-11 | ✅ |
 
 ### CLI 批量模式
 
@@ -717,5 +965,17 @@ Step 5 保存成功后：
 | T-GEN-06 | 实现状态缓存 + 断点续传机制 | - | ✅ |
 | T-GEN-07 | 实现审核队列（JSONL 输出/导入） | T-GEN-04 | ✅ |
 | T-GEN-08 | 实现 `generate_templates()` 主流程 + CLI | T-GEN-03~07 | ✅ |
-| T-GEN-09 | 编写单元测试 | T-GEN-01~05 | ⬜ |
+| T-GEN-09 | 编写单元测试 | T-GEN-01~05 | ✅ |
 | T-GEN-10 | 编写集成测试（使用真实 GDAL HTML） | T-GEN-08 | ⬜ |
+
+---
+
+## 附录：变更记录
+
+| 版本 | 日期 | 变更内容 |
+|------|------|---------|
+| v3.2.0 | 2026-06-03 | **完整 .j2 组装**（DC-0094 v2）：API/WS 返回的 `body` 由裸 `command_template` 改为调用 `assemble_j2_body()` 组装的标准 `.j2` 文件（含 comment header + `@echo off` + 命令体），与 CLI `renderer.py` 输出格式一致；**安全校验 Jinja2 感知**：`ScriptSecurityChecker.check()` 在检测到模板文件时先清理 Jinja2 构造（`{{...}}`、`{#...#}`、`{%...%}`），避免 `\|` filter 被误判为 shell 管道；前端预览 `pre` 默认文字颜色改为 `text-gray-300` 解决黑色背景看不清问题 |
+| v3.1.0 | 2026-06-03 | **Token 预算策略调整**（DC-0095 v2）：预算上限从 2000 提升到 12000 tokens；检查位置从 `parse-document` 前移到 `generate` / WebSocket 调用前；`parse-document` 不再拦截，始终返回 200 含 `estimated_tokens`；前端 Step 1 超预算时改为黄色警告（不阻止"下一步"），Step 2 "生成模板"按钮不因 token 数禁用；测试用例同步更新；T-GEN-WEB-11~16 标记为已完成 |
+| v3.0.0 | 2026-06-03 | **统一生成引擎**（DC-0094）：提取 CLI 完整引擎到 `src/llm/template_generator.py`，在线模式与批量模式共用提示词/解析/重试/参数补全逻辑；**多文件导入**（DC-0095）：`parse-document` 支持文件数组，前端显示 token 预算检查，超限时明确提示；**WebSocket 流式生成**（DC-0096）：新增 `/ws/generator/generate` 端点，前端 Step 2 显示实时流式面板，消除 HTTP 30s 超时；新增 T-GEN-WEB-11~16；测试策略补充共享引擎、WebSocket、多文件用例 |
+| v2.1.0 | 2026-06-03 | 同步实现状态：T-GEN-WEB-05（前端编辑器）、T-GEN-WEB-07（热加载提示）、T-GEN-09（单元测试）标记为已实现；版本状态更新为"在线模式已实现" |
+| v2.0.0 | 2026-05-30 | 初版，定义双模式模板生成器架构 |

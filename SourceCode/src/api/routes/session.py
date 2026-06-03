@@ -653,6 +653,33 @@ async def get_session(
     return _build_session_response(session_id, session)
 
 
+@router.post("/{session_id}/clear-qa", response_model=SessionResponse)
+async def clear_qa_history_route(
+    session_id: str,
+    session_manager: SessionManager = Depends(get_session_manager),
+) -> SessionResponse:
+    """Clear QA chat history for the session.
+
+    Called by the frontend when user clicks the "清空" button in QATab.
+    Only clears qa_history; does not affect discovery/exec history or
+    session state.
+
+    Args:
+        session_id: Session UUID.
+        session_manager: SessionManager dependency.
+
+    Returns:
+        Updated SessionResponse.
+
+    Design:
+        DC-0107, DC-UX-14
+    """
+    session = _get_session_or_404(session_id, session_manager)
+    new_session = session.clear_qa_history()
+    session_manager.update_session(session_id, new_session)
+    return _build_session_response(session_id, new_session)
+
+
 @router.post("/{session_id}/clear", response_model=SessionResponse)
 async def clear_session(
     session_id: str,

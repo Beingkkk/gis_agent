@@ -67,6 +67,13 @@ export async function clearSession(sessionId: string): Promise<SessionSnapshot> 
   return resp.data
 }
 
+export async function clearQAHistory(
+  sessionId: string
+): Promise<SessionSnapshot> {
+  const resp = await apiClient.post(`/session/${sessionId}/clear-qa`)
+  return resp.data
+}
+
 export async function diagnoseSession(
   sessionId: string
 ): Promise<SessionSnapshot> {

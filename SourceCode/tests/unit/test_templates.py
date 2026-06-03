@@ -194,6 +194,48 @@ def test_security_check_path_traversal_blocked() -> None:
     assert ok is False
 
 
+def test_security_check_jinja2_filter_pipe_allowed() -> None:
+    """Jinja2 filter syntax ``{{ var | quote }}`` is not a shell pipe."""
+    checker = ScriptSecurityChecker()
+    template_body = (
+        "{# @id test #}\n"
+        "@echo off\n"
+        "ogr2ogr {{ output | quote }} {{ input | safe_path | quote }}\n"
+    )
+    ok, reason = checker.check(template_body)
+    assert ok is True, f"Jinja2 filter pipe should be allowed, got: {reason}"
+
+
+def test_security_check_jinja2_comment_ignored() -> None:
+    """Jinja2 comment blocks are ignored during security check."""
+    checker = ScriptSecurityChecker()
+    template_body = (
+        "{# @common_error \"Error A\" — explanation with | char #}\n"
+        "@echo off\n"
+        "ogr2ogr {{ output | quote }} {{ input | quote }}\n"
+    )
+    ok, reason = checker.check(template_body)
+    assert ok is True, f"Comment content should be ignored, got: {reason}"
+
+
+def test_security_check_jinja2_real_pipe_still_blocked() -> None:
+    """Actual shell pipe outside Jinja2 expressions is still blocked."""
+    checker = ScriptSecurityChecker()
+    template_body = (
+        "@echo off\n"
+        "ogr2ogr out.json in.shp | rm -rf /\n"
+    )
+    ok, reason = checker.check(template_body)
+    assert ok is False, "Real shell pipe should still be blocked"
+
+
+def test_security_check_rendered_output_unchanged() -> None:
+    """Rendered output (no Jinja2 syntax) is checked as before."""
+    checker = ScriptSecurityChecker()
+    ok, reason = checker.check("ogr2ogr -f GeoJSON out.json in.shp")
+    assert ok is True
+
+
 # ---------------------------------------------------------------------------
 # T-09: TemplateEngine.render
 # ---------------------------------------------------------------------------

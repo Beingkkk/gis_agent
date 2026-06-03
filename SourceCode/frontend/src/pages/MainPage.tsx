@@ -15,6 +15,7 @@ import {
   lockTemplate,
   submitParams,
   clearSession,
+  clearQAHistory,
   diagnoseSession,
   executeScript,
   exportScript,
@@ -194,10 +195,10 @@ export default function MainPage() {
       }
 
       ws.onclose = () => {
-        if (qaStreaming) {
-          setQaStreaming(false)
-          setLoading(false)
-        }
+        // 总是重置状态：闭包中的 qaStreaming 永远是初始值 false，
+        // 条件判断会导致异常断网时 isLoading 永久卡住 (DC-UX-04)
+        setQaStreaming(false)
+        setLoading(false)
       }
     } catch (e) {
       updateLastQAMessage('处理失败，请重试。')
@@ -205,6 +206,17 @@ export default function MainPage() {
       setLoading(false)
     }
   }
+
+  // ─── QATab: clear messages (backend + frontend) ─────────────────
+  const handleClearQAMessages = useCallback(async () => {
+    if (!sessionId) return
+    try {
+      await clearQAHistory(sessionId)
+      clearQAMessages()
+    } catch (e) {
+      console.error('清空问答历史失败:', e)
+    }
+  }, [sessionId, clearQAMessages])
 
   // ─── Select candidate from DiscoveryTab ─────────────────────────
   const handleSelectCandidate = async (templateId: string) => {
@@ -459,7 +471,7 @@ export default function MainPage() {
                     isStreaming={qaStreaming}
                     lockedTemplateName={taskContext?.template_name}
                     onSendMessage={handleQASend}
-                    onClearMessages={clearQAMessages}
+                    onClearMessages={handleClearQAMessages}
                   />
                 )}
                 {activeTab === 'exec' && (

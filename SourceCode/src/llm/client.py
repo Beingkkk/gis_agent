@@ -215,6 +215,10 @@ class LLMClient:
         4. If all history removed and still over budget,
            truncate current input
 
+        Callers pass ``current_input`` derived from the last message, but
+        ``messages`` still contains that last message.  We separate history
+        from the current turn to avoid double-counting the last message.
+
         Design:
             DC-0033
         """
@@ -225,7 +229,6 @@ class LLMClient:
 
         # If current input alone exceeds budget after system prompt
         if input_tokens > available:
-            # Truncate current input
             max_input_chars = available * 4
             if max_input_chars <= 0:
                 raise LLMContextError(
@@ -233,39 +236,35 @@ class LLMClient:
                     "Cannot fit any input."
                 )
             truncated_input = current_input[:max_input_chars]
-            # Rebuild messages with truncated input as last message
-            result = list(messages)
-            if result:
-                # Current input was derived from the last message;
-                # replace it with the truncated version.
-                result[-1] = Message(
-                    role=result[-1].role, content=truncated_input
-                )
-            return result
+            return [Message(role="user", content=truncated_input)]
 
-        # Start with all messages
-        result = list(messages)
-        total = input_tokens + sum(self._estimate_tokens(m.content) for m in result)
+        # Separate history from current input to avoid double-counting.
+        # current_input is typically messages[-1].content.
+        if messages and messages[-1].content == current_input:
+            history = list(messages[:-1])
+        else:
+            history = list(messages)
 
-        # Remove oldest messages until under budget
-        while total > available and len(result) > 0:
-            removed = result.pop(0)
+        total = input_tokens + sum(
+            self._estimate_tokens(m.content) for m in history
+        )
+
+        # Remove oldest history messages until under budget
+        while total > available and len(history) > 0:
+            removed = history.pop(0)
             total -= self._estimate_tokens(removed.content)
 
-        # If still over budget (shouldn't happen if input itself fits)
+        # If still over budget, truncate current input
         if total > available:
-            # Truncate current input
             remaining = available - sum(
-                self._estimate_tokens(m.content) for m in result[:-1]
+                self._estimate_tokens(m.content) for m in history
             )
             max_chars = max(0, remaining * 4)
-            if result:
-                result[-1] = Message(
-                    role=result[-1].role,
-                    content=result[-1].content[:max_chars],
-                )
+            truncated_input = current_input[:max_chars]
+            return history + [Message(role="user", content=truncated_input)]
 
-        return result
+        # Reconstruct: history + current input
+        return history + [Message(role="user", content=current_input)]
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:

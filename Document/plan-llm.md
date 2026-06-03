@@ -2,10 +2,10 @@
 
 | 项目 | 内容 |
 |------|------|
-| 版本 | v1.1.0 |
+| 版本 | v1.5.0 |
 | 状态 | 设计基线 |
 | 作者 | - |
-| 日期 | 2026-05-28 |
+| 日期 | 2026-06-03 |
 
 ---
 
@@ -88,6 +88,12 @@
 - 总上限：8000 tokens（Claude 3.5 Sonnet 为 200K，预留充足余量）
 - 系统提示词预留：2000 tokens
 - 单次用户输入上限：2000 tokens（超长输入直接拒绝）
+
+**截断实现细节**（`LLMClient._truncate_messages()`）:
+- 调用方将 ``messages``（完整消息列表，含当前轮次）和 ``current_input``（当前轮次文本）同时传入
+- ``current_input`` 通常等于 ``messages[-1].content``；截断前将最后一条消息从历史中分离，避免``current_input`` 被重复计数
+- 优先移除最旧的历史消息；若全部移除后仍超预算，则截断 ``current_input`` 本身
+- **约束**: 结果永不为空列表。即使 budget 极紧，也至少保留截断后的 ``current_input`` 作为一条消息，防止 Anthropic API 返回 `messages must not be empty`
 
 ### DC-0034: 网络错误采用指数退避重试
 
@@ -782,6 +788,7 @@ analyze_execution_error()
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v1.5.0 | 2026-06-03 | **DC-0033 截断策略修正**：`LLMClient._truncate_messages()` 分离 history 与 current_input，避免最后一条消息被重复计数导致所有消息被 pop、返回空列表触发 Anthropic `messages must not be empty` 错误；补充"结果永不为空"约束；§2.3 截断实现细节更新 |
 | v1.4.0 | 2026-05-31 | **系统 Prompt 场景拆分**：更新 DC-0032（5 个独立 Prompt 常量）、DC-0035（代码选择场景，LLM 不猜意图）；新增 DC-0071；PromptBuilder 从单一 `build_system_prompt()` 拆分为 5 个专用方法；`answer_question()` 签名更新（新增 `locked_template`、`current_params`）；§3.3/§3.4/§4.1/§4.2/§4.3/§4.4 全部更新为新的 PromptBuilder 调用方式 |
 | v1.3.0 | 2026-05-29 | 新增 DC-0068/DC-0069：LLMClient 新增 `chat_stream()` 流式接口；`answer_question()` 新增 `on_chunk` 回调参数；§3.2 更新 LLMClient 接口、§3.4 更新 `answer_question` 签名、§7 新增流式测试 |
 | v1.2.0 | 2026-05-28 | 新增 DC-0036：`analyze_execution_error()` 接口，将 ExecutionResult + template + params 传给 LLM，返回结构化 `ErrorDiagnosis`；新增 §3.1 `ErrorDiagnosis`、§3.4 `analyze_execution_error()`、§4.4 错误诊断流程、§7.1 测试策略、§8 需求追溯 |

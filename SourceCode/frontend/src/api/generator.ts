@@ -40,3 +40,27 @@ export async function saveTemplate(
   })
   return resp.data
 }
+
+export interface FileItem {
+  content: string
+  file_type: string
+}
+
+export interface FileResult {
+  file_type: string
+  raw_chars: number
+  cleaned_chars: number
+}
+
+export interface ParseDocumentResult {
+  files: FileResult[]
+  document_text: string
+  total_raw_chars: number
+  total_cleaned_chars: number
+  estimated_tokens: number
+}
+
+export async function parseDocument(files: FileItem[]): Promise<ParseDocumentResult> {
+  const resp = await apiClient.post('/generator/parse-document', { files })
+  return resp.data
+}

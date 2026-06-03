@@ -4,25 +4,42 @@ Provides endpoints for LLM-driven J2 template generation,
 validation, and saving.
 
 Design:
-    T-UX-07 (DC-UX-07), plan-j2-generate DC-0092, DC-0093
+    T-UX-07 (DC-UX-07), plan-j2-generate DC-0092, DC-0093, DC-0094, DC-0095
 """
 
-import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from jinja2 import Environment, TemplateSyntaxError
 from pydantic import BaseModel
 
 from api.dependencies import get_llm_client, refresh_registry
+from llm.template_generator import (
+    auto_complete_params,
+    generate_template_sync,
+    parse_generated_response,
+    sanitize_params,
+)
 from templates.engine import ScriptSecurityChecker
+from templates.extractors import HtmlExtractor, MarkdownExtractor
 
 router = APIRouter(prefix="/generator", tags=["generator"])
 
 logger = logging.getLogger(__name__)
+
+# Token budget for LLM template generation input.
+# Claude supports 200K context; we reserve ~12000 for the user document
+# plus system prompt and few-shot examples (~1500 tokens).
+_MAX_INPUT_TOKENS = 12000
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate: len(text) // 4."""
+    return max(1, len(text) // 4)
+
 
 # ---------------------------------------------------------------------------
 # Request / Response models
@@ -32,8 +49,8 @@ logger = logging.getLogger(__name__)
 class GenerateConfig(BaseModel):
     """Configuration for template generation."""
 
-    category: Optional[str] = None
-    tool_source: Optional[str] = None
+    category: str | None = None
+    tool_source: str | None = None
 
 
 class GenerateRequest(BaseModel):
@@ -92,6 +109,51 @@ class SaveResponse(BaseModel):
     template_id: str
 
 
+class FileItem(BaseModel):
+    """Single file item for multi-file parse request.
+
+    Design:
+        DC-0095
+    """
+
+    content: str
+    file_type: str  # "html" | "markdown"
+
+
+class ParseDocumentRequest(BaseModel):
+    """Request to parse and clean documents for LLM input.
+
+    Supports single file (legacy) or multi-file array.
+
+    Design:
+        DC-0088, DC-0095
+    """
+
+    files: list[FileItem]
+
+
+class FileResult(BaseModel):
+    """Per-file parse result."""
+
+    file_type: str
+    raw_chars: int
+    cleaned_chars: int
+
+
+class ParseDocumentResponse(BaseModel):
+    """Cleaned document text ready for LLM consumption.
+
+    Design:
+        DC-0095
+    """
+
+    files: list[FileResult]
+    document_text: str
+    total_raw_chars: int
+    total_cleaned_chars: int
+    estimated_tokens: int
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -131,79 +193,30 @@ def _extract_category(body: str) -> str:
     return "general"
 
 
-def _build_generate_prompt(config: GenerateConfig) -> str:
-    """Build LLM system prompt for template generation.
-
-    The system prompt contains only instructions and format specification.
-    The actual documentation text is passed as a user message so the
-    LLMClient truncation logic can manage its length.
+def _clean_file(content: str, file_type: str) -> str:
+    """Clean a single file based on its type.
 
     Args:
-        config: Generation configuration.
+        content: Raw file content.
+        file_type: "html" or "markdown".
 
     Returns:
-        System prompt for LLM.
-    """
-    category = config.category or "general"
-    tool_source = config.tool_source or "GDAL"
-
-    return (
-        f"You are a Jinja2 template generator for GIS tools.\n"
-        f"Generate a Jinja2 template definition based on the "
-        f"GDAL {tool_source} documentation provided by the user.\n"
-        f"Category: {category}\n\n"
-        f"Return ONLY a JSON object with these fields:\n"
-        f'  "template_id": string (kebab-case ID)\n'
-        f'  "name": string (human-readable Chinese name)\n'
-        f'  "description": string (one-line description)\n'
-        f'  "body": string (full Jinja2 template with comment header)\n'
-        f'  "params": array of {{"name", "type", "required"}}\n'
-        f'  "concepts": array of strings\n'
-        f'  "notes": array of strings\n'
-    )
-
-
-def _parse_generated_response(text: str) -> dict[str, Any]:
-    """Parse LLM response into a dict.
-
-    Handles several common LLM output patterns:
-    - Pure JSON
-    - Markdown `` ```json ... ``` `` fences
-    - Markdown `` ``` ... ``` `` fences (no language tag)
-    - Explanatory text followed by a fenced JSON block
-    - JSON embedded in explanatory text (extracts first ``{...}``)
-
-    Args:
-        text: Raw LLM response text.
-
-    Returns:
-        Parsed dict.
+        Cleaned text.
 
     Raises:
-        ValueError: If JSON parsing fails.
+        HTTPException: If file_type is unsupported.
     """
-    stripped = text.strip()
-
-    # Pattern 1: markdown code fence (with or without language tag)
-    fence_match = re.search(r"```(?:json)?\s*\n(.*?)\n```", stripped, re.DOTALL)
-    if fence_match:
-        candidate = fence_match.group(1).strip()
-        try:
-            return json.loads(candidate)  # type: ignore[no-any-return]
-        except json.JSONDecodeError:
-            pass  # Fall through to broader extraction
-
-    # Pattern 2: find the first top-level JSON object {...}
-    brace_match = re.search(r"(\{.*\})", stripped, re.DOTALL)
-    if brace_match:
-        candidate = brace_match.group(1).strip()
-        try:
-            return json.loads(candidate)  # type: ignore[no-any-return]
-        except json.JSONDecodeError:
-            pass
-
-    # Pattern 3: try the whole text as JSON (last resort)
-    return json.loads(stripped)  # type: ignore[no-any-return]
+    ft = file_type.lower().strip()
+    if ft in ("html", "htm"):
+        extractor = HtmlExtractor()
+        return extractor.extract(content)
+    elif ft in ("markdown", "md"):
+        return MarkdownExtractor.extract(content)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file_type: {file_type}. Use 'html' or 'markdown'.",
+        )
 
 
 def _validate_jinja2_syntax(body: str) -> tuple[bool, list[str]]:
@@ -232,6 +245,9 @@ def _validate_jinja2_syntax(body: str) -> tuple[bool, list[str]]:
 async def generate_template(request: GenerateRequest) -> dict[str, Any]:
     """Generate a J2 template from GDAL documentation text.
 
+    Uses the shared generation engine (DC-0094) with full system prompt,
+    few-shot examples, robust JSON parsing, and retry logic.
+
     Args:
         request: Document text and generation config.
 
@@ -239,40 +255,50 @@ async def generate_template(request: GenerateRequest) -> dict[str, Any]:
         GeneratedTemplateResponse with template body and metadata.
 
     Raises:
-        HTTPException: 400 if input is empty, 500 if generation fails.
+        HTTPException: 400 if input is empty, 413 if token budget exceeded,
+            500 if generation fails.
+
+    Design:
+        DC-0094
     """
     document_text = request.document_text.strip()
     if not document_text:
         raise HTTPException(status_code=400, detail="document_text is required")
 
+    # Token budget check (DC-0095)
+    estimated_tokens = _estimate_tokens(document_text)
+    if estimated_tokens > _MAX_INPUT_TOKENS:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"文档过长（约 {estimated_tokens} tokens），"
+                f"请精简后重试（上限 {_MAX_INPUT_TOKENS} tokens）"
+            ),
+        )
+
     llm_client = get_llm_client()
-    system_prompt = _build_generate_prompt(request.config)
 
     try:
-        from llm.models import Message
-
         logger.info(
             "Generating template (doc_len=%d, category=%s)",
             len(document_text),
             request.config.category or "general",
         )
-        response_text = llm_client.chat(
-            system_prompt=system_prompt,
-            messages=[Message(role="user", content=document_text)],
+        data = generate_template_sync(
+            client=llm_client,
+            document_text=document_text,
+            config=request.config.model_dump(),
         )
-        logger.debug("LLM raw response length=%d", len(response_text))
-        data = _parse_generated_response(response_text)
+        body_raw = data.get("body") or data.get("command_template", "")
+        tid_raw = data.get("template_id") or data.get("id", "N/A")
         logger.info(
             "Parsed response: template_id=%s name=%s body_len=%d",
-            data.get("template_id", "N/A"),
+            tid_raw,
             data.get("name", "N/A"),
-            len(data.get("body", "")),
+            len(body_raw),
         )
-    except json.JSONDecodeError as exc:
-        logger.error(
-            "Failed to parse LLM response as JSON. Raw prefix: %s",
-            response_text[:500] if "response_text" in dir() else "N/A",
-        )
+    except ValueError as exc:
+        logger.error("Failed to parse LLM response: %s", exc)
         raise HTTPException(
             status_code=500, detail=f"Invalid JSON from LLM: {exc}"
         ) from exc
@@ -282,20 +308,35 @@ async def generate_template(request: GenerateRequest) -> dict[str, Any]:
             status_code=500, detail=f"Generation failed: {exc}"
         ) from exc
 
+    # Assemble full .j2 body from LLM structured output (DC-0094)
+    # LLM prompt uses "command_template" and "id"; API model uses "body"
+    # and "template_id". Accept both for backward compatibility.
+    from llm.template_generator import assemble_j2_body
+
+    params_raw = sanitize_params(data.get("params", []))
+    body = data.get("body") or data.get("command_template", "")
+    params_raw = auto_complete_params(body, params_raw)
+
+    # Build the full .j2 file content (comment header + @echo off + command)
+    data_with_params = dict(data)
+    data_with_params["params"] = params_raw
+    j2_body = assemble_j2_body(data_with_params)
+
     params = [
         ParamDefItem(
             name=p.get("name", ""),
             type=p.get("type", "string"),
             required=p.get("required", True),
         )
-        for p in data.get("params", [])
+        for p in params_raw
     ]
 
     return GeneratedTemplateResponse(
-        template_id=data.get("template_id", "generated"),
+        template_id=data.get("template_id")
+        or data.get("id", "generated"),
         name=data.get("name", "Generated Template"),
         description=data.get("description", ""),
-        body=data.get("body", ""),
+        body=j2_body,
         params=params,
         concepts=data.get("concepts", []),
         notes=data.get("notes", []),
@@ -382,4 +423,71 @@ async def save_template(request: SaveRequest) -> SaveResponse:
         saved_path=str(file_path),
         category=category,
         template_id=request.template_id,
+    )
+
+
+@router.post("/parse-document", response_model=ParseDocumentResponse)
+async def parse_document(request: ParseDocumentRequest) -> ParseDocumentResponse:
+    """Parse and clean raw documents (HTML/Markdown) for LLM input.
+
+    Supports multi-file input. Cleans each file and merges with ``---\n``
+    separators. Returns per-file stats and total estimated token count.
+
+    Token budget is NOT enforced here — the caller checks before sending
+    to the LLM (DC-0095 v2).
+
+    Args:
+        request: List of files with content and type.
+
+    Returns:
+        ParseDocumentResponse with cleaned merged text and token estimate.
+
+    Raises:
+        HTTPException: 400 if files array is empty or contains unsupported type.
+
+    Design:
+        DC-0088, DC-0095
+    """
+    if not request.files:
+        raise HTTPException(status_code=400, detail="files array is required")
+
+    file_results: list[FileResult] = []
+    cleaned_parts: list[str] = []
+    total_raw = 0
+    total_cleaned = 0
+
+    for item in request.files:
+        content = item.content
+        file_type = item.file_type
+
+        cleaned = _clean_file(content, file_type)
+        file_results.append(
+            FileResult(
+                file_type=file_type,
+                raw_chars=len(content),
+                cleaned_chars=len(cleaned),
+            )
+        )
+        cleaned_parts.append(cleaned)
+        total_raw += len(content)
+        total_cleaned += len(cleaned)
+
+    # Merge with separators
+    merged_text = "\n---\n".join(cleaned_parts)
+    estimated_tokens = _estimate_tokens(merged_text)
+
+    logger.info(
+        "Parsed %d documents (total_raw=%d, total_cleaned=%d, tokens=%d)",
+        len(request.files),
+        total_raw,
+        total_cleaned,
+        estimated_tokens,
+    )
+
+    return ParseDocumentResponse(
+        files=file_results,
+        document_text=merged_text,
+        total_raw_chars=total_raw,
+        total_cleaned_chars=total_cleaned,
+        estimated_tokens=estimated_tokens,
     )

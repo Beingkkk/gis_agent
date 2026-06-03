@@ -123,15 +123,34 @@ class ScriptSecurityChecker:
     def check(self, script: str) -> Tuple[bool, Optional[str]]:
         """Check if script contains dangerous patterns.
 
+        When the input is a Jinja2 template file (contains ``{{``, ``{%``,
+        or ``{#``), Jinja2 filter syntax like ``{{ var | quote }}`` uses
+        ``|`` but is not a shell pipe.  We strip Jinja2 constructs before
+        checking to avoid false positives.
+
         Args:
-            script: Rendered script content.
+            script: Rendered script content or raw Jinja2 template body.
 
         Returns:
             (True, None) if safe.
             (False, reason) if unsafe, where reason describes the issue.
         """
+        has_jinja2 = "{%" in script or "{{" in script or "{#" in script
+
+        if has_jinja2:
+            # Replace Jinja2 variable expressions ({{ ... }}) with a
+            # placeholder so that ``|`` in filters is not treated as a
+            # shell pipe.
+            cleaned = re.sub(r"\{\{[^{}]*\}\}", " __J2VAR__ ", script)
+            # Comment blocks ({# ... #}) never appear in rendered output.
+            cleaned = re.sub(r"\{#[^#]*#\}", "", cleaned)
+            # Statement blocks ({% ... %}) are control flow, not commands.
+            cleaned = re.sub(r"\{%[^{%]*%\}", " ", cleaned)
+        else:
+            cleaned = script
+
         for pattern, reason in self.DANGEROUS_PATTERNS:
-            if re.search(pattern, script):
+            if re.search(pattern, cleaned):
                 return (False, reason)
         return (True, None)
 

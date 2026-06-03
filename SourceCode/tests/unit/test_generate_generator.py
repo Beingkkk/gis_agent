@@ -11,8 +11,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import pytest
 
-from generate.generator import LLMTemplateGenerator, _strip_markdown_json
+from generate.generator import LLMTemplateGenerator
 from generate.models import ExtractedDoc
+from llm.template_generator import _strip_markdown_json
 
 
 VALID_JSON_RESPONSE = """{
@@ -120,7 +121,9 @@ class TestLLMTemplateGenerator:
         result, error = generator.generate(sample_doc)
 
         assert result is None
-        assert "validation" in error.lower() or "missing" in error.lower()
+        # After DC-0094 refactor, missing fields cause KeyError in _parse_template_def,
+        # which is caught and results in "JSON parse failed after retry"
+        assert "parse failed" in error.lower() or "missing" in error.lower()
 
     def test_generate_markdown_json(
         self,

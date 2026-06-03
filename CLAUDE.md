@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GIS Agent (`gis-agent`) is a natural-language assistant for GIS data processing using GDAL tools. It accepts Chinese requests, maps them to predefined Jinja2 templates, generates batch scripts, and executes them only after explicit user confirmation.
 
-The project provides an Electron desktop application (`frontend/` + `api/`) as the **sole active user entry point**. The command-line REPL (`cli/`) is **deprecated** — code is preserved but no longer maintained (constitution.md §6.1). Both share the same `core/llm/templates` business logic. The browser-based UI has been removed; Electron is the sole graphical entry point.
+The project provides an Electron desktop application (`frontend/` + `api/`) as the **sole active user entry point**. The browser-based UI has been removed; Electron is the sole graphical entry point.
 
 The project strictly follows Specification-Driven Design: no code without a preceding design document.
 
@@ -40,7 +40,6 @@ Strict layered architecture. Upper layers may call lower layers; **reverse depen
 ```
 Frontend (frontend/)    → React + TypeScript + Vite + Electron desktop app
 API layer (api/)        → FastAPI REST + WebSocket adapters (Python child process)
-~~CLI layer (cli/)~~    → ~~REPL, slash commands, script execution~~ 【已废弃，代码保留】
 Core layer (core/)      → template registry, param validator, session processor, matching engine
 App layer (llm/)        → LLM interaction, intent classification, template-knowledge Q&A, error diagnosis
 Infra layer             → anthropic SDK, jinja2, GDAL CLI
@@ -50,7 +49,6 @@ Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker
 **Dependency rules**:
 - `frontend/` calls `api/` via HTTP/WebSocket only; never imports Python code
 - `api/` may depend on `core/`, `llm/`, `templates/`
-- ~~`cli/` may depend on `core/`, `llm/`, `templates/`~~ 【CLI 已废弃，历史保留】
 - `core/` may depend on `llm/`, `templates/`
 - `llm/` may depend on `core/` (for `TemplateDef` knowledge metadata in Q&A)
 - `templates/` may depend on `core/` (models)
@@ -71,7 +69,6 @@ Use `codegraph_search` to find specific functions. The following are design patt
 `SessionState` has 6 states: `IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW → EXECUTING → ERROR_RECOVERY`.
 
 - **Desktop UI**: The API routes (`api/routes/session.py`) handle state transitions via REST. `EXECUTING` is special — the `websocket/execute.py` handler runs the script asynchronously, then updates the session state: success → `IDLE` (clears history and error context); failure → `ERROR_RECOVERY` with `ExecutionErrorContext` (DC-0048). The frontend then calls `POST /session/{id}/diagnose` to trigger lazy LLM diagnosis (plan-core DC-0049).
-- ~~**CLI**: `SessionProcessor` (in `core/processor.py`) drove the full state machine single-threaded.~~ 【CLI 已废弃，代码保留】
 
 **History isolation (DC-0107)**: `Session` maintains two separate message lists:
 - `history` — Discovery/Exec flow messages (intent matching, parameter submission, execution status)
@@ -98,7 +95,7 @@ This removes the old keyword-based (`什么`, `怎么`) question detection from 
 
 ### ERROR_RECOVERY in the Desktop UI
 
-The desktop UI splits error recovery across three pieces (the CLI recovery loop is deprecated with the CLI layer):
+The desktop UI splits error recovery across three pieces:
 1. **Backend websocket**: `websocket/execute.py` sets `ERROR_RECOVERY` + basic `ExecutionErrorContext` (stdout/stderr/returncode/duration_ms, diagnosis=None).
 2. **Backend diagnose endpoint**: `POST /session/{id}/diagnose` lazily triggers `llm.diagnosis.analyze_execution_error()`, populates `error_context.diagnosis` (cause, suggestion, fixed_params, confidence, can_auto_fix), and caches the result.
 3. **Frontend auto-trigger**: After WebSocket execution fails, `MainPage` automatically calls `diagnoseSession()` if `error_context.diagnosis` is absent. **No "一键诊断" button** — diagnosis is fully automatic.
@@ -132,7 +129,11 @@ Pipeline (`/#/pipeline`) allows chaining multiple template steps with auto-linke
 
 ### GeneratorPage (J2 Template Wizard)
 
-Five-step wizard at `/#/generator`: Document input → Config → Preview → Review → Save. Step 3 features a Monaco-style code editor (dark theme, line numbers, Tab indentation), inline Jinja2 syntax highlighting, and live re-validation. Step 5 shows a hot-reload confirmation (backend calls `refresh_registry()` on save, new template is immediately available without restart).
+Five-step wizard at `/#/generator`: Document input → Config → Preview → Review → Save.
+
+- **Step 3 Preview**: Displays the assembled `.j2` file (via `assemble_j2_body()`): Jinja2 comment header (`{# @id/@name/@param... #}`), `@echo off`, command body, `REM Done`. Features a Monaco-style code editor (dark theme, line numbers, Tab indentation), inline Jinja2 syntax highlighting, and live re-validation.
+- **Step 4 Review**: `ScriptSecurityChecker` validates the template. It detects Jinja2 syntax (`{{...}}`, `{#...#}`, `{%...%}`) and skips false positives (e.g. `|` in `{{ var | quote }}` is a filter, not a shell pipe). Real shell pipes/separators outside Jinja2 expressions are still blocked.
+- **Step 5 Save**: Hot-reload confirmation — backend calls `refresh_registry()` on save, new template is immediately available without restart.
 
 ## CodeGraph
 
@@ -251,14 +252,6 @@ npm run electron:dev
 
 `concurrently` starts both the Vite dev server and Electron. The Electron main process polls `http://localhost:5173` and loads the window once the dev server is ready.
 
-~~**CLI**~~ 【已废弃，代码保留】:
-
-```bash
-cd SourceCode
-python start_cli.py        # 仍可运行，但不再维护
-python start_cli.py --dry-run
-```
-
 ### Development Tools
 
 ```bash
@@ -313,17 +306,18 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `Document/spec.md` | All requirements trace back here (F1-F11, P1-P5, UX-1~3) |
 | `Document/plan-core.md` | ERROR_RECOVERY design (DC-0048/DC-0049), matching engine (DC-0094), two-stage matching (DC-0098), one-shot LLM decisions (DC-0106), `qa_history` isolation (DC-0107) |
 | `Document/plan-ux.md` | WebSocket streaming (DC-UX-04/05), state→UI mapping, Q&A history isolation (DC-UX-14/15), diagnosis UX with markdown rendering, Pipeline/Generator UX |
+| `Document/plan-j2-generate.md` | J2 Template Generator: dual-mode (online + CLI batch), shared generation engine (DC-0094), multi-file import (DC-0095), WebSocket streaming generation (DC-0096) |
 | `Document/plan-electron.md` | Electron shell architecture, IPC design, Python process lifecycle |
 | `Document/plan-exec-env.md` | Execution environment config: ShellDetector, CondaEnvDetector, ShellExecutor; DC-0101~DC-0105 |
 | `src/api/routes/session.py` | Two-stage intent matching API (DC-0098) + `POST /chat` for Q&A + `POST /diagnose` for lazy error diagnosis + `POST /export-script` for explicit script export (DC-UX-11a) |
 | `src/api/websocket/chat.py` | Q&A WebSocket handler: streams LLM output via `/ws/chat/{id}` (DC-UX-04). Reads `session.qa_history` as conversation context and persists user+assistant messages back to `qa_history` after each round (DC-UX-14) |
 | `src/api/websocket/execute.py` | Execution WebSocket handler: subprocess stdout/stderr streaming (DC-0048) |
-| `src/core/processor.py` | ~~CLI state machine dispatcher~~ 【CLI 已废弃，代码保留】|
 | `src/core/diagnosis.py` | Shared `build_diagnosis_context()` — eliminates duplication between API layer and deprecated processor (DC-0049) |
 | `src/core/matching.py` | Unified template matching scoring (keywords=+3, concepts=+2, id/name/desc/notes=+1) |
 | `src/llm/prompts.py` | PromptBuilder with 5 scenario-specific system prompts (DC-0071): intent / template-qa / gis-expert / param / diagnosis |
 | `src/llm/qa.py` | `answer_question()` — code-level branching: `locked_template` determines template-knowledge vs GIS-expert mode |
 | `src/llm/diagnosis.py` | `analyze_execution_error()` — One-shot LLM error diagnosis (no history, DC-0106). Prompt requires a 【修复命令参考】 markdown code block when `can_auto_fix=true`. Returns structured `ErrorDiagnosis` (cause, suggestion, fixed_params, confidence, can_auto_fix). |
+| `src/llm/template_generator.py` | **Shared generation engine** (DC-0094): `SYSTEM_PROMPT` + few-shot, `parse_generated_response()`, `sanitize_params()`, `auto_complete_params()`, `assemble_j2_body()` (assembles LLM JSON into complete .j2 file with comment header + `@echo off` + command body), `generate_template_sync()`, `generate_template_stream()`. |
 | `frontend/electron/main.ts` | Electron main process: frameless window, Python child process, IPC handlers (file dialogs + window controls) |
 | `frontend/electron/preload.ts` | `contextBridge` preload script exposing `selectFile`, `selectDirectory`, `getApiBaseUrl`, `windowControl` |
 | `frontend/src/electron-api.ts` | Renderer-side IPC wrappers including `WindowControlAPI` (minimize/maximize/close) |
@@ -342,7 +336,9 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `frontend/src/components/CmdEditor.tsx` | Monaco-style script editor with Jinja2 syntax highlighting, live validation |
 | `frontend/src/components/ExecStatusPanel.tsx` | Execution result panel: success (green card with output/returncode/duration) / failure (diagnosis result rendered with ReactMarkdown + error output bash panel + "修改参数"/"放弃任务" actions). Diagnosis suggestion supports markdown code blocks for 【修复命令参考】. |
 | `frontend/src/components/DetailPanel.tsx` | Right-panel state renderer: `PARAM_COLLECT` → ParamForm (grouped); `SCRIPT_PREVIEW` → collapsible ParamForm only (script preview lives in ExecTab CmdEditor); `IDLE` (post-success) → read-only ParamForm showing grouped param values; `ERROR_RECOVERY` → read-only ParamForm (title "参数值", no buttons — diagnosis lives in ExecStatusPanel on left) |
-| `frontend/src/pages/GeneratorPage.tsx` | Five-step J2 wizard: Monaco-style editor, inline Jinja2 highlight, live re-validation |
+| `src/api/routes/generator.py` | Generator REST API: `POST /generate` (sync, calls shared engine + `assemble_j2_body()`), `POST /validate` (security + Jinja2 syntax), `POST /save` (category subdir + registry rescan), `POST /parse-document` (multi-file HTML/Markdown cleaning) |
+| `src/api/websocket/generator.py` | WebSocket streaming handler for template generation: `/ws/generator/generate` — streams LLM chunks, parses JSON, assembles full .j2 via `assemble_j2_body()`, returns done/error frames |
+| `frontend/src/pages/GeneratorPage.tsx` | Five-step J2 wizard: Document input → Config → Preview (assembled .j2 with comment header + `@echo off`) → Review (security check, Jinja2-aware) → Save (hot-reload). Step 3 Monaco-style editor with inline Jinja2 highlight and live re-validation |
 | `frontend/src/pages/PipelinePage.tsx` | Pipeline multi-step: template step editor with auto-linked parameters, merged script preview, WebSocket execution |
 | `src/api/routes/pipeline.py` | Pipeline REST API: `POST /pipeline` (preview merged script), `POST /pipeline/execute` (trigger execution) |
 | `src/core/exec_env.py` | `ShellDetector`, `CondaEnvDetector`, `EnvironmentBuilder`, `ShellExecutor` — shell detection, conda env var derivation, script write/execute (DC-0101~DC-0105) |
@@ -396,5 +392,5 @@ After adding a template, restart the application to pick it up (templates are sc
 - `Document/Resource/` is gitignored; do not commit its contents.
 - `SourceCode/model/embedding/` contains large model files (deprecated per ADR-0001, no longer used at runtime); should not be committed.
 - `SourceCode/config/config.json` is gitignored; never commit credentials.
-- The Electron desktop app (`frontend/`) is the sole active entry point. The CLI (`cli/`) code is preserved but no longer maintained.
+- The Electron desktop app (`frontend/`) is the sole active entry point.
 - Script execution writes temporary scripts to `./cache/` (project-relative, auto-created; DC-0105 v1.3.0), not to workspace or system temp. Users export scripts explicitly via the "Export Script" button (DC-UX-11a) which opens a save dialog and reveals the file in the file manager.

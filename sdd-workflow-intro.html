@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SDD 规范驱动开发工作流 v2.0</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg-card: #161b22;
+      --bg-elevated: #1c2128;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --text-dim: #6e7681;
+      --accent: #58a6ff;
+      --accent-soft: #79c0ff;
+      --danger: #f85149;
+      --danger-soft: #ff7b72;
+      --success: #3fb950;
+      --success-soft: #7ee787;
+      --warning: #d29922;
+      --warning-soft: #e3b341;
+      --info: #a371f7;
+      --info-soft: #bc8cff;
+      --added: #3fb950;
+      --modified: #d29922;
+      --removed: #f85149;
+      --radius: 8px;
+      --font-mono: 'SFMono-Regular', 'Fira Code', Consolas, monospace;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+      line-height: 1.7;
+      font-size: 15px;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container { max-width: 1000px; margin: 0 auto; padding: 0 24px; }
+    section { padding: 64px 0; border-bottom: 1px solid var(--border); }
+    section:last-child { border-bottom: none; }
+    h1 { font-size: 2.6rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 12px; }
+    h2 { font-size: 1.6rem; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+    h2 .icon { font-size: 1.3rem; }
+    h3 { font-size: 1.15rem; font-weight: 600; margin: 28px 0 12px; color: var(--accent-soft); }
+    p { margin-bottom: 12px; color: var(--text-muted); }
+    .subtitle { font-size: 1.15rem; color: var(--text-muted); max-width: 640px; margin-bottom: 24px; }
+    .badge {
+      display: inline-block; padding: 3px 10px; border-radius: 20px;
+      font-size: 0.78rem; font-weight: 600; font-family: var(--font-mono);
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      color: var(--accent-soft);
+    }
+    .badge-success { color: var(--success-soft); border-color: rgba(63,185,80,0.3); }
+    .badge-danger { color: var(--danger-soft); border-color: rgba(248,81,73,0.3); }
+    .badge-warning { color: var(--warning-soft); border-color: rgba(210,153,34,0.3); }
+
+    /* Hero */
+    .hero {
+      padding: 80px 0 48px;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+    }
+    .hero .version {
+      display: inline-flex; align-items: center; gap: 8px;
+      margin-bottom: 20px;
+    }
+    .hero .version .tag {
+      background: linear-gradient(135deg, rgba(88,166,255,0.15), rgba(163,113,247,0.15));
+      border: 1px solid rgba(88,166,255,0.3); color: var(--accent-soft);
+      padding: 4px 14px; border-radius: 20px; font-size: 0.85rem;
+      font-family: var(--font-mono); font-weight: 600;
+    }
+    .hero .version .date { color: var(--text-dim); font-size: 0.85rem; }
+
+    /* Cards */
+    .card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px 24px;
+      margin-bottom: 16px; transition: border-color 0.2s;
+    }
+    .card:hover { border-color: var(--border); }
+    .card h4 {
+      font-size: 1rem; font-weight: 600; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .card p { margin: 0; font-size: 0.9rem; }
+    .card-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px; margin-top: 20px;
+    }
+    .card-grid-3 {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px; margin-top: 20px;
+    }
+
+    /* Code blocks */
+    pre, code {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+    }
+    code {
+      background: var(--bg-elevated); padding: 2px 6px;
+      border-radius: 4px; color: var(--accent-soft);
+    }
+    pre {
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 20px;
+      overflow-x: auto; margin: 16px 0;
+      color: var(--text-muted); line-height: 1.6;
+    }
+    pre code { background: none; padding: 0; color: inherit; }
+
+    /* Tables */
+    table {
+      width: 100%; border-collapse: collapse;
+      margin: 16px 0; font-size: 0.9rem;
+    }
+    th, td {
+      padding: 10px 14px; text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      font-weight: 600; color: var(--text);
+      background: var(--bg-elevated); font-size: 0.85rem; text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    tr:hover td { background: rgba(88,166,255,0.03); }
+
+    /* Pyramids / Flows */
+    .pyramid {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 8px; margin: 28px 0;
+    }
+    .pyramid-level {
+      text-align: center; padding: 10px 20px;
+      border-radius: var(--radius); font-size: 0.9rem;
+      font-family: var(--font-mono); font-weight: 600;
+      border: 1px solid;
+      transition: transform 0.15s, box-shadow 0.15s; cursor: default;
+    }
+    .pyramid-level:hover { transform: translateY(-2px); }
+    .p-constitution { width: 40%; background: rgba(248,81,73,0.1); border-color: rgba(248,81,73,0.4); color: var(--danger-soft); }
+    .p-spec { width: 55%; background: rgba(210,153,34,0.1); border-color: rgba(210,153,34,0.4); color: var(--warning-soft); }
+    .p-plan { width: 70%; background: rgba(88,166,255,0.1); border-color: rgba(88,166,255,0.4); color: var(--accent-soft); }
+    .p-source { width: 85%; background: rgba(63,185,80,0.08); border-color: rgba(63,185,80,0.3); color: var(--success-soft); }
+    .p-archive { width: 60%; background: rgba(163,113,247,0.08); border-color: rgba(163,113,247,0.3); color: var(--info-soft); margin-top: 4px; }
+
+    .flow-container {
+      display: flex; align-items: center; justify-content: center;
+      flex-wrap: wrap; gap: 8px; margin: 24px 0;
+    }
+    .flow-box {
+      padding: 10px 18px; border-radius: var(--radius);
+      font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600;
+      border: 1px solid;
+    }
+    .flow-arrow { color: var(--text-dim); font-size: 1.2rem; }
+    .flow-init { background: rgba(88,166,255,0.1); border-color: rgba(88,166,255,0.3); color: var(--accent-soft); }
+    .flow-propose { background: rgba(210,153,34,0.1); border-color: rgba(210,153,34,0.3); color: var(--warning-soft); }
+    .flow-impl { background: rgba(63,185,80,0.1); border-color: rgba(63,185,80,0.3); color: var(--success-soft); }
+    .flow-archive { background: rgba(163,113,247,0.1); border-color: rgba(163,113,247,0.3); color: var(--info-soft); }
+    .flow-verify { background: rgba(139,148,158,0.1); border-color: rgba(139,148,158,0.3); color: var(--text-muted); }
+
+    /* Delta markers */
+    .delta-added { color: var(--added); font-weight: 600; }
+    .delta-modified { color: var(--modified); font-weight: 600; }
+    .delta-removed { color: var(--removed); font-weight: 600; }
+
+    /* TDD circles */
+    .tdd-flow {
+      display: flex; align-items: center; justify-content: center;
+      gap: 16px; margin: 28px 0; flex-wrap: wrap;
+    }
+    .tdd-circle {
+      width: 100px; height: 100px; border-radius: 50%;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; font-weight: 700; font-size: 0.9rem;
+      border: 2px solid; transition: transform 0.2s;
+    }
+    .tdd-circle:hover { transform: scale(1.08); }
+    .tdd-red { background: rgba(248,81,73,0.12); border-color: var(--danger); color: var(--danger-soft); }
+    .tdd-green { background: rgba(63,185,80,0.12); border-color: var(--success); color: var(--success-soft); }
+    .tdd-blue { background: rgba(88,166,255,0.12); border-color: var(--accent); color: var(--accent-soft); }
+    .tdd-arrow { color: var(--text-dim); font-size: 1.5rem; }
+
+    /* Command list */
+    .cmd-list { margin-top: 16px; }
+    .cmd-item {
+      display: flex; align-items: flex-start; gap: 14px;
+      padding: 14px 0; border-bottom: 1px solid var(--border);
+    }
+    .cmd-item:last-child { border-bottom: none; }
+    .cmd-name {
+      font-family: var(--font-mono); font-size: 0.9rem; font-weight: 600;
+      color: var(--accent-soft); white-space: nowrap;
+      min-width: 140px;
+    }
+    .cmd-desc { color: var(--text-muted); font-size: 0.9rem; }
+    .cmd-phase {
+      font-size: 0.75rem; color: var(--text-dim);
+      font-family: var(--font-mono); margin-left: auto; white-space: nowrap;
+    }
+
+    /* Quickstart */
+    .quickstart-tabs {
+      display: flex; gap: 4px; margin-bottom: 16px;
+      border-bottom: 1px solid var(--border); padding-bottom: 12px;
+    }
+    .quickstart-tab {
+      padding: 8px 16px; border-radius: var(--radius);
+      cursor: pointer; font-size: 0.9rem; font-weight: 500;
+      border: 1px solid transparent; transition: all 0.15s;
+    }
+    .quickstart-tab:hover { background: var(--bg-elevated); }
+    .quickstart-tab.active {
+      background: rgba(88,166,255,0.1); border-color: rgba(88,166,255,0.3);
+      color: var(--accent-soft);
+    }
+
+    /* Footer */
+    footer {
+      text-align: center; padding: 40px 0;
+      color: var(--text-dim); font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+      h1 { font-size: 1.8rem; }
+      h2 { font-size: 1.3rem; }
+      .container { padding: 0 16px; }
+      section { padding: 40px 0; }
+      .cmd-item { flex-direction: column; gap: 4px; }
+      .tdd-circle { width: 80px; height: 80px; font-size: 0.8rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ===== HERO ===== -->
+<div class="hero">
+  <div class="container">
+    <div class="version">
+      <span class="tag">v2.0.0</span>
+      <span class="date">2026-06-03</span>
+    </div>
+    <h1>SDD 规范驱动开发工作流</h1>
+    <p class="subtitle">
+      设计先行、文档驱动、编码后置、测试护航、变更可溯。<br>
+      脱胎于 <a href="#">GIS Agent</a> 项目实战，经 OpenSpec 方法论反思后重构。
+    </p>
+    <div style="margin-top: 8px;">
+      <span class="badge">Claude Code Skill</span>
+      <span class="badge badge-success">TDD 强制</span>
+      <span class="badge badge-warning">Delta Spec</span>
+      <span class="badge" style="color:var(--info-soft);border-color:rgba(163,113,247,0.3)">Archive 归档</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ===== CORE IDEA ===== -->
+<section>
+  <h2><span class="icon">📐</span> 核心理念：四层金字塔 + Archive</h2>
+  <p>文档冲突时，上层效力高于下层。所有活跃变更必须通过 Delta Spec 隔离，禁止直接修改锁定的真相源。</p>
+
+  <div class="pyramid">
+    <div class="pyramid-level p-constitution">constitution.md — 最高约束</div>
+    <div class="pyramid-level p-spec">spec.md — 需求真相源</div>
+    <div class="pyramid-level p-plan">plan-{module}.md — 模块设计（锁定后只读）</div>
+    <div class="pyramid-level p-source">source code — 设计的实现</div>
+    <div style="height:8px"></div>
+    <div class="pyramid-level p-archive">archive/ — 历史归档（只读审计追踪）</div>
+  </div>
+
+  <div class="card-grid-3">
+    <div class="card">
+      <h4>📄 真相源单一</h4>
+      <p><code>spec.md</code> 和 <code>plan-*.md</code> 只反映<strong>当前已完成</strong>的系统状态。"计划中"的变更在 <code>changes/</code> 中管理。</p>
+    </div>
+    <div class="card">
+      <h4>🔀 变更隔离</h4>
+      <p>所有活跃变更通过 <code>changes/proposal-{NNNN}.md</code> 管理。ADDED / MODIFIED / REMOVED 显式标记，人类和 AI 无需 diff 即可理解。</p>
+    </div>
+    <div class="card">
+      <h4>📦 Archive 归档</h4>
+      <p>完成的 proposal 和旧版 plan 归档到 <code>archive/</code>，保留完整设计谱系。不是删除，而是成为只读的审计历史。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== THREE TRACKS ===== -->
+<section>
+  <h2><span class="icon">🔄</span> 三轨道工作流</h2>
+  <p>v2.0 将六阶段压缩为三轨道，降低认知负担，同时保留核心纪律。</p>
+
+  <h3>轨道一：初始化</h3>
+  <div class="flow-container">
+    <div class="flow-box flow-init">/sdd-init</div>
+    <span class="flow-arrow">/</span>
+    <div class="flow-box flow-init">/sdd-adopt</div>
+  </div>
+  <p>新项目用 <code>/sdd-init</code>（Greenfield），已有项目用 <code>/sdd-adopt</code>（Brownfield）反推 spec。</p>
+
+  <h3>轨道二：演进（核心）</h3>
+  <div class="flow-container">
+    <div class="flow-box flow-propose">/sdd-propose</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box flow-impl">/sdd-implement</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box flow-archive">/sdd-archive</div>
+  </div>
+  <p>借鉴 OpenSpec 的 <strong>Propose → Apply → Archive</strong> 三阶段。每个变更先创建 Delta Spec，实现后合并归档。</p>
+
+  <h3>轨道三：验证</h3>
+  <div class="flow-container">
+    <div class="flow-box flow-verify">/sdd-verify</div>
+  </div>
+  <p>贯穿全程的一致性检查：文档存在性、追溯链、Plan-代码一致性、Delta Spec 合规性、测试覆盖。</p>
+</section>
+
+<!-- ===== COMMANDS ===== -->
+<section>
+  <h2><span class="icon">⌨️</span> 命令速查</h2>
+
+  <div class="cmd-list">
+    <div class="cmd-item">
+      <span class="cmd-name">/sdd-init</span>
+      <span class="cmd-desc">初始化新项目目录结构，生成 constitution.md + spec.md 骨架（可选完整版/轻量版）</span>
+      <span class="cmd-phase">[初始化]</span>
+    </div>
+    <div class="cmd-item">
+      <span class="cmd-name">/sdd-adopt</span>
+      <span class="cmd-desc">已有代码库引入 SDD：反推 spec/plan，标记基线，识别技术债</span>
+      <span class="cmd-phase">[初始化]</span>
+    </div>
+    <div class="cmd-item">
+      <span class="cmd-name">/sdd-propose</span>
+      <span class="cmd-desc">创建变更提案（Delta Spec）：判定 Type-A/B/C/D，输出 changes/proposal-{NNNN}.md</span>
+      <span class="cmd-phase">[演进]</span>
+    </div>
+    <div class="cmd-item">
+      <span class="cmd-name">/sdd-implement</span>
+      <span class="cmd-desc">按 TDD 红-绿-重构实现提案：RED → GREEN → REFACTOR，状态改为 IMPLEMENTED</span>
+      <span class="cmd-phase">[演进]</span>
+    </div>
+    <div class="cmd-item">
+      <span class="cmd-name">/sdd-archive</span>
+      <span class="cmd-desc">将 proposal 合并到真相源（spec/plan），归档旧版，触发 verify</span>
+      <span class="cmd-phase">[演进]</span>
+    </div>
+    <div class="cmd-item">
+      <span class="cmd-name">/sdd-verify</span>
+      <span class="cmd-desc">一致性验证：文档存在性、追溯链、Plan-代码一致性、Delta 合规、测试覆盖</span>
+      <span class="cmd-phase">[验证]</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== DELTA SPEC ===== -->
+<section>
+  <h2><span class="icon">🔀</span> Delta Spec 增量规格</h2>
+  <p>v2.0 核心机制。所有变更必须通过 <code>changes/proposal-{NNNN}.md</code> 管理，禁止直接修改锁定的真相源。</p>
+
+  <h3>变更类型判定</h3>
+  <table>
+    <tr>
+      <th>类型</th>
+      <th>判定依据</th>
+      <th>处理方式</th>
+    </tr>
+    <tr>
+      <td><strong>Type-A</strong> 需求变更</td>
+      <td>spec 中的功能需求增删改</td>
+      <td>创建 proposal → 更新 spec delta → 更新 plan delta → 实现 → archive</td>
+    </tr>
+    <tr>
+      <td><strong>Type-B</strong> 设计变更</td>
+      <td>plan 中接口/行为变更，spec 未变</td>
+      <td>创建 proposal → 更新 plan delta → 实现 → archive</td>
+    </tr>
+    <tr>
+      <td><strong>Type-C</strong> 代码缺陷</td>
+      <td>实现与 plan 不符（纯代码错误）</td>
+      <td><strong>无需 proposal</strong>，直接修复代码</td>
+    </tr>
+    <tr>
+      <td><strong>Type-D</strong> 技术债重构</td>
+      <td>代码行为不变，内部结构优化</td>
+      <td>可选创建 proposal（推荐），或直接用测试保护重构</td>
+    </tr>
+  </table>
+
+  <h3>Proposal 文件格式</h3>
+  <pre><code># Proposal 002: 数据质量校验
+
+| 属性 | 内容 |
+|------|------|
+| 类型 | Type-A（需求变更）|
+| 状态 | PROPOSED → APPROVED → IMPLEMENTED → ARCHIVED |
+
+## 变更内容
+
+<span class="delta-added">[ADDED]</span> spec: 新增 F4「数据质量校验」
+<span class="delta-added">[ADDED]</span> plan-core: DC-0004 质量规则 DSL
+<span class="delta-modified">[MODIFIED]</span> plan-core: 超时默认值 30s → 60s
+<span class="delta-removed">[REMOVED]</span> plan-frontend: 废弃的一键诊断按钮逻辑
+
+## 影响评估
+| 层级 | 影响 | 说明 |
+|------|------|------|
+| spec.md | 是 | 新增 F4 |
+| plan-core.md | 是 | 新增 DC-0004，修改 DC-0001 |
+| plan-scheduler.md | 否 | 接口契约不变 |
+
+## 实现检查清单
+- [ ] 失败测试（RED）
+- [ ] 最小实现（GREEN）
+- [ ] 重构（REFACTOR）
+- [ ] 回归测试通过
+- [ ] Archive 合并</code></pre>
+
+  <h3>Archive 合并纪律</h3>
+  <div class="card-grid">
+    <div class="card">
+      <h4>🚫 禁止逆序</h4>
+      <p>不允许先改代码再补 proposal 合并（RED-5）。必须先 proposal，后实现，再 archive。</p>
+    </div>
+    <div class="card">
+      <h4>🚫 禁止范围外变更</h4>
+      <p>一次 proposal 只解决一个问题。禁止「顺手改」未评估的代码。</p>
+    </div>
+    <div class="card">
+      <h4>✅ 强制回归</h4>
+      <p>任何 archive 合并后，必须验证未变更模块的测试仍然通过。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== DIR STRUCTURE ===== -->
+<section>
+  <h2><span class="icon">📁</span> 目录结构</h2>
+  <pre><code>{project}/
+├── Document/                       # 全部设计文档（禁止放可执行代码）
+│   ├── constitution.md             # 项目宪法（最高约束）
+│   ├── spec.md                     # 需求真相源（当前状态）
+│   ├── plan-{module}.md            # 模块设计（锁定后只读）
+│   ├── ADR-{NNNN}-{name}.md        # 架构决策记录
+│   ├── changes/                    # ⭐ 活跃变更提案（Delta Specs）
+│   │   └── proposal-{NNNN}.md      #    ADDED / MODIFIED / REMOVED
+│   ├── archive/                    # ⭐ 历史归档（只读审计追踪）
+│   │   ├── proposal-{NNNN}-merged.md
+│   │   └── plan-{module}-v{X}.{Y}.{Z}.md
+│   ├── assets/                     # 文档图片、图表
+│   └── references/                 # 外部参考资料
+│
+├── SourceCode/                     # 全部源码（禁止放设计文档）
+│   ├── src/                        # 源代码（按架构分层）
+│   ├── tests/
+│   │   ├── unit/                   # 单元测试
+│   │   ├── integration/            # 集成测试
+│   │   └── fixtures/               # 测试数据
+│   ├── scripts/                    # 开发辅助脚本
+│   └── docs/                       # 源码级文档（README、构建说明）
+│
+└── .gitignore</code></pre>
+
+  <div class="card-grid-3">
+    <div class="card" style="border-left: 3px solid var(--danger)">
+      <h4 style="color:var(--danger-soft)">DIR-1</h4>
+      <p>Document/ 下<strong>绝不放置可执行代码</strong></p>
+    </div>
+    <div class="card" style="border-left: 3px solid var(--danger)">
+      <h4 style="color:var(--danger-soft)">DIR-2</h4>
+      <p>SourceCode/ 下<strong>绝不放置设计文档</strong>（README 除外）</p>
+    </div>
+    <div class="card" style="border-left: 3px solid var(--danger)">
+      <h4 style="color:var(--danger-soft)">DIR-3</h4>
+      <p>changes/ 中<strong>仅存放活跃提案</strong>，IMPLEMENTED 后必须 archive</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== RED RULES ===== -->
+<section>
+  <h2><span class="icon">🚫</span> 红色条款（绝对禁区）</h2>
+  <table>
+    <tr>
+      <th style="width:70px">编号</th>
+      <th>禁止行为</th>
+      <th>违规后果</th>
+    </tr>
+    <tr>
+      <td><span class="badge badge-danger">RED-1</span></td>
+      <td><strong>无 plan 直接编码</strong>。公共接口进入代码前必须有对应 plan 定义。</td>
+      <td>视为技术债，必须补 plan 或移除代码</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-danger">RED-2</span></td>
+      <td><strong>plan 与代码不一致</strong>。接口、行为与实现出现偏差。</td>
+      <td>视为缺陷，必须修复使之一致</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-danger">RED-3</span></td>
+      <td><strong>未经审阅的 proposal 直接实现</strong>。单人项目可自审，但必须显式标记 APPROVED。</td>
+      <td>实现无效，需重新审阅</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-danger">RED-4</span></td>
+      <td><strong>需求变更不更新 spec</strong>。Type-A 变更未同步更新 spec.md。</td>
+      <td>真相源失效，依赖 plan 需重新评估</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-danger">RED-5</span></td>
+      <td><strong>直接修改已锁定的 plan 或 spec</strong>。未经 proposal 流程直接修改真相源。</td>
+      <td>修改无效，必须回退并通过 proposal 重做</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-danger">RED-6</span></td>
+      <td><strong>先实现后补测试</strong>。进入编码阶段的第一笔代码不是测试。</td>
+      <td>视为偏离 TDD，需回退</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ===== TDD ===== -->
+<section>
+  <h2><span class="icon">🧪</span> TDD 红-绿-重构</h2>
+
+  <div class="tdd-flow">
+    <div class="tdd-circle tdd-red">
+      <div>红</div>
+      <div style="font-size:0.7rem;font-weight:400">写失败测试</div>
+    </div>
+    <span class="tdd-arrow">→</span>
+    <div class="tdd-circle tdd-green">
+      <div>绿</div>
+      <div style="font-size:0.7rem;font-weight:400">最小实现</div>
+    </div>
+    <span class="tdd-arrow">→</span>
+    <div class="tdd-circle tdd-blue">
+      <div>重构</div>
+      <div style="font-size:0.7rem;font-weight:400">优化结构</div>
+    </div>
+    <span class="tdd-arrow">↺</span>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <h4><span style="color:var(--danger-soft)">TDD-1</span> 测试先于实现</h4>
+      <p>新增公共接口的测试代码必须在实现代码之前提交。</p>
+    </div>
+    <div class="card">
+      <h4><span style="color:var(--danger-soft)">TDD-2</span> 一个失败测试只写一个</h4>
+      <p>不允许一次性写多个 failing test 再批量实现。</p>
+    </div>
+    <div class="card">
+      <h4><span style="color:var(--danger-soft)">TDD-3</span> 测试必须可独立运行</h4>
+      <p>不依赖其他测试的执行顺序或副作用。</p>
+    </div>
+    <div class="card">
+      <h4><span style="color:var(--danger-soft)">TDD-4</span> 重构必须有测试保护</h4>
+      <p>重构提交时相关测试必须全部通过。</p>
+    </div>
+    <div class="card">
+      <h4><span style="color:var(--danger-soft)">TDD-5</span> Plan 测试用例全覆盖</h4>
+      <p>plan 中定义的每个测试用例都必须在代码中有对应测试。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== LIGHTWEIGHT MODE ===== -->
+<section>
+  <h2><span class="icon">🪶</span> 轻量模式（一人团队裁剪版）</h2>
+  <p>当团队规模为 1 人时，以下裁剪是<strong>允许的</strong>。但某些环节对一人团队反而更重要。</p>
+
+  <h3>✅ 可裁剪（降低形式成本）</h3>
+  <table>
+    <tr>
+      <th>完整流程</th>
+      <th>轻量裁剪</th>
+      <th>理由</th>
+    </tr>
+    <tr>
+      <td>六阶段（P0-P4）</td>
+      <td>三阶段（spec+plan → propose → implement+archive）</td>
+      <td>自评审可省略形式化门槛</td>
+    </tr>
+    <tr>
+      <td>tasks 单独文件</td>
+      <td>plan 内嵌任务清单</td>
+      <td>一个人不需要任务转手</td>
+    </tr>
+    <tr>
+      <td>ADR 单独文件</td>
+      <td>仅重大决策时写 ADR</td>
+      <td>常规决策用 plan 内 DC 编号</td>
+    </tr>
+    <tr>
+      <td>交叉评审</td>
+      <td>自审 + checklist</td>
+      <td>一人团队无交叉评审对象</td>
+    </tr>
+  </table>
+
+  <h3>🚫 不可裁剪（一人团队反而更重要）</h3>
+  <div class="card-grid">
+    <div class="card" style="border-left:3px solid var(--success)">
+      <h4 style="color:var(--success-soft)">constitution.md</h4>
+      <p>给未来自己的约束。3 个月后你会忘记「为什么这样设计」。</p>
+    </div>
+    <div class="card" style="border-left:3px solid var(--success)">
+      <h4 style="color:var(--success-soft)">spec.md + MoSCoW</h4>
+      <p>范围控制，防止「这个 cool 功能顺手做一下」导致蔓延。</p>
+    </div>
+    <div class="card" style="border-left:3px solid var(--success)">
+      <h4 style="color:var(--success-soft)">plan + DC 编号</h4>
+      <p>当你回来重构时，DC-0048 告诉你当初为什么这样设计。</p>
+    </div>
+    <div class="card" style="border-left:3px solid var(--success)">
+      <h4 style="color:var(--success-soft)">proposal 流程</h4>
+      <p>防止「顺手改一下」导致连锁 bug。强制停下来评估。</p>
+    </div>
+    <div class="card" style="border-left:3px solid var(--success)">
+      <h4 style="color:var(--success-soft)">TDD 红-绿-重构</h4>
+      <p>测试是唯一的代码正确性保障。没有同事帮你 Review。</p>
+    </div>
+    <div class="card" style="border-left:3px solid var(--success)">
+      <h4 style="color:var(--success-soft)">/sdd-verify</h4>
+      <p>唯一的质量门禁。没有 CI 团队帮你把关。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== QUICK START ===== -->
+<section>
+  <h2><span class="icon">🚀</span> 快速开始</h2>
+
+  <h3>Greenfield：从零开始</h3>
+  <pre><code># Step 1: 初始化项目骨架
+/sdd-init
+  → 选择「轻量版」spec
+  → 创建 Document/、SourceCode/ 目录
+  → 生成 constitution.md + spec.md 骨架
+
+# Step 2: 填充 spec（对话式）
+用户: 核心功能：可视化配置数据流、定时调度、失败告警
+      技术栈：Python + FastAPI + React
+系统: [生成 spec.md]
+      Must: F1 可视化配置, F2 调度执行, F3 失败告警
+      关键原则：P1 配置即代码, P2 执行隔离
+
+# Step 3: 模块设计
+/sdd-propose
+  → 创建 changes/proposal-001.md（Type-B：设计实现）
+  → [ADDED] PipelineExecutor 类
+  → [ADDED] 状态机定义（IDLE/RUNNING/FAILED/SUCCESS）
+
+# Step 4: TDD 实现
+/sdd-implement
+  → [RED] 编写 PipelineExecutor 失败测试
+  → [GREEN] 实现最小代码
+  → [REFACTOR] 优化结构
+
+# Step 5: 归档合并
+/sdd-archive
+  → 合并到 plan-core.md（新增 DC-0001~0003）
+  → 归档 proposal-001
+  → 触发 /sdd-verify ✅</code></pre>
+
+  <h3>Brownfield：已有项目引入</h3>
+  <pre><code># 已有 3 个月代码，想引入规范驱动
+/sdd-adopt
+  → 扫描代码结构
+  → 反推 spec.md（已有功能 → Must）
+  → 反推 plan-{module}.md
+  → 标记基线 v1.0.0
+  → /sdd-verify 报告：
+      ⚠ src/utils/helpers.py 中 3 个函数无 plan（技术债）
+
+# 后续所有变更
+/sdd-propose → /sdd-implement → /sdd-archive
+# 现有技术债逐步通过 proposal 补齐</code></pre>
+</section>
+
+<!-- ===== V2 CHANGES ===== -->
+<section>
+  <h2><span class="icon">📋</span> v2.0 变更说明</h2>
+  <table>
+    <tr>
+      <th>v1.0</th>
+      <th>v2.0</th>
+      <th>改进点</th>
+    </tr>
+    <tr>
+      <td>六阶段 P0-P4</td>
+      <td>三轨道（初始化/演进/验证）</td>
+      <td>降低认知负担，更贴近实际</td>
+    </tr>
+    <tr>
+      <td>直接修改 spec/plan</td>
+      <td>Delta Spec（changes/ + ADDED/MODIFIED/REMOVED）</td>
+      <td>变更隔离，支持并行提案，物理隔离活跃变更</td>
+    </tr>
+    <tr>
+      <td>仅 Greenfield</td>
+      <td>新增 /sdd-adopt（Brownfield）</td>
+      <td>存量项目可渐进引入，无需推倒重来</td>
+    </tr>
+    <tr>
+      <td>无归档机制</td>
+      <td>archive/ 目录</td>
+      <td>保留设计谱系，审计追踪</td>
+    </tr>
+    <tr>
+      <td>单一重量级流程</td>
+      <td>完整版 + 轻量模式</td>
+      <td>一人团队可裁剪，降低形式成本</td>
+    </tr>
+    <tr>
+      <td>/sdd-change 单独命令</td>
+      <td>变更融入 /sdd-propose（Type-A/B/C/D）</td>
+      <td>变更类型判定在提案阶段完成，流程更自然</td>
+    </tr>
+  </table>
+</section>
+
+</div>
+
+<footer>
+  <div class="container">
+    <p>SDD 规范驱动开发工作流 v2.0 · 脱胎于 GIS Agent 项目 · 经 OpenSpec 方法论反思重构</p>
+    <p style="margin-top:4px;color:var(--text-dim)">Claude Code Skill · <a href="https://github.com">GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

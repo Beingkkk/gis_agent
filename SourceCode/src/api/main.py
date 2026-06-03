@@ -105,6 +105,7 @@ def create_app() -> FastAPI:
     from api.routes import templates as templates_routes
     from api.websocket.chat import handle_chat_websocket
     from api.websocket.execute import handle_execute_websocket
+    from api.websocket.generator import handle_generator_websocket
 
     app.include_router(session_routes.router, prefix="/api")
     app.include_router(templates_routes.router, prefix="/api")
@@ -121,6 +122,11 @@ def create_app() -> FastAPI:
     async def execute_websocket(websocket: WebSocket, session_id: str) -> None:
         """Execute WebSocket endpoint for real-time script execution logs."""
         await handle_execute_websocket(websocket, session_id)
+
+    @app.websocket("/ws/generator/generate")
+    async def generator_websocket(websocket: WebSocket) -> None:
+        """Template generation WebSocket endpoint for streaming LLM output."""
+        await handle_generator_websocket(websocket)
 
     @app.get("/health")
     async def health_check() -> dict[str, str]:

@@ -1,7 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import TopBar from '../components/TopBar'
-import { generateTemplate, validateTemplate, saveTemplate } from '../api/generator'
+import {
+  validateTemplate,
+  saveTemplate,
+  parseDocument,
+} from '../api/generator'
+import { getApiBaseUrl } from '../electron-api'
 import type { GeneratedTemplate, ParamDef } from '../types'
 
 type Step = 1 | 2 | 3 | 4 | 5
@@ -13,6 +18,16 @@ interface InlineValidation {
   errors: string[]
   checkedBody: string
 }
+
+interface ImportedFile {
+  name: string
+  content: string
+  fileType: string
+}
+
+// Token budget for LLM input. Claude supports 200K context;
+// we allow up to 12000 tokens for the user document.
+const MAX_TOKENS = 12000
 
 // Simple Jinja2 syntax highlighter — runs client-side, no extra deps
 function highlightJinja2(code: string): string {
@@ -84,6 +99,23 @@ export default function GeneratorPage() {
   const [editorLineCount, setEditorLineCount] = useState(1)
   const editorRef = useRef<HTMLTextAreaElement>(null)
 
+  // Multi-file import state (DC-0095)
+  const [importedFiles, setImportedFiles] = useState<ImportedFile[]>([])
+  const [parseResult, setParseResult] = useState<{
+    files: Array<{ file_type: string; raw_chars: number; cleaned_chars: number }>
+    document_text: string
+    estimated_tokens: number
+    total_raw_chars: number
+    total_cleaned_chars: number
+  } | null>(null)
+  const [isParsing, setIsParsing] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // WebSocket streaming state (DC-0096)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [streamedText, setStreamedText] = useState('')
+  const wsRef = useRef<WebSocket | null>(null)
+
   // Get the effective template body (edited or original)
   const effectiveBody = editedBody || generated?.body || ''
 
@@ -97,28 +129,143 @@ export default function GeneratorPage() {
   // Check if edited body differs from last validated body
   const hasUnvalidatedChanges = isEditing && inlineValidation.checkedBody !== effectiveBody
 
+  // Token budget check
+  const estimatedTokens = parseResult?.estimated_tokens ?? 0
+  const isOverBudget = estimatedTokens > MAX_TOKENS
+
+  // File import handlers (DC-0095)
+  const handleFileSelect = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    setIsParsing(true)
+    setErrorMsg(null)
+
+    try {
+      const imported: ImportedFile[] = []
+      for (const file of Array.from(files)) {
+        const ext = file.name.split('.').pop()?.toLowerCase() || ''
+        if (!['html', 'htm', 'md', 'markdown'].includes(ext)) {
+          setErrorMsg(`不支持的文件格式: ${file.name}，仅支持 .html 和 .md`)
+          continue
+        }
+        const content = await file.text()
+        const fileType = ext === 'htm' ? 'html' : ext === 'md' ? 'markdown' : ext
+        imported.push({ name: file.name, content, fileType })
+      }
+
+      if (imported.length === 0) {
+        setIsParsing(false)
+        return
+      }
+
+      setImportedFiles(imported)
+
+      const result = await parseDocument(
+        imported.map((f) => ({ content: f.content, file_type: f.fileType }))
+      )
+
+      setParseResult(result)
+      setDocumentText(result.document_text)
+    } catch (e: any) {
+      console.error('文件导入失败:', e)
+      const msg = e.response?.data?.detail || e.message || '未知错误'
+      setErrorMsg(`文件导入失败: ${msg}`)
+    } finally {
+      setIsParsing(false)
+    }
+
+    // Reset file input so the same files can be selected again
+    e.target.value = ''
+  }
+
+  const handleRemoveFile = (index: number) => {
+    const newFiles = importedFiles.filter((_, i) => i !== index)
+    setImportedFiles(newFiles)
+    if (newFiles.length === 0) {
+      setParseResult(null)
+      setDocumentText('')
+    }
+  }
+
+  // WebSocket generation (DC-0096)
   const handleGenerate = async () => {
     if (!documentText.trim()) return
-    setIsLoading(true)
+
+    setIsGenerating(true)
+    setStreamedText('')
     setErrorMsg(null)
+
     try {
-      const result = await generateTemplate(documentText, {
-        category,
-        tool_source: toolSource,
-      })
-      setGenerated(result)
-      setEditedBody(result.body)
-      setIsEditing(false)
-      setInlineValidation({ status: 'none', errors: [], checkedBody: '' })
-      setValidation(null)
-      setStep(3)
+      const apiBase = await getApiBaseUrl()
+      if (!apiBase) {
+        setErrorMsg('无法获取后端地址')
+        setIsGenerating(false)
+        return
+      }
+      const wsUrl = apiBase.replace(/^http/, 'ws') + '/ws/generator/generate'
+
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        ws.send(
+          JSON.stringify({
+            type: 'start',
+            document_text: documentText,
+            config: { category, tool_source: toolSource },
+          })
+        )
+      }
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data)
+        switch (msg.type) {
+          case 'chunk':
+            setStreamedText((prev) => prev + msg.content)
+            break
+          case 'done':
+            setGenerated(msg.result)
+            setEditedBody(msg.result.body)
+            setIsEditing(false)
+            setInlineValidation({ status: 'none', errors: [], checkedBody: '' })
+            setValidation(null)
+            setStep(3)
+            setIsGenerating(false)
+            ws.close()
+            break
+          case 'error':
+            setErrorMsg(`生成失败: ${msg.message}`)
+            setIsGenerating(false)
+            ws.close()
+            break
+        }
+      }
+
+      ws.onerror = () => {
+        setErrorMsg('WebSocket 连接失败')
+        setIsGenerating(false)
+      }
+
+      ws.onclose = () => {
+        setIsGenerating(false)
+        wsRef.current = null
+      }
     } catch (e: any) {
       console.error('生成失败:', e)
-      const msg = e.response?.data?.detail || e.message || '未知错误'
-      setErrorMsg(`生成失败: ${msg}`)
-    } finally {
-      setIsLoading(false)
+      setErrorMsg(`生成失败: ${e.message || '未知错误'}`)
+      setIsGenerating(false)
     }
+  }
+
+  const handleCancelGenerate = () => {
+    wsRef.current?.close()
+    setIsGenerating(false)
+    setStreamedText('')
   }
 
   const handleValidate = async () => {
@@ -231,7 +378,7 @@ export default function GeneratorPage() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-50">
-      <TopBar title="J2 模板生成器" />
+      <TopBar title="J2 模板生成器" backTo="/" />
 
       {/* Step indicator */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
@@ -284,13 +431,118 @@ export default function GeneratorPage() {
                 输入 GDAL 文档
               </h2>
               <p className="text-sm text-gray-500">
-                粘贴 GDAL 工具的 HTML 文档或命令说明文本，LLM 将据此生成 J2 模板。
+                粘贴 GDAL 工具的 HTML 文档或命令说明文本，或导入多个文件。LLM 将据此生成 J2 模板。
               </p>
+
+              {/* File import area */}
+              <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50/50 p-4">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleFileSelect}
+                    disabled={isParsing}
+                    className="flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-400 transition-all disabled:opacity-50"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    {isParsing ? '解析中...' : '选择文件'}
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept=".html,.htm,.md,.markdown"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                  <span className="text-xs text-gray-400">
+                    支持多文件 .html、.md，自动提取正文并去除噪音
+                  </span>
+                </div>
+
+                {/* File list */}
+                {importedFiles.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {importedFiles.map((file, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between bg-white rounded-md border border-gray-200 px-3 py-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-gray-700">{file.name}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                            {file.fileType}
+                          </span>
+                          {parseResult && (
+                            <span className="text-xs text-gray-400">
+                              {parseResult.files[idx]?.raw_chars.toLocaleString()} →{' '}
+                              {parseResult.files[idx]?.cleaned_chars.toLocaleString()} 字符
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => handleRemoveFile(idx)}
+                          className="text-gray-400 hover:text-red-500 transition-colors"
+                          title="删除"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+
+                    {/* Token budget display */}
+                    {parseResult && (
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                        <div className="text-xs text-gray-500">
+                          总计: {parseResult.total_raw_chars.toLocaleString()} →{' '}
+                          {parseResult.total_cleaned_chars.toLocaleString()} 字符
+                          {' · '}
+                          <span className={isOverBudget ? 'text-red-600 font-medium' : 'text-gray-600'}>
+                            预估 token: {parseResult.estimated_tokens}
+                          </span>
+                          {' / '}{MAX_TOKENS}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Over budget warning — advisory only, not blocking */}
+                    {isOverBudget && (
+                      <div className="rounded-md bg-yellow-50 border border-yellow-200 p-2">
+                        <p className="text-xs text-yellow-700">
+                          文档较长（约 {estimatedTokens} tokens），生成可能需要更长时间。若超出 LLM 上限，生成时会提示。
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <textarea
                 value={documentText}
-                onChange={(e) => setDocumentText(e.target.value)}
+                onChange={(e) => {
+                  setDocumentText(e.target.value)
+                  // Clear parse result when manually editing
+                  if (parseResult) {
+                    setParseResult(null)
+                    setImportedFiles([])
+                  }
+                }}
                 placeholder="在此粘贴 GDAL 文档内容..."
-                className="w-full h-[300px] rounded-md border border-gray-300 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+                className="w-full h-[260px] rounded-md border border-gray-300 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
               />
               <div className="flex justify-end">
                 <button
@@ -338,6 +590,33 @@ export default function GeneratorPage() {
                   />
                 </div>
               </div>
+
+              {/* Streaming panel */}
+              {isGenerating && (
+                <div className="rounded-lg border border-primary-200 bg-primary-50/50 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <svg className="animate-spin h-4 w-4 text-primary-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      <span className="text-sm font-medium text-primary-700">正在生成模板...</span>
+                    </div>
+                    <button
+                      onClick={handleCancelGenerate}
+                      className="text-xs text-red-600 hover:text-red-700 font-medium"
+                    >
+                      取消
+                    </button>
+                  </div>
+                  <div className="rounded-md bg-[#1e1e1e] p-3 overflow-x-auto max-h-[200px] overflow-y-auto">
+                    <pre className="text-xs font-mono text-gray-300 whitespace-pre-wrap">
+                      {streamedText || '文档解析中，请稍候...'}
+                    </pre>
+                  </div>
+                </div>
+              )}
+
               <div className="flex justify-between">
                 <button
                   onClick={() => { setErrorMsg(null); setStep(1) }}
@@ -347,10 +626,10 @@ export default function GeneratorPage() {
                 </button>
                 <button
                   onClick={handleGenerate}
-                  disabled={isLoading}
+                  disabled={isGenerating}
                   className="rounded-md bg-primary-600 px-6 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
                 >
-                  {isLoading ? '生成中...' : '生成模板'}
+                  {isGenerating ? '生成中...' : '生成模板'}
                 </button>
               </div>
             </div>
@@ -578,7 +857,7 @@ export default function GeneratorPage() {
                     </div>
                     <div className="bg-[#1e1e1e] p-3 overflow-x-auto max-h-[400px] overflow-y-auto">
                       <pre
-                        className="text-xs font-mono leading-[22px]"
+                        className="text-xs font-mono leading-[22px] text-gray-300"
                         dangerouslySetInnerHTML={{ __html: highlightJinja2(effectiveBody) }}
                       />
                     </div>
@@ -728,6 +1007,9 @@ export default function GeneratorPage() {
                     setEditedBody('')
                     setInlineValidation({ status: 'none', errors: [], checkedBody: '' })
                     setErrorMsg(null)
+                    setImportedFiles([])
+                    setParseResult(null)
+                    setStreamedText('')
                   }}
                   className="rounded-md border border-gray-300 px-6 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
                 >

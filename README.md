@@ -2,17 +2,17 @@
 
 基于自然语言的 GDAL 数据处理助手。接受中文需求描述，生成安全可审查的批处理脚本，经确认后执行。
 
-提供两种交互界面：
-- **Electron 桌面应用**（推荐）：原生文件对话框、绝对路径支持、一键启动
-- **命令行**（CLI）：REPL 交互、轻量无依赖
+**Electron 桌面应用**为唯一活跃交互入口。命令行 REPL（`cli/`）代码保留但不再维护（参见 [constitution.md §6.1](Document/constitution.md)）。
 
 ## 核心能力
 
 | 能力 | 说明 |
 |------|------|
-| 任务脚本化 | 自然语言需求 → Jinja2 模板渲染 → 可执行脚本 |
-| 模板知识 | 模板内置概念/提示/常见错误，辅助使用 |
-| 安全执行 | 路径规范化、执行前强制确认、脚本安全扫描 |
+| 任务脚本化 | 自然语言需求 → 两阶段意图匹配 → Jinja2 模板渲染 → 可执行脚本 |
+| 模板知识 | 模板内置 `@concept`/`@note`/`@common_error` 元数据，辅助使用和错误诊断 |
+| 安全执行 | 路径规范化、执行前强制确认、脚本安全扫描、输出文件时间戳防覆盖 |
+| Pipeline 多步 | 多模板步骤串行编排，步骤间参数自动关联，合并为单脚本执行 |
+| 模板生成器 | 从 GDAL HTML 文档自动生成 `.j2` 模板（LLM 驱动生成 → 审查 → 保存） |
 
 ## 环境准备
 
@@ -98,28 +98,9 @@ export VITE_API_PORT=19000
 
 **Electron 模式**：Electron 启动 Python 后端时会自动注入 `ELECTRON_MODE=1`，后端据此放宽 CORS 限制以允许 `file://` 协议访问。无需手动设置。
 
-### 6. 工作空间配置（可选）
-
-在工作空间根目录创建 `Agents.md`，为 Agent 提供项目级长期记忆：
-
-```markdown
-# 项目：城市道路数据处理
-
-- 原始坐标系：EPSG:3857
-- 输出坐标系：EPSG:4326
-- 常用输入路径：./raw/
-- 常用输出路径：./processed/
-- 栅格裁剪默认无数据值：0
-- 矢量输出格式优先 GeoJSON
-```
-
-启动时若检测到 `Agents.md`，内容自动注入 LLM 系统提示词，Agent 会据此调整默认行为。
-
 ## 启动
 
-GIS Agent 提供两种交互方式：Electron 桌面应用（推荐）和命令行（CLI）。两者共享同一套 core/llm/templates 业务逻辑。
-
-### Electron 桌面应用（推荐）
+### Electron 桌面应用（唯一活跃入口）
 
 基于 Electron + React + FastAPI 的桌面应用。Python 后端作为子进程由 Electron 自动管理，前端通过 IPC 调用原生文件对话框，支持返回绝对路径。
 
@@ -139,94 +120,92 @@ cd SourceCode/frontend
 npm run electron:build
 ```
 
-> **端口配置**：若默认端口冲突，修改 `config/config.json` 中的 `api.port`，同时同步 `frontend/vite.config.ts` 中的 `VITE_API_PORT`。
+> **端口配置**：后端端口硬编码为 `18000`，由 Electron 主进程与 Python 子进程约定，无需用户配置。
 
-### 命令行入口
+### ~~命令行入口~~ 【已废弃，代码保留】
 
 ```bash
-# 进入源码目录
+# 仍可运行，但不再维护
 cd SourceCode
-
-# 基础启动
 python start_cli.py
-
-# 指定工作空间
-python start_cli.py --workspace /path/to/project
-
-# 指定配置文件
-python start_cli.py --config /path/to/config.json
-
-# 空跑模式（只展示脚本不执行，首次使用建议）
-python start_cli.py --dry-run
 ```
 
-> **Windows 用户注意**：若 `python -m cli` 报错模块未找到，请使用 `python start_cli.py` 启动。
+参见 [constitution.md §6.1](Document/constitution.md)。
 
-### 交互命令（CLI 模式）
+## 三 TAB 架构
 
-进入 REPL 后可用以下斜杠命令：
+Electron 桌面应用采用三 TAB 分离设计，代码层面决定场景，LLM 不猜意图：
 
-| 命令 | 功能 |
-|------|------|
-| `/quit` / `/q` | 退出程序 |
-| `/clear` | 清除会话历史 |
-| `/workspace` | 显示当前工作空间 |
-| `/templates` | 列出可用模板 |
-| `/status` | 显示当前状态摘要 |
-| `/help` | 显示帮助信息 |
+| TAB | 职责 | 后端 API | 协议 |
+|-----|------|---------|------|
+| **模板识别** | 搜索模板、LLM 意图匹配、参数填写 | `POST /session/{id}/intent` | HTTP |
+| **GIS 问答** | GIS 概念问答、参数用法咨询 | `WS /ws/chat/{id}` | WebSocket 流式 |
+| **脚本执行** | 命令预览、执行、结果查看、错误诊断 | `WS /ws/execute/{id}` | WebSocket 实时日志 |
 
-### 典型会话流程
+**Q&A 历史隔离**：`Session` 维护两个独立消息列表 — `history`（Discovery/Exec 流程消息）和 `qa_history`（Q&A 多轮对话）。WebSocket Q&A handler 读取 `qa_history` 作为对话上下文，完成后写回，确保 Q&A 历史与任务流程隔离。
 
-```
-GIS> 把 data/roads.shp 转成 GeoJSON
-已识别任务：Shapefile 转 GeoJSON。
-请输入所需参数。
+### 会话状态机
 
-GIS> 输出叫 roads_out.json
-───────────────────────────────
-脚本预览：
-───────────────────────────────
-@echo off
-ogr2ogr -f "GeoJSON" roads_out.json data/roads.shp
-───────────────────────────────
+| 状态 | UI 表现 | 说明 |
+|------|---------|------|
+| `IDLE` | 模板识别 TAB 就绪 | 浏览模板卡片，自由输入 |
+| `INTENT_CONFIRM` | 显示候选模板列表 | 低置信度匹配时让用户选择 |
+| `PARAM_COLLECT` | 右栏展开参数表单 | 分组折叠 + 水平行布局 |
+| `SCRIPT_PREVIEW` | 脚本执行 TAB：命令预览 | 可刷新、导出脚本、执行 |
+| `EXECUTING` | 脚本执行 TAB：执行中 | 实时日志推送 |
+| `ERROR_RECOVERY` | 脚本执行 TAB：失败态 | **自动诊断**（无按钮），诊断结果 inline 展示 |
 
-确认执行？(Y/N)：Y
-执行完成。
-```
+**错误恢复**：执行失败后系统自动触发 LLM 诊断，结果（根因 + 建议 + `can_auto_fix` + 【修复命令参考】代码块）直接展示在脚本执行 TAB 的诊断面板中，与错误输出同屏呈现。操作按钮为"修改参数"/"放弃任务"。
+
+### 执行环境配置
+
+脚本执行环境可在 ExecTab 中动态配置：
+
+| 配置项 | 说明 |
+|--------|------|
+| Shell 类型 | bash / cmd / PowerShell，自动检测 |
+| Conda 环境 | 可选，自动推导环境变量 |
+| 临时脚本目录 | `./cache/`（项目相对路径，自动创建）|
+
+用户可通过"导出脚本"按钮将当前脚本保存到任意路径（`.bat`/`.sh`/`.ps1` 根据 shell 类型自动选择后缀）。
 
 ## 项目结构
 
 ```
 gis-agent/
 ├── Document/               # 设计文档（spec/constitution/plan/ADR）
+│   ├── design/            # 架构图 + 场景-需求映射（HTML）
+│   ├── archive/           # 废弃的设计文档
+│   └── reports/           # 审计报告
 ├── SourceCode/
 │   ├── src/
 │   │   ├── api/           # API 层：FastAPI + WebSocket 适配（Electron 后端）
-│   │   ├── cli/           # CLI 层：REPL、命令解析、脚本执行
-│   │   ├── core/          # 核心层：状态机、模板注册表、参数校验
-│   │   ├── llm/           # LLM 层：意图分类、参数抽取、错误诊断
+│   │   ├── cli/           # ~~CLI 层~~ 【已废弃，代码保留】
+│   │   ├── core/          # 核心层：状态机、模板注册表、参数校验、匹配引擎
+│   │   ├── llm/           # LLM 层：意图分类、参数抽取、问答、错误诊断
 │   │   ├── templates/     # 模板引擎：Jinja2 渲染、扫描器、安全校验
 │   │   └── config/        # 配置加载
 │   ├── frontend/          # 前端（React + TypeScript + Vite + Electron）
 │   │   ├── electron/      # Electron 主进程与预加载脚本
-│   │   │   ├── main.ts    # 主进程：窗口管理 + Python 子进程 + IPC
+│   │   │   ├── main.ts    # 主进程：无边框窗口 + Python 子进程 + IPC
 │   │   │   ├── preload.ts # 预加载脚本：contextBridge 暴露 API
 │   │   │   └── tsconfig.json
 │   │   ├── src/
-│   │   │   ├── api/       # HTTP 客户端封装
-│   │   │   ├── components/# React 组件
+│   │   │   ├── api/       # HTTP/WebSocket 客户端封装
+│   │   │   ├── components/# React 组件（三 TAB + 参数表单 + 执行面板）
 │   │   │   ├── hooks/     # Zustand 状态管理 + WebSocket
-│   │   │   ├── pages/     # 页面路由（主应用 / 生成器 / Pipeline）
-│   │   │   ├── electron-api.ts  # IPC API 封装（文件对话框等）
+│   │   │   ├── pages/     # 页面路由（/ 主应用 /generator /pipeline）
+│   │   │   ├── electron-api.ts  # IPC API 封装（文件对话框、窗口控制）
 │   │   │   └── types/     # TypeScript 类型定义
 │   │   ├── package.json
 │   │   └── vite.config.ts
 │   ├── tests/unit/        # 单元测试
+│   ├── tests/integration/ # 集成测试（含共享 fixture）
 │   ├── data/
 │   │   └── templates/     # .j2 模板文件（vector/raster/general）
 │   ├── config/            # 运行时配置（config.json）
 │   ├── start_api.py       # API 服务启动脚本（由 Electron 内部调用）
-│   ├── start_cli.py       # CLI 启动脚本
+│   ├── start_cli.py       # ~~CLI 启动脚本~~ 【已废弃】
 │   └── pyproject.toml
 └── README.md
 ```

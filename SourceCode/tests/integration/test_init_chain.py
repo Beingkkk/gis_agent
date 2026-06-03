@@ -3,19 +3,16 @@
 Verifies that all core components can be wired together using real
 template files and mock LLM dependencies.
 
+【已废弃，代码保留】SessionProcessor 仅用于 CLI 层，不再维护。
+参见 constitution.md §6.1、CLAUDE.md Key Files 表。
 Design: plan-integration v1.0.0 (T-INT-01)
 """
 
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from core import (
-    ParamValidator,
-    SessionProcessor,
-    TemplateRegistry,
-)
+from core import SessionProcessor, TemplateRegistry
 from core.workspace import Workspace
-from llm import PromptBuilder
 from templates import TemplateEngine, scan_templates
 
 
@@ -52,7 +49,7 @@ class TestInitChain:
     ) -> None:
         """Engine can load every template file."""
         workspace = Workspace(tmp_path)
-        engine = TemplateEngine(real_template_dir, workspace)
+        engine = TemplateEngine(real_template_dir)
         templates = scan_templates(real_template_dir)
 
         for template_def in templates:
@@ -62,27 +59,10 @@ class TestInitChain:
 
     def test_session_processor_assembles_with_real_components(
         self,
-        real_template_dir: Path,
-        tmp_path: Path,
-        mock_llm_client: MagicMock,
+        processor_with_real_templates: SessionProcessor,
     ) -> None:
         """SessionProcessor can be built with real registry/engine + mock LLM."""
-        workspace = Workspace(tmp_path)
-        templates = scan_templates(real_template_dir)
-        registry = TemplateRegistry(templates, real_template_dir)
-        validator = ParamValidator(workspace)
-        engine = TemplateEngine(real_template_dir, workspace)
-        prompt_builder = PromptBuilder()
-
-        processor = SessionProcessor(
-            registry=registry,
-            validator=validator,
-            template_engine=engine,
-            llm_client=mock_llm_client,
-            prompt_builder=prompt_builder,
-        )
-
-        assert processor is not None
+        assert processor_with_real_templates is not None
 
     def test_all_templates_have_valid_params(self, real_template_dir: Path) -> None:
         """Every template has at least required params defined."""

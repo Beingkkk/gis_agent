@@ -1,6 +1,8 @@
 """Tests for core.processor module.
 
-Design: DC-0040, DC-0043, DC-0044, ADR-0001
+【已废弃，代码保留】SessionProcessor 仅用于 CLI 层，不再维护。
+参见 constitution.md §6.1、CLAUDE.md Key Files 表。
+Design: plan-core.md (DC-0040, DC-0043, DC-0044), ADR-0001
 """
 
 from pathlib import Path

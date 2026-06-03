@@ -1,6 +1,7 @@
 """Tests for CLI main entry point.
 
-Design: plan-cli v1.0.0 (DC-0060, DC-0061), ADR-0001
+【已废弃，代码保留】CLI 层不再维护，参见 constitution.md §6.1。
+Design: Document/archive/plan-cli.md (DC-0060, DC-0061), ADR-0001
 """
 
 from pathlib import Path

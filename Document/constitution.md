@@ -362,13 +362,13 @@ def function_name(param: str, optional: int = 0) -> bool:
 
 ```
 ┌─────────────────────────────────────┐
-│  前端层 (frontend/)                 │  React + TypeScript 浏览器界面
+│  前端层 (frontend/)                 │  React + TypeScript Electron 桌面应用
 ├─────────────────────────────────────┤
 │  API 层 (api/)                      │  FastAPI：HTTP + WebSocket 适配
 ├─────────────────────────────────────┤
-│  CLI 层 (cli/)                      │  命令行交互、状态机、命令解析
+│  CLI 层 (cli/)                      │  ~~命令行交互、状态机、命令解析~~ 【已废弃，代码保留】
 ├─────────────────────────────────────┤
-│  核心层 (core/)                     │  工作空间管理、模板引擎、安全校验
+│  核心层 (core/)                     │  模板引擎、参数校验、会话状态机
 ├─────────────────────────────────────┤
 │  应用层 (llm/)                      │  LLM 交互、意图识别、文档问答
 ├─────────────────────────────────────┤
@@ -376,19 +376,19 @@ def function_name(param: str, optional: int = 0) -> bool:
 └─────────────────────────────────────┘
 ```
 
-**双入口说明**：`cli/` 与 `api/` + `frontend/` 为两种并行存在的用户交互入口，共享同一套 `core/` 与 `llm/` 业务逻辑。CLI 入口不依赖 API 入口，反之亦然。
+**入口说明**：Electron 桌面应用（`api/` + `frontend/`）为唯一活跃的用户交互入口。`cli/` 代码保留但不再维护，不进入新功能开发。
 
 ### 6.2 依赖规则
 
 | 规则 | 内容 |
 |------|------|
-| DEP-1 | CLI 层可依赖 core、llm 层 |
+| DEP-1 | ~~CLI 层可依赖 core、llm 层~~ 【CLI 已废弃，历史保留】 |
 | DEP-2 | core 层可依赖 llm 层（用于模板渲染和参数校验） |
 | DEP-3 | llm 层不依赖任何上层模块，但可依赖 core/ 获取模板元数据 |
 | DEP-4 | 任何层都可通过接口抽象依赖外部库，但禁止直接暴露外部库类型到上层 |
-| DEP-5 | API 层可依赖 core、llm 层，与 CLI 层平级；禁止 API 层调用 CLI 层任何模块 |
+| DEP-5 | API 层可依赖 core、llm 层；禁止 API 层调用 CLI 层任何模块 |
 | DEP-6 | frontend 层不直接 import 后端代码，仅通过 HTTP / WebSocket 与 API 层通信 |
-| DEP-7 | CLI 与 API 为两个独立入口，互不依赖；二者可并行存在于同一代码库 |
+| DEP-7 | ~~CLI 与 API 为两个独立入口~~ 【CLI 已废弃，Electron 桌面应用为唯一图形入口】 |
 
 ### 6.3 设计模式约定
 
@@ -523,11 +523,9 @@ pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 | 文档 | 路径 | 说明 |
 |------|------|------|
 | 产品需求规格 | `Document/spec.md` | 需求基线，所有设计的源头 |
-| 架构设计文档 | `Document/plan-architecture.md` | 系统级架构设计（待创建） |
 | ~~RAG 模块设计~~ | ~~`Document/plan-rag.md`~~ | ~~已废弃，见 ADR-0001~~ |
-| 安全模块设计 | `Document/plan-security.md` | 安全校验层详细设计（待创建） |
-| 交互模块设计 | `Document/plan-cli.md` | CLI 与状态机详细设计 |
-| 浏览器 UI 模块设计 | `Document/plan-ux.md` | React + FastAPI 浏览器界面设计 |
+| ~~交互模块设计~~ | ~~`Document/plan-cli.md`~~ | ~~已废弃，CLI 层不再维护~~ |
+| Electron UI 模块设计 | `Document/plan-ux.md` | React + FastAPI Electron 桌面应用设计 |
 
 ### 10.2 宪法修订记录
 
@@ -537,6 +535,7 @@ pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 | v1.1.0 | 2026-05-27 | 新增 §5.4 TDD 测试驱动开发规范，明确编码阶段的红-绿-重构循环与 TDD-1~TDD-5 纪律 | - |
 | v1.2.0 | 2026-05-29 | 架构扩展为双入口（CLI + Browser UI）：更新 §2.1 目录结构加入 `api/` 与 `frontend/`；§6.1 分层架构加入前端层与 API 层；§6.2 新增 DEP-5~DEP-7；§9.1 P2 泛化为"交互层确认" | - |
 | v1.3.0 | 2026-06-01 | **新增 CODE-5 流式交互强制 WebSocket 约束**：§5.2 新增 `CODE-5`（禁止用 HTTP 长等待替代 WebSocket）；§6.4 新增协议选择原则表，明确 HTTP vs WebSocket 场景边界；追溯接口对齐审计中发现的 Q&A HTTP 超时问题 | - |
+| v1.4.0 | 2026-06-03 | **CLI 层废弃**：§6.1 分层架构标注 CLI 层为已废弃；§6.2 DEP-1/5/7 更新；§10.1 移除不存在的 plan-architecture.md / plan-security.md 引用，归档 plan-cli.md | - |
 
 ---
 

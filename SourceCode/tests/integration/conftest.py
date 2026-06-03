@@ -12,8 +12,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from core.processor import SessionProcessor
+from core.registry import TemplateRegistry
+from core.validator import ParamValidator
 from core.workspace import Workspace
+from llm import PromptBuilder
 from llm.models import IntentResult, Message, ParamResult
+from templates import TemplateEngine, scan_templates
 
 
 @pytest.fixture(scope="session")
@@ -74,6 +79,29 @@ def make_param_result() -> Any:
         )
 
     return _factory
+
+
+@pytest.fixture
+def processor_with_real_templates(
+    real_template_dir: Path,
+    tmp_path: Path,
+    mock_llm_client: MagicMock,
+) -> SessionProcessor:
+    """SessionProcessor wired with real templates and mock LLM."""
+    workspace = Workspace(tmp_path)
+    templates = scan_templates(real_template_dir)
+    registry = TemplateRegistry(templates, real_template_dir)
+    validator = ParamValidator()
+    engine = TemplateEngine(real_template_dir)
+    prompt_builder = PromptBuilder()
+
+    return SessionProcessor(
+        registry=registry,
+        validator=validator,
+        template_engine=engine,
+        llm_client=mock_llm_client,
+        prompt_builder=prompt_builder,
+    )
 
 
 @pytest.fixture

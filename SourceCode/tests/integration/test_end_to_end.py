@@ -3,6 +3,8 @@
 Simulates a complete user session from startup to script preview
 using mock input/output and real template files.
 
+【已废弃，代码保留】CLI 层（REPL / SessionProcessor / ScriptExecutor）不再维护，
+参见 constitution.md §6.1、CLAUDE.md Key Files 表。
 Design: plan-integration v1.0.0 (T-INT-05)
 """
 
@@ -48,8 +50,8 @@ class TestEndToEndDryRun:
         workspace = Workspace(tmp_path)
         templates = scan_templates(real_template_dir)
         registry = TemplateRegistry(templates, real_template_dir)
-        validator = ParamValidator(workspace)
-        engine = TemplateEngine(real_template_dir, workspace)
+        validator = ParamValidator()
+        engine = TemplateEngine(real_template_dir)
         prompt_builder = PromptBuilder()
 
         processor = SessionProcessor(
@@ -128,8 +130,8 @@ class TestEndToEndDryRun:
             workspace = Workspace(tmp_path)
             templates = scan_templates(real_template_dir)
             registry = TemplateRegistry(templates, real_template_dir)
-            validator = ParamValidator(workspace)
-            engine = TemplateEngine(real_template_dir, workspace)
+            validator = ParamValidator()
+            engine = TemplateEngine(real_template_dir)
             prompt_builder = PromptBuilder()
 
             processor = SessionProcessor(

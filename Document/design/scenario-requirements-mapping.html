@@ -301,7 +301,7 @@
 <body>
 <div class="container">
   <h1>GIS Agent 场景-需求映射对齐图</h1>
-  <p class="subtitle">Electron 桌面应用 · 三 TAB 架构 · 功能映射 · 需求追溯 | 2026-05-31</p>
+  <p class="subtitle">Electron 桌面应用 · 三 TAB 架构 · 功能映射 · 需求追溯 | spec v1.7.0 + plan-ux v1.13.0 | 2026-06-03</p>
 
   <!-- 场景1: 启动与配置 -->
   <div class="scenario type-basic">
@@ -589,7 +589,7 @@
   <div class="scenario type-advanced">
     <div class="scenario-header">
       <div class="scenario-icon">⚠️</div>
-      <div class="scenario-title">场景六：执行失败与错误诊断</div>
+      <div class="scenario-title">场景六：执行失败与自动诊断</div>
       <div class="scenario-type-badge">错误恢复</div>
     </div>
     <div class="scenario-body">
@@ -597,7 +597,7 @@
         <div class="dialogue-label">会话流程</div>
         <div class="msg msg-user">
           <div class="msg-avatar">U</div>
-          <div class="msg-content">点击“执行脚本”</div>
+          <div class="msg-content">点击"执行脚本"</div>
         </div>
         <div class="msg msg-agent">
           <div class="msg-avatar">A</div>
@@ -606,16 +606,11 @@
             <div class="msg-script" style="color:#fc8181;">ERROR: Unable to open datasource `roads.shp'...<br>File not found</div>
           </div>
         </div>
-        <div class="msg msg-user">
-          <div class="msg-avatar">U</div>
-          <div class="msg-content">点击“一键诊断”</div>
-        </div>
         <div class="msg msg-agent">
           <div class="msg-avatar">A</div>
           <div class="msg-content">
-            根因：输入文件不存在<br>
-            建议：将 input 参数改为绝对路径 C:\data\roads.shp<br>
-            可自动修复：是
+            🔍 自动诊断结果：
+            <div class="msg-script" style="color:#68d391;">根因：输入文件不存在（路径相对当前工作空间未找到）<br>建议：使用绝对路径 C:\data\roads.shp<br>可自动修复：是<br><br>【修复命令参考】<br>```bash<br>ogr2ogr -f "GeoJSON" "C:\data\roads_out.json" "C:\data\roads.shp"<br>```</div>
           </div>
         </div>
         <div class="state-flow">
@@ -623,110 +618,230 @@
           <span class="state-badge">→ 失败</span>
           <span class="state-badge">→</span>
           <span class="state-badge active">ERROR_RECOVERY</span>
-          <span class="state-badge">→ LLM 诊断 → 用户选择</span>
+          <span class="state-badge">→ 自动诊断 → 修改参数 / 放弃任务</span>
         </div>
       </div>
       <div class="mapping">
         <div class="mapping-label">需求映射</div>
         <div class="req-row">
           <span class="req-id func">F10</span>
-          <span class="req-desc">错误诊断：捕获 stderr，结合模板 @common_error 元数据与 LLM 推理提供修复建议</span>
+          <span class="req-desc">自动诊断：执行失败后系统自动触发 LLM 诊断，结果直接展示在 ExecTab 诊断面板（根因 + 建议 + can_auto_fix + 【修复命令参考】代码块），与错误输出同屏呈现（DC-UX-12）</span>
         </div>
         <div class="req-row">
           <span class="req-id func">F15</span>
-          <span class="req-desc">一键诊断：自动收集执行上下文发送到 QATab 进行深度诊断</span>
+          <span class="req-desc">~~一键诊断~~ 【已废弃，v1.6.0 合并至 F10】不再跳转 QATab，诊断结果 inline 展示</span>
         </div>
         <div class="req-row">
           <span class="req-id func">F8</span>
-          <span class="req-desc">ERROR_RECOVERY 状态保留 template + params，用户可直接修改参数重试</span>
+          <span class="req-desc">ERROR_RECOVERY 状态保留 template + params，用户可点击"修改参数"直接修复并重试，或"放弃任务"回到 IDLE</span>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- 场景7: dry-run 验证 -->
+  <!-- 场景7: 执行环境配置 -->
   <div class="scenario type-safety">
     <div class="scenario-header">
-      <div class="scenario-icon">🔒</div>
-      <div class="scenario-title">场景七：Dry-run 安全验证模式</div>
-      <div class="scenario-type-badge">安全验证</div>
+      <div class="scenario-icon">⚙️</div>
+      <div class="scenario-title">场景七：执行环境配置</div>
+      <div class="scenario-type-badge">执行环境</div>
     </div>
     <div class="scenario-body">
       <div class="dialogue">
         <div class="dialogue-label">会话流程</div>
         <div class="msg msg-user">
           <div class="msg-avatar">U</div>
-          <div class="msg-content">启动时加上 --dry-run 参数</div>
+          <div class="msg-content">ExecTab 环境面板 → 选择 Shell 类型：PowerShell</div>
         </div>
         <div class="msg msg-user">
           <div class="msg-avatar">U</div>
-          <div class="msg-content">把 roads.shp 转成 GeoJSON</div>
+          <div class="msg-content">Conda 环境选择：gis-agent</div>
         </div>
         <div class="msg msg-agent">
           <div class="msg-avatar">A</div>
           <div class="msg-content">
-            脚本预览：
-            <div class="msg-script">@echo off<br>ogr2ogr -f "GeoJSON" 'roads_out.json' 'roads.shp'<br>REM Done</div>
-            <div class="msg-confirm" style="background:#f0fff4;border-color:#38a169;color:#276749;">
-              [dry-run 模式] 仅展示，跳过执行
-            </div>
+            ✅ 执行环境已配置
+            <div class="msg-script">Shell: PowerShell<br>Conda: C:\Users\PC\.conda\envs\gis-agent<br>GDAL: ogr2ogr --version ✓</div>
           </div>
         </div>
         <div class="state-flow">
-          <span class="state-badge">SCRIPT_PREVIEW</span>
+          <span class="state-badge">任意状态</span>
           <span class="state-badge">→</span>
-          <span class="state-badge active">preview() 显示</span>
-          <span class="state-badge">→ 跳过执行 → IDLE</span>
+          <span class="state-badge active">exec_env 配置</span>
+          <span class="state-badge">→ 脚本写入 ./cache/ → subprocess 执行</span>
         </div>
       </div>
       <div class="mapping">
         <div class="mapping-label">需求映射</div>
         <div class="req-row">
-          <span class="req-id func">F6</span>
-          <span class="req-desc">--dry-run 空跑模式：只展示脚本，不执行任何 GDAL 命令</span>
+          <span class="req-id func">F5</span>
+          <span class="req-desc">执行环境配置：ShellDetector 自动检测可用 shell，CondaEnvDetector 推导环境变量，用户可选择 shell 类型和 conda 环境（DC-0101~DC-0105）</span>
         </div>
         <div class="req-row">
-          <span class="req-id principle">P2</span>
-          <span class="req-desc">先展后行的延伸：在安全环境下先验证再正式运行</span>
+          <span class="req-id principle">P3</span>
+          <span class="req-desc">脚本临时写入 ./cache/（项目相对路径），不污染工作空间；导出脚本通过"导出脚本"按钮显式保存</span>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- 场景8: 多步任务（预留） -->
+  <!-- 场景8: Pipeline 多步任务 -->
   <div class="scenario type-advanced">
     <div class="scenario-header">
       <div class="scenario-icon">🔄</div>
-      <div class="scenario-title">场景八：多步任务链（预留扩展）</div>
-      <div class="scenario-type-badge">未来扩展</div>
+      <div class="scenario-title">场景八：Pipeline 多步任务链</div>
+      <div class="scenario-type-badge">已实现</div>
     </div>
     <div class="scenario-body">
       <div class="dialogue">
         <div class="dialogue-label">会话流程</div>
         <div class="msg msg-user">
           <div class="msg-avatar">U</div>
-          <div class="msg-content">先转换格式，然后重投影到 4326</div>
+          <div class="msg-content">进入 /#/pipeline，添加两步任务</div>
         </div>
         <div class="msg msg-agent">
           <div class="msg-avatar">A</div>
           <div class="msg-content">
-            [v2.0 预设] 识别为 2 步任务链：<br>
-            Step 1: 格式转换 (shp → geojson)<br>
-            Step 2: 重投影 (EPSG:4326)<br>
-            正在依次执行... [v1.0 仅支持单步]
+            Pipeline 已配置：<br>
+            Step 1: shp → geojson (ogr2ogr)<br>
+            Step 2: 重投影 EPSG:4326 (ogr2ogr)<br>
+            参数已自动关联：Step1 output → Step2 input
+          </div>
+        </div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">点击"生成脚本"</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">
+            合并脚本预览：
+            <div class="msg-script"># === Step 1: shp2geojson ===<br>ogr2ogr -f "GeoJSON" "step1_out.json" "input.shp"<br><br># === Step 2: reproject ===<br>ogr2ogr -f "GeoJSON" -t_srs "EPSG:4326" "final_out.json" "step1_out.json"</div>
           </div>
         </div>
         <div class="state-flow">
-          <span class="state-badge">IDLE</span>
-          <span class="state-badge">→ 任务梳解</span>
-          <span class="state-badge">→ 任务栈 → 循环执行</span>
+          <span class="state-badge">Pipeline 编辑</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge active">POST /pipeline（预览）</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge">WS /pipeline-execute（执行）</span>
         </div>
       </div>
       <div class="mapping">
         <div class="mapping-label">需求映射</div>
         <div class="req-row">
           <span class="req-id func">F9</span>
-          <span class="req-desc">多步任务链：连续操作支持（预留，v1.0 状态机可扩展为任务栈）</span>
+          <span class="req-desc">多步任务链：前端维护 Pipeline 对象，步骤间自动关联参数，后端合并为单脚本执行（DC-UX-06）</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id func">F5</span>
+          <span class="req-desc">复用 WebSocket 执行基础设施：/ws/pipeline-execute/{id} 流式推送多步合并脚本的执行日志</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景9: 导出脚本 -->
+  <div class="scenario type-exec">
+    <div class="scenario-header">
+      <div class="scenario-icon">📤</div>
+      <div class="scenario-title">场景九：导出脚本</div>
+      <div class="scenario-type-badge">脚本导出</div>
+    </div>
+    <div class="scenario-body">
+      <div class="dialogue">
+        <div class="dialogue-label">会话流程</div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">命令预览态点击"导出脚本"按钮</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">
+            IPC saveFile 对话框打开 → 用户选择保存路径<br>
+            文件名：script_shp2geojson_1718001234.ps1
+          </div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">
+            ✅ 脚本已保存
+            <div class="msg-script"># 根据当前 shell 类型（PowerShell）生成的 .ps1 脚本<br>ogr2ogr -f "GeoJSON" "output.json" "input.shp"</div>
+          </div>
+        </div>
+        <div class="state-flow">
+          <span class="state-badge">SCRIPT_PREVIEW</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge active">导出脚本</span>
+          <span class="state-badge">→ 不影响会话状态</span>
+        </div>
+      </div>
+      <div class="mapping">
+        <div class="mapping-label">需求映射</div>
+        <div class="req-row">
+          <span class="req-id func">F5</span>
+          <span class="req-desc">导出脚本：命令预览态提供"导出脚本"按钮，IPC 调用 saveFile 对话框 → 后端按当前 shell 类型生成对应格式脚本（DC-UX-11a）</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id principle">P2</span>
+          <span class="req-desc">先展后行延伸：用户可在执行前将脚本导出到任意位置审查</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景10: 模板生成器 -->
+  <div class="scenario type-discovery">
+    <div class="scenario-header">
+      <div class="scenario-icon">📝</div>
+      <div class="scenario-title">场景十：J2 模板生成器</div>
+      <div class="scenario-type-badge">开发工具</div>
+    </div>
+    <div class="scenario-body">
+      <div class="dialogue">
+        <div class="dialogue-label">会话流程</div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">进入 /#/generator，粘贴 GDAL HTML 文档</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">
+            五步向导：<br>
+            Step 1: 文档输入 ✓<br>
+            Step 2: 配置（模板 ID / 参数定义）✓<br>
+            Step 3: Monaco 代码编辑器预览（Jinja2 语法高亮 + 实时校验）<br>
+            Step 4: 审查<br>
+            Step 5: 保存
+          </div>
+        </div>
+        <div class="msg msg-user">
+          <div class="msg-avatar">U</div>
+          <div class="msg-content">Step 3 中修改模板，实时校验通过</div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">
+            ✅ 模板保存成功！后端已调用 rescan()，新模板立即可用。
+          </div>
+        </div>
+        <div class="state-flow">
+          <span class="state-badge">GeneratorPage</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge active">LLM 生成 + 审查</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge">POST /generator/save → rescan()</span>
+        </div>
+      </div>
+      <div class="mapping">
+        <div class="mapping-label">需求映射</div>
+        <div class="req-row">
+          <span class="req-id func">F4</span>
+          <span class="req-desc">模板生成器：从 GDAL HTML 文档自动生成 .j2 模板，两步 LLM 工作流（生成 → 审查），Monaco 编辑器实时校验（DC-UX-07）</span>
+        </div>
+        <div class="req-row">
+          <span class="req-id func">F2</span>
+          <span class="req-desc">热重载：保存后后端立即调用 rescan()，新模板无需重启应用即可在 DiscoveryTab 中搜索到</span>
         </div>
       </div>
     </div>
@@ -763,37 +878,37 @@
         </tr>
         <tr>
           <td class="tid">F4</td>
-          <td>模板 + 参数渲染生成脚本</td>
-          <td>场景二、七</td>
+          <td>模板 + 参数渲染生成脚本（含 J2 模板生成器）</td>
+          <td>场景二、七、十</td>
         </tr>
         <tr>
           <td class="tid">F5</td>
-          <td>先展示脚本，确认后通过 WebSocket 执行</td>
-          <td>场景二、四、七</td>
+          <td>先展示脚本，确认后通过 WebSocket 执行。含执行环境配置（Shell/Conda）和导出脚本</td>
+          <td>场景二、四、七、八、九</td>
         </tr>
         <tr>
           <td class="tid">F6</td>
-          <td>--dry-run 空跑模式</td>
-          <td>场景七</td>
+          <td>安全与隔离：脚本预览态（原 --dry-run CLI 参数已废弃，预览功能内置于 ExecTab）</td>
+          <td>场景四</td>
         </tr>
         <tr>
           <td class="tid">F7</td>
-          <td>工作空间管理（默认 cwd 和输出基准目录）</td>
+          <td>路径管理：文件对话框返回绝对路径，支持外部数据路径</td>
           <td>场景一、四</td>
         </tr>
         <tr>
           <td class="tid">F8</td>
-          <td>会话内记忆 / 多轮追问</td>
-          <td>场景二、五、六</td>
+          <td>会话内记忆 / 多轮追问（含 qa_history 隔离）</td>
+          <td>场景二、三、五、六</td>
         </tr>
         <tr>
           <td class="tid">F9</td>
-          <td>多步任务链（预留）</td>
+          <td>Pipeline 多步任务链（已实现）</td>
           <td>场景八</td>
         </tr>
         <tr>
           <td class="tid">F10</td>
-          <td>错误诊断与修复建议</td>
+          <td>错误诊断：执行失败后自动触发 LLM 诊断，结果 inline 展示在 ExecTab（DC-UX-12）</td>
           <td>场景六</td>
         </tr>
         <tr>
@@ -803,8 +918,8 @@
         </tr>
         <tr>
           <td class="tid">F15</td>
-          <td>一键诊断（执行失败自动诊断）</td>
-          <td>场景六</td>
+          <td>~~一键诊断~~ 【已废弃，v1.6.0 合并至 F10】</td>
+          <td>—</td>
         </tr>
         <tr>
           <td rowspan="5" style="font-weight:700;color:#c53030;background:#fff5f5;">原则</td>
@@ -854,12 +969,12 @@
 
   <!-- 图例 -->
   <div class="legend-bar">
-    <div class="legend-item"><div class="legend-dot" style="background:#667eea"></div>基础配置场景</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#11998e"></div>模板识别场景</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#9f7aea"></div>GIS 问答场景</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#ed8936"></div>脚本执行场景</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#e53e3e"></div>高级/扩展场景</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#38a169"></div>安全验证场景</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#667eea"></div>基础配置（场景一）</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#11998e"></div>模板识别（场景二、五、十）</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#9f7aea"></div>GIS 问答（场景三）</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ed8936"></div>脚本执行（场景四、九）</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#e53e3e"></div>高级/扩展（场景六、八）</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#38a169"></div>执行环境（场景七）</div>
     <div class="legend-item">U = 用户，A = Agent</div>
   </div>
 </div>

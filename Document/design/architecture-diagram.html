@@ -310,19 +310,19 @@
 <body>
 <div class="container">
   <h1>GIS Agent 技术架构图</h1>
-  <p class="subtitle">三 TAB Electron 桌面架构 | plan v2.0 + core v1.0 | 2026-05-31</p>
+  <p class="subtitle">三 TAB Electron 桌面架构 | spec v1.7.0 + plan-ux v1.13.0 | 2026-06-03</p>
 
-  <!-- 双入口说明 -->
+  <!-- 入口说明 -->
   <div class="entry-note">
-    <h3>🔗 双入口设计</h3>
+    <h3>🔗 单入口设计（Electron 桌面应用为唯一活跃入口）</h3>
     <div class="entry-grid">
       <div class="entry-card electron">
-        <div class="entry-name">🖼️ Electron 桌面应用（主推荐）</div>
-        <div class="entry-desc">React + TypeScript + Vite 渲染器，FastAPI 后端作为子进程运行。支持文件对话框获取绝对路径。三 TAB 架构：Discovery / Q&A / Exec。通过 WebSocket 实现流式 Q&A 和实时执行日志。</div>
+        <div class="entry-name">🖼️ Electron 桌面应用（唯一活跃入口）</div>
+        <div class="entry-desc">React + TypeScript + Vite 渲染器，FastAPI 后端作为子进程运行。支持文件对话框获取绝对路径。三 TAB 架构：Discovery / Q&A / Exec。通过 WebSocket 实现流式 Q&A 和实时执行日志。路由：/（MainPage）、/generator、/pipeline。</div>
       </div>
       <div class="entry-card cli">
-        <div class="entry-name">⌨️ CLI 命令行 REPL</div>
-        <div class="entry-desc">命令行交互式 REPL，适用于无 GUI 环境。支持斜杠命令、Y/N 确认、状态机全流程。与桌面应用共享同一套 core / llm / templates 业务逻辑。</div>
+        <div class="entry-name">⌨️ CLI 命令行 REPL 【已废弃，代码保留】</div>
+        <div class="entry-desc">命令行交互式 REPL，代码保留但不再维护（constitution.md §6.1、spec.md v1.7.0）。不再支持 --dry-run 和 Y/N 确认流程。</div>
       </div>
     </div>
   </div>
@@ -344,18 +344,19 @@
       </div>
       <div class="module">
         <div class="module-name"><span class="icon">💬</span> QATab</div>
-        <div class="module-desc">GIS 问答 TAB：多轮历史聊天 + 流式输出。锁定模板时走模板知识问答，未锁定时走 GIS 专家问答</div>
+        <div class="module-desc">GIS 问答 TAB：多轮历史聊天 + WebSocket 流式输出。锁定模板时走模板知识问答，未锁定时走 GIS 专家问答。前端独立维护 qaMessages（DC-UX-15）</div>
         <div class="module-meta">
           <span class="tag">DC-UX-10</span>
+          <span class="tag">DC-UX-14/15</span>
           <span class="tag">WS /chat</span>
-          <span class="tag">POST /chat</span>
         </div>
       </div>
       <div class="module">
         <div class="module-name"><span class="icon">⚡</span> ExecTab</div>
-        <div class="module-desc">脚本执行 TAB：命令预览 / 执行中 / 成功 / 失败 四态、工作空间选择、一键诊断</div>
+        <div class="module-desc">脚本执行 TAB：命令预览 / 执行中 / 成功 / 失败 四态。自动诊断（无按钮）、导出脚本、执行环境配置（Shell/Conda）</div>
         <div class="module-meta">
           <span class="tag">DC-UX-11</span>
+          <span class="tag">DC-UX-12</span>
           <span class="tag">WS /execute</span>
         </div>
       </div>
@@ -382,7 +383,7 @@
     <div class="modules">
       <div class="module">
         <div class="module-name"><span class="icon">🔗</span> 会话路由</div>
-        <div class="module-desc">POST /session, /intent, /chat, /lock, /params, /clear, /workspace, /diagnose。状态机转换与会话管理</div>
+        <div class="module-desc">POST /session, /intent, /lock, /params, /clear, /workspace, /diagnose, /export-script。HTTP fallback /chat 保留但前端不使用</div>
         <div class="module-meta">
           <span class="tag">DC-UX-01</span>
           <span class="tag">DC-0098</span>
@@ -391,18 +392,20 @@
       </div>
       <div class="module">
         <div class="module-name"><span class="icon">⚡</span> WebSocket 处理器</div>
-        <div class="module-desc">流式 Q&A (/ws/chat) 和实时执行日志 (/ws/execute)。执行失败设置 ERROR_RECOVERY 状态</div>
+        <div class="module-desc">流式 Q&A (/ws/chat，写回 qa_history) 和实时执行日志 (/ws/execute)。执行失败设置 ERROR_RECOVERY + 自动诊断</div>
         <div class="module-meta">
           <span class="tag">DC-UX-04</span>
           <span class="tag">DC-UX-05</span>
+          <span class="tag">DC-UX-14</span>
           <span class="tag">DC-0048</span>
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">📋</span> 模板/管道/生成器</div>
-        <div class="module-desc">模板列表、详情查询、Pipeline 预览与执行、J2 模板生成器</div>
+        <div class="module-name"><span class="icon">📋</span> 模板 / Pipeline / 生成器</div>
+        <div class="module-desc">模板列表/详情/热重载、Pipeline 多步合并脚本预览与执行（/#/pipeline）、J2 模板生成器五步向导（/#/generator）</div>
         <div class="module-meta">
           <span class="tag">DC-0095</span>
+          <span class="tag">DC-UX-02/06/07</span>
           <span class="tag">rescan()</span>
         </div>
       </div>
@@ -429,16 +432,17 @@
     <div class="modules">
       <div class="module">
         <div class="module-name"><span class="icon">🔄</span> 会话状态机</div>
-        <div class="module-desc">6 状态流转：IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW → EXECUTING → ERROR_RECOVERY</div>
+        <div class="module-desc">6 状态流转：IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW → EXECUTING → ERROR_RECOVERY。Session 维护两个独立消息列表：history（流程消息）和 qa_history（Q&A 多轮对话，DC-0107）</div>
         <div class="module-meta">
           <span class="tag">DC-0040</span>
+          <span class="tag">DC-0107</span>
           <span class="tag data">SessionState</span>
           <span class="tag data">Session</span>
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">⚙️</span> 会话处理器</div>
-        <div class="module-desc">封装状态机逻辑，将用户输入转化为状态转换和响应文本</div>
+        <div class="module-name"><span class="icon">⚙️</span> 会话处理器 【已废弃】</div>
+        <div class="module-desc">封装状态机逻辑，将用户输入转化为状态转换和响应文本。CLI 层专用，不再维护（constitution.md §6.1）</div>
         <div class="module-meta">
           <span class="tag">DC-0043</span>
           <span class="tag">SessionProcessor</span>
@@ -575,28 +579,35 @@
       <div class="flow-num">1</div>
       <div class="flow-content">
         <div class="flow-title">DiscoveryTab 意图匹配</div>
-        <div class="flow-detail">用户输入自然语言 → POST /session/{id}/intent → 两阶段匹配（关键词粗筛 + LLM 精排）→ 高置信度直接 PARAM_COLLECT，低置信度展示候选模板</div>
+        <div class="flow-detail">用户输入自然语言 → POST /session/{id}/intent → 两阶段匹配（关键词粗筛 + LLM 精排，不传 history，DC-0106）→ ≥0.85 直接 PARAM_COLLECT / ≥0.50 展示 top-1 + 备选 / <0.50 展示 top-3 关键词候选</div>
       </div>
     </div>
     <div class="flow-step">
       <div class="flow-num">2</div>
       <div class="flow-content">
-        <div class="flow-title">QATab 知识问答</div>
-        <div class="flow-detail">用户提问 → POST /session/{id}/chat → 代码层分支：locked_template 存在时走模板知识问答，不存在时走 GIS 专家问答 → WS /ws/chat 流式返回</div>
+        <div class="flow-title">QATab 知识问答（WebSocket 流式）</div>
+        <div class="flow-detail">用户提问 → WS /ws/chat/{id} → handler 读取 session.qa_history 作为对话上下文 → 代码层分支：locked_template 存在时走模板知识问答，不存在时走 GIS 专家问答 → 流式返回 chunk → 完成写回 qa_history（DC-UX-14）。前端独立维护 qaMessages（DC-UX-15）</div>
       </div>
     </div>
     <div class="flow-step">
       <div class="flow-num">3</div>
       <div class="flow-content">
-        <div class="flow-title">ExecTab 脚本执行</div>
-        <div class="flow-detail">用户确认 → WS /ws/execute 实时日志 → 成功返回 IDLE / 失败进入 ERROR_RECOVERY → 一键诊断导航到 QATab</div>
+        <div class="flow-title">ExecTab 脚本执行与自动诊断</div>
+        <div class="flow-detail">用户确认 → WS /ws/execute 实时日志 → 成功返回 IDLE / 失败进入 ERROR_RECOVERY → 自动触发 LLM 诊断（无需按钮）→ 诊断结果 inline 展示在 ExecTab（根因 + 建议 + can_auto_fix + 【修复命令参考】代码块，ReactMarkdown 渲染）→ 修改参数 / 放弃任务</div>
       </div>
     </div>
     <div class="flow-step">
       <div class="flow-num">4</div>
       <div class="flow-content">
-        <div class="flow-title">ExecTab 工作空间切换</div>
-        <div class="flow-detail">用户点击浏览选择目录 → POST /session/{id}/workspace → 保留当前会话状态，仅更新默认 cwd 和输出基准目录 → ParamValidator 和 TemplateEngine 重新创建</div>
+        <div class="flow-title">Pipeline 多步执行</div>
+        <div class="flow-detail">用户进入 /#/pipeline → 添加多个步骤模板 + 自动关联参数 → POST /pipeline 预览合并脚本 → WS /ws/pipeline-execute/{id} 执行多步合并脚本 → 复用单步执行的 WebSocket 基础设施</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">5</div>
+      <div class="flow-content">
+        <div class="flow-title">GeneratorPage 模板生成器</div>
+        <div class="flow-detail">用户进入 /#/generator → 五步向导：文档输入 → 配置 → Monaco 代码编辑器预览（Jinja2 语法高亮 + 实时校验）→ 审查 → 保存 → 后端热重载 rescan() → 新模板立即可用</div>
       </div>
     </div>
   </div>

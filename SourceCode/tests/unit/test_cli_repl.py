@@ -1,6 +1,7 @@
 """Tests for REPL interactive loop.
 
-Design: plan-cli v1.0.0 (DC-0061, DC-0062, DC-0066)
+【已废弃，代码保留】CLI 层不再维护，参见 constitution.md §6.1。
+Design: Document/archive/plan-cli.md (DC-0061, DC-0062, DC-0066)
 """
 
 from pathlib import Path

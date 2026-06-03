@@ -1,6 +1,7 @@
 """Tests for ScriptExecutor.
 
-Design: plan-cli v1.0.0 (DC-0063, DC-0064, DC-0065)
+【已废弃，代码保留】CLI 层不再维护，参见 constitution.md §6.1。
+Design: Document/archive/plan-cli.md (DC-0063, DC-0064, DC-0065)
 """
 
 import subprocess

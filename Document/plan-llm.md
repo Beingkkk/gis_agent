@@ -377,18 +377,18 @@ class TemplateInfo(NamedTuple):
 def classify_intent(
     user_input: str,
     available_templates: List[TemplateInfo],
-    history: List[Message],
     client: LLMClient,
     builder: PromptBuilder,
 ) -> IntentResult:
     """将用户输入分类到预定义模板。
+
+    One-shot decision: no conversation history is passed (DC-0106).
 
     Args:
         user_input: 当前用户输入。
         available_templates: 可用模板元数据列表（含 id、name、description、keywords），
             供 LLM Prompt 中的意图分类参考。在 API 两阶段匹配（DC-0098）中，
             此列表为粗筛后的候选池（通常 ≤ 10 个），而非全部模板。
-        history: 对话历史。
         client: LLM 客户端。
         builder: Prompt 构建器。
 
@@ -400,7 +400,7 @@ def classify_intent(
         confidence < 0.30：关联度很低
 
     Design:
-        F2, P1, DC-0098
+        F2, P1, DC-0098, DC-0106
     """
 
 
@@ -409,18 +409,18 @@ def extract_params(
     template_id: str,
     param_schema: Dict,         # 来自模板注册表的参数定义
     current_params: Dict[str, str],
-    history: List[Message],
     client: LLMClient,
     builder: PromptBuilder,
 ) -> ParamResult:
     """从用户输入中提取模板参数，识别缺失的必填字段。
+
+    One-shot decision: no conversation history is passed (DC-0106).
 
     Args:
         user_input: 当前用户输入（可能是对追问的回答）。
         template_id: 已确认的模板 ID。
         param_schema: 参数 Schema（字段名、类型、必填、描述）。
         current_params: 已收集到的参数。
-        history: 对话历史。
         client: LLM 客户端。
         builder: Prompt 构建器。
 
@@ -428,7 +428,7 @@ def extract_params(
         参数抽取结果，含已提取、缺失和追问列表。
 
     Design:
-        F3
+        F3, DC-0106
     """
 
 
@@ -474,11 +474,12 @@ def analyze_execution_error(
     execution_result: ExecutionResult,
     template: TemplateDef,
     current_params: Dict[str, str],
-    history: List[Message],
     client: LLMClient,
     builder: PromptBuilder,
 ) -> ErrorDiagnosis:
     """分析 GDAL 脚本执行错误，输出结构化诊断。
+
+    One-shot decision: no conversation history is passed (DC-0106).
 
     将 ExecutionResult（returncode、stdout、stderr）与当前 template/params
     一起传给 LLM，让模型结合 GDAL 知识诊断根因并建议修复。
@@ -487,7 +488,6 @@ def analyze_execution_error(
         execution_result: ScriptExecutor.execute() 的返回结果。
         template: 当前已确认的模板定义。
         current_params: 当前已收集的参数。
-        history: 对话历史。
         client: LLM 客户端。
         builder: Prompt 构建器。
 
@@ -495,7 +495,7 @@ def analyze_execution_error(
         ErrorDiagnosis，含根因、建议、修正后参数、置信度、可自动修复标志。
 
     Design:
-        DC-0036
+        DC-0036, DC-0106
     """
 ```
 
@@ -767,10 +767,10 @@ analyze_execution_error()
 | 需求 ID | 设计决策 | 代码文件/函数 | 说明 |
 |:-------:|:--------:|:-------------:|------|
 | F1 | DC-0035 | `answer_question()` | 基于模板元数据和 LLM 参数知识的文档问答 |
-| F2 | DC-0031, DC-0032 | `classify_intent()` | 意图分类 |
-| F3 | DC-0031, DC-0032 | `extract_params()` | 参数抽取与追问 |
+| F2 | DC-0031, DC-0032, DC-0106 | `classify_intent()` | 意图分类（one-shot，无 history） |
+| F3 | DC-0031, DC-0032, DC-0106 | `extract_params()` | 参数抽取与追问（one-shot，无 history） |
 | F8 | DC-0033 | Token 截断逻辑 | 会话记忆上下文管理 |
-| F10 | DC-0036 | `analyze_execution_error()` | 执行错误 LLM 诊断 + 结构化修复建议 |
+| F10 | DC-0036, DC-0106 | `analyze_execution_error()` | 执行错误 LLM 诊断 + 结构化修复建议（one-shot，无 history） |
 | P1 | DC-0032 | 系统提示词固定约束 | 模板化命令规则 |
 | P4 | DC-0035 | `answer_question()` 模板上下文 | 基于模板元数据回答用法问题 |
 | CODE-3 | DC-0031 | `LLMClient` 封装 | anthropic SDK 不外泄 |

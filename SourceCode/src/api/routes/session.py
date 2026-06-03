@@ -11,6 +11,7 @@ Design:
 import asyncio
 import logging
 import os
+import uuid
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -27,7 +28,8 @@ from api.dependencies import (
     get_template_engine,
     get_validator,
 )
-from core.exec_env import ShellExecutor, ShellType
+from core.diagnosis import build_diagnosis_context
+from core.exec_env import ExecEnvironment, ShellExecutor, ShellType
 from core.matching import score_template_match
 from core.models import ExecutionErrorContext, Session, SessionState
 
@@ -618,15 +620,10 @@ async def execute_script(
             message="Dry-run mode: script preview only",
         )
 
-    import uuid as uuid_mod
-
-    # Return with 202 Accepted status
-    from fastapi.responses import JSONResponse
-
     return JSONResponse(
         status_code=202,
         content={
-            "execution_id": str(uuid_mod.uuid4()),
+            "execution_id": str(uuid.uuid4()),
             "message": "Execution triggered. Connect to WebSocket for live output.",
         },
     )
@@ -677,55 +674,6 @@ async def clear_session(
     return _build_session_response(session_id, cleared)
 
 
-def _build_diagnosis_context(session: Session) -> str:
-    """Build diagnosis context string for LLM error analysis.
-
-    Mirrors processor.py::_build_diagnosis_context (DC-0049).
-
-    Args:
-        session: Current Session with template and params.
-
-    Returns:
-        Context string for analyze_execution_error().
-    """
-    template = session.template
-    if template is None:
-        return "模板信息不可用。"
-
-    param_lines: list[str] = []
-    for p in template.params:
-        tag = "必填" if p.required else "可选"
-        if p.default is not None:
-            tag += f"，默认 {p.default}"
-        param_lines.append(f"  • {p.name}（{tag}，类型 {p.type}）：{p.description}")
-
-    current_lines: list[str] = []
-    for name, value in session.params.items():
-        current_lines.append(f"    {name} = {value}")
-
-    try:
-        engine = get_template_engine()
-        rendered = engine.render(template, session.params)
-        script_content = rendered.content.strip()
-    except Exception:
-        script_content = "（脚本渲染失败）"
-
-    return (
-        f"【模板信息】\n"
-        f"名称：{template.name}\n"
-        f"描述：{template.description}\n\n"
-        f"【参数定义】\n"
-        + "\n".join(param_lines)
-        + "\n\n"
-        + "【当前参数值】\n"
-        + "\n".join(current_lines)
-        + "\n\n"
-        + "【渲染后脚本】\n"
-        + script_content
-        + "\n"
-    )
-
-
 @router.post("/{session_id}/diagnose", response_model=SessionResponse)
 async def diagnose_execution(
     session_id: str,
@@ -770,7 +718,7 @@ async def diagnose_execution(
         return _build_session_response(session_id, session)
 
     # First-time diagnosis: build context and call LLM
-    diagnosis_context = _build_diagnosis_context(session)
+    diagnosis_context = build_diagnosis_context(session, get_template_engine())
     try:
         diagnosis = await asyncio.to_thread(
             analyze_execution_error,
@@ -858,22 +806,6 @@ async def export_script(
                 status_code=400, detail=f"Script rendering failed: {exc}"
             ) from exc
 
-    # Determine shell type from session exec_env or fallback
-    shell_type = ShellType.CMD
-    if session.exec_env is not None:
-        shell_type = session.exec_env.shell
-
-    # Build a minimal executor for script writing
-    from core.exec_env import ExecEnvironment
-
-    env = ExecEnvironment(
-        env_vars=dict(os.environ),
-        shell=shell_type,
-        shell_executable=Path("cmd"),
-        gdal_available=False,
-    )
-    executor = ShellExecutor(env)
-
     output_path = Path(request.output_path)
 
     try:
@@ -882,7 +814,17 @@ async def export_script(
             output_path.write_text(script_content, encoding="utf-8")
             written_path = output_path
         else:
-            # Legacy path: wrap via ShellExecutor (template-rendered content)
+            # Use session exec_env if available, else build a minimal fallback
+            if session.exec_env is not None:
+                executor = ShellExecutor(session.exec_env)
+            else:
+                fallback_env = ExecEnvironment(
+                    env_vars=dict(os.environ),
+                    shell=ShellType.CMD,
+                    shell_executable=Path("cmd"),
+                    gdal_available=False,
+                )
+                executor = ShellExecutor(fallback_env)
             commands = script_content.strip().splitlines()
             written_path = executor.write_script(commands, output_path)
         size = written_path.stat().st_size

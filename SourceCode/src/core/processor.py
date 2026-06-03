@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
+from core.diagnosis import build_diagnosis_context
 from core.matching import find_matching_templates
 from core.models import ExecutionErrorContext, Session, SessionState
 from core.registry import TemplateRegistry
@@ -529,53 +530,6 @@ class SessionProcessor:
         )
         return (session, response)
 
-    def _build_diagnosis_context(self, session: Session) -> str:
-        """Build diagnosis context string for LLM error analysis.
-
-        Includes template info, param definitions, current values,
-        and rendered script content.
-
-        Design:
-            DC-0049
-        """
-        template = session.template
-        if template is None:
-            return "模板信息不可用。"
-
-        param_lines: list[str] = []
-        for p in template.params:
-            tag = "必填" if p.required else "可选"
-            if p.default is not None:
-                tag += f"，默认 {p.default}"
-            param_lines.append(f"  • {p.name}（{tag}，类型 {p.type}）：{p.description}")
-
-        current_lines: list[str] = []
-        for name, value in session.params.items():
-            current_lines.append(f"    {name} = {value}")
-
-        try:
-            rendered = self._template_engine.render(
-                template, session.params, platform=None
-            )
-            script_content = rendered.content.strip()
-        except Exception:
-            script_content = "（脚本渲染失败）"
-
-        return (
-            f"【模板信息】\n"
-            f"名称：{template.name}\n"
-            f"描述：{template.description}\n\n"
-            f"【参数定义】\n"
-            + "\n".join(param_lines)
-            + "\n\n"
-            + "【当前参数值】\n"
-            + "\n".join(current_lines)
-            + "\n\n"
-            + "【渲染后脚本】\n"
-            + script_content
-            + "\n"
-        )
-
     def _build_recovery_response(
         self, diagnosis: ErrorDiagnosis, current_params: dict[str, str]
     ) -> str:
@@ -648,7 +602,7 @@ class SessionProcessor:
 
         # First entry: diagnosis not yet performed
         if error_ctx.diagnosis is None:
-            diagnosis_context = self._build_diagnosis_context(session)
+            diagnosis_context = build_diagnosis_context(session, self._template_engine)
             try:
                 diagnosis = analyze_execution_error(
                     returncode=error_ctx.returncode,

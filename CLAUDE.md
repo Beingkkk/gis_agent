@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GIS Agent (`gis-agent`) is a natural-language assistant for GIS data processing using GDAL tools. It accepts Chinese requests, maps them to predefined Jinja2 templates, generates batch scripts, and executes them only after explicit user confirmation.
 
-The project provides **two UIs**: an Electron desktop application (`frontend/` + `api/`) and a command-line REPL (`cli/`). Both share the same `core/llm/templates` business logic. The browser-based UI has been removed; Electron is the sole graphical entry point.
+The project provides an Electron desktop application (`frontend/` + `api/`) as the **sole active user entry point**. The command-line REPL (`cli/`) is **deprecated** — code is preserved but no longer maintained (constitution.md §6.1). Both share the same `core/llm/templates` business logic. The browser-based UI has been removed; Electron is the sole graphical entry point.
 
 The project strictly follows Specification-Driven Design: no code without a preceding design document.
 
@@ -40,7 +40,7 @@ Strict layered architecture. Upper layers may call lower layers; **reverse depen
 ```
 Frontend (frontend/)    → React + TypeScript + Vite + Electron desktop app
 API layer (api/)        → FastAPI REST + WebSocket adapters (Python child process)
-CLI layer (cli/)        → REPL, slash commands, script execution
+~~CLI layer (cli/)~~    → ~~REPL, slash commands, script execution~~ 【已废弃，代码保留】
 Core layer (core/)      → template registry, param validator, session processor, matching engine
 App layer (llm/)        → LLM interaction, intent classification, template-knowledge Q&A, error diagnosis
 Infra layer             → anthropic SDK, jinja2, GDAL CLI
@@ -50,7 +50,7 @@ Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker
 **Dependency rules**:
 - `frontend/` calls `api/` via HTTP/WebSocket only; never imports Python code
 - `api/` may depend on `core/`, `llm/`, `templates/`
-- `cli/` may depend on `core/`, `llm/`, `templates/`
+- ~~`cli/` may depend on `core/`, `llm/`, `templates/`~~ 【CLI 已废弃，历史保留】
 - `core/` may depend on `llm/`, `templates/`
 - `llm/` may depend on `core/` (for `TemplateDef` knowledge metadata in Q&A)
 - `templates/` may depend on `core/` (models)
@@ -70,8 +70,8 @@ Use `codegraph_search` to find specific functions. The following are design patt
 
 `SessionState` has 6 states: `IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW → EXECUTING → ERROR_RECOVERY`.
 
-- **CLI**: `SessionProcessor` (in `core/processor.py`) drives the full state machine single-threaded. `_handle_error_recovery()` performs LLM diagnosis and parses user text choices ("1"/"2"/"3").
 - **Desktop UI**: The API routes (`api/routes/session.py`) handle state transitions via REST. `EXECUTING` is special — the `websocket/execute.py` handler runs the script asynchronously, then updates the session state: success → `IDLE` (clears history and error context); failure → `ERROR_RECOVERY` with `ExecutionErrorContext` (DC-0048). The frontend then calls `POST /session/{id}/diagnose` to trigger lazy LLM diagnosis (plan-core DC-0049).
+- ~~**CLI**: `SessionProcessor` (in `core/processor.py`) drove the full state machine single-threaded.~~ 【CLI 已废弃，代码保留】
 
 **History isolation (DC-0107)**: `Session` maintains two separate message lists:
 - `history` — Discovery/Exec flow messages (intent matching, parameter submission, execution status)
@@ -98,7 +98,7 @@ This removes the old keyword-based (`什么`, `怎么`) question detection from 
 
 ### ERROR_RECOVERY in the Desktop UI
 
-Unlike the CLI where `SessionProcessor._handle_error_recovery()` drives the entire recovery loop, the desktop UI splits it across three pieces:
+The desktop UI splits error recovery across three pieces (the CLI recovery loop is deprecated with the CLI layer):
 1. **Backend websocket**: `websocket/execute.py` sets `ERROR_RECOVERY` + basic `ExecutionErrorContext` (stdout/stderr/returncode/duration_ms, diagnosis=None).
 2. **Backend diagnose endpoint**: `POST /session/{id}/diagnose` lazily triggers `llm.diagnosis.analyze_execution_error()`, populates `error_context.diagnosis` (cause, suggestion, fixed_params, confidence, can_auto_fix), and caches the result.
 3. **Frontend auto-trigger**: After WebSocket execution fails, `MainPage` automatically calls `diagnoseSession()` if `error_context.diagnosis` is absent. **No "一键诊断" button** — diagnosis is fully automatic.
@@ -251,11 +251,11 @@ npm run electron:dev
 
 `concurrently` starts both the Vite dev server and Electron. The Electron main process polls `http://localhost:5173` and loads the window once the dev server is ready.
 
-**CLI**:
+~~**CLI**~~ 【已废弃，代码保留】:
 
 ```bash
 cd SourceCode
-python start_cli.py
+python start_cli.py        # 仍可运行，但不再维护
 python start_cli.py --dry-run
 ```
 
@@ -298,7 +298,7 @@ python scripts/generate_templates.py --source ... --output ... --force
 Hard constraints from `Document/spec.md`:
 
 - **P1 (Template only)**: GDAL commands must be rendered from Jinja2 templates in `data/templates/` — dynamic string construction is prohibited
-- **P2 (Show before execute)**: The CLI must display the full script and require explicit `Y/N` confirmation before execution
+- **P2 (Show before execute)**: The UI must display the full script and require explicit user confirmation before execution
 - **P3 (Minimal permissions)**: Output paths are user-specified via file dialog (absolute paths). Timestamps are appended to prevent silent overwrites. Paths are normalized via `resolve()`.
 - **P4 (Template knowledge only)**: Usage guidance knowledge comes exclusively from J2 template metadata (`@concept`, `@note`, `@common_error`); basic concepts may be answered from LLM parametric knowledge. No external API calls for knowledge.
 - **P5 (Minimal deps)**: Production dependencies are locked to `anthropic`, `jinja2`
@@ -318,7 +318,7 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `src/api/routes/session.py` | Two-stage intent matching API (DC-0098) + `POST /chat` for Q&A + `POST /diagnose` for lazy error diagnosis + `POST /export-script` for explicit script export (DC-UX-11a) |
 | `src/api/websocket/chat.py` | Q&A WebSocket handler: streams LLM output via `/ws/chat/{id}` (DC-UX-04). Reads `session.qa_history` as conversation context and persists user+assistant messages back to `qa_history` after each round (DC-UX-14) |
 | `src/api/websocket/execute.py` | Execution WebSocket handler: subprocess stdout/stderr streaming (DC-0048) |
-| `src/core/processor.py` | CLI state machine dispatcher; `_handle_error_recovery()` is the CLI-side diagnosis driver |
+| `src/core/processor.py` | ~~CLI state machine dispatcher~~ 【CLI 已废弃，代码保留】|
 | `src/core/matching.py` | Unified template matching scoring (keywords=+3, concepts=+2, id/name/desc/notes=+1) |
 | `src/llm/prompts.py` | PromptBuilder with 5 scenario-specific system prompts (DC-0071): intent / template-qa / gis-expert / param / diagnosis |
 | `src/llm/qa.py` | `answer_question()` — code-level branching: `locked_template` determines template-knowledge vs GIS-expert mode |
@@ -396,5 +396,5 @@ After adding a template, restart the application to pick it up (templates are sc
 - `SourceCode/model/embedding/` contains large model files (deprecated per ADR-0001, no longer used at runtime); should not be committed.
 - `SourceCode/config/config.json` is gitignored; never commit credentials.
 - `SourceCode/docs/README-UI.md` is outdated (browser UI mode was removed); Electron is the sole graphical entry point.
-- The Electron desktop app (`frontend/`) and CLI (`cli/`) are parallel entry points sharing `core/llm/templates`. Changes to business logic affect both UIs.
+- The Electron desktop app (`frontend/`) is the sole active entry point. The CLI (`cli/`) code is preserved but no longer maintained.
 - Script execution writes temporary scripts to `./cache/` (project-relative, auto-created; DC-0105 v1.3.0), not to workspace or system temp. Users export scripts explicitly via the "Export Script" button (DC-UX-11a) which opens a save dialog and reveals the file in the file manager.

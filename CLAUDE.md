@@ -319,6 +319,7 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `src/api/websocket/chat.py` | Q&A WebSocket handler: streams LLM output via `/ws/chat/{id}` (DC-UX-04). Reads `session.qa_history` as conversation context and persists user+assistant messages back to `qa_history` after each round (DC-UX-14) |
 | `src/api/websocket/execute.py` | Execution WebSocket handler: subprocess stdout/stderr streaming (DC-0048) |
 | `src/core/processor.py` | ~~CLI state machine dispatcher~~ 【CLI 已废弃，代码保留】|
+| `src/core/diagnosis.py` | Shared `build_diagnosis_context()` — eliminates duplication between API layer and deprecated processor (DC-0049) |
 | `src/core/matching.py` | Unified template matching scoring (keywords=+3, concepts=+2, id/name/desc/notes=+1) |
 | `src/llm/prompts.py` | PromptBuilder with 5 scenario-specific system prompts (DC-0071): intent / template-qa / gis-expert / param / diagnosis |
 | `src/llm/qa.py` | `answer_question()` — code-level branching: `locked_template` determines template-knowledge vs GIS-expert mode |
@@ -395,6 +396,5 @@ After adding a template, restart the application to pick it up (templates are sc
 - `Document/Resource/` is gitignored; do not commit its contents.
 - `SourceCode/model/embedding/` contains large model files (deprecated per ADR-0001, no longer used at runtime); should not be committed.
 - `SourceCode/config/config.json` is gitignored; never commit credentials.
-- `SourceCode/docs/README-UI.md` is outdated (browser UI mode was removed); Electron is the sole graphical entry point.
 - The Electron desktop app (`frontend/`) is the sole active entry point. The CLI (`cli/`) code is preserved but no longer maintained.
 - Script execution writes temporary scripts to `./cache/` (project-relative, auto-created; DC-0105 v1.3.0), not to workspace or system temp. Users export scripts explicitly via the "Export Script" button (DC-UX-11a) which opens a save dialog and reveals the file in the file manager.

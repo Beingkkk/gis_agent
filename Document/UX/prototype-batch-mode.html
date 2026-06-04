@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>批量处理模式 · UX 原型</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd',
+              400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8',
+              800: '#1e40af', 900: '#1e3a8a',
+            },
+          },
+          fontFamily: {
+            sans: ['Inter', 'Noto Sans SC', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'SF Mono', 'monospace'],
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    body { font-family: 'Inter', 'Noto Sans SC', system-ui, sans-serif; background: #f8fafc; }
+    .scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
+    .scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    .fade-in { animation: fadeIn .2s ease-out both; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .toggle-switch { position: relative; width: 44px; height: 24px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #cbd5e1; transition: .2s; border-radius: 24px;
+    }
+    .toggle-slider:before {
+      position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px;
+      background-color: white; transition: .2s; border-radius: 50%;
+    }
+    input:checked + .toggle-slider { background-color: #3b82f6; }
+    input:checked + .toggle-slider:before { transform: translateX(20px); }
+  </style>
+</head>
+<body class="h-screen w-screen overflow-hidden text-slate-800 antialiased">
+
+  <div class="h-full flex flex-col">
+    <!-- TopBar -->
+    <header class="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-6 flex-shrink-0 z-10">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-primary-600 text-white flex items-center justify-center font-bold text-sm">B</div>
+        <div>
+          <h1 class="text-base font-bold text-slate-800">批量处理模式</h1>
+          <p class="text-2xs text-slate-400">单文件 → 目录遍历 · UX 原型</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-4">
+        <span class="text-xs text-slate-500" id="mode-label">单文件模式</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="batch-toggle" onchange="toggleBatchMode()">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </header>
+
+    <!-- Main workspace -->
+    <div class="flex-1 flex overflow-hidden">
+      <!-- Left: Parameter form -->
+      <main class="flex-1 flex flex-col min-w-0 bg-slate-50/60">
+        <div class="flex-1 overflow-y-auto scrollbar p-6">
+          <div class="max-w-xl mx-auto space-y-4">
+            <!-- Template info card -->
+            <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div class="flex items-center gap-3">
+                <span class="text-2xl">📐</span>
+                <div>
+                  <div class="text-sm font-bold text-slate-800">Shapefile 转 GeoJSON</div>
+                  <div class="text-xs text-slate-500">使用 ogr2ogr 将 Shapefile 转换为 GeoJSON 格式</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Mode indicator -->
+            <div id="mode-banner" class="rounded-lg px-4 py-2.5 text-sm flex items-center gap-2 bg-slate-100 text-slate-600">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+              <span>当前为单文件模式：处理单个输入文件</span>
+            </div>
+
+            <!-- Parameters -->
+            <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div class="px-5 py-3 border-b border-slate-100 bg-slate-50/50">
+                <span class="text-sm font-bold text-slate-800">参数设置</span>
+              </div>
+              <div class="p-5 space-y-4" id="param-form">
+                <!-- Input parameter -->
+                <div class="param-row" data-param="input">
+                  <div class="flex items-center gap-2 mb-1.5">
+                    <span class="text-sm font-medium text-slate-700">input</span>
+                    <span class="text-red-400 text-xs">*</span>
+                    <span class="text-2xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium param-type-label">file_path</span>
+                  </div>
+                  <div class="flex gap-2">
+                    <input type="text" id="input-value" placeholder="选择输入 Shapefile 路径" value="C:\GISData\roads.shp"
+                      class="flex-1 h-10 px-3 text-sm border border-slate-200 rounded-lg bg-[#f8fafc] focus:outline-none focus:border-primary-500 focus:bg-white focus:ring-[3px] focus:ring-primary-500/8 transition-all"
+                      onchange="updatePreview()">
+                    <button onclick="mockBrowse('input', false)" class="h-10 px-3 border border-slate-200 rounded-lg text-xs font-medium text-slate-500 bg-white hover:bg-slate-50 flex-shrink-0">浏览…</button>
+                  </div>
+                  <p class="text-2xs text-slate-400 mt-1">输入 Shapefile 路径（.shp）</p>
+                </div>
+
+                <!-- Pattern parameter (hidden by default) -->
+                <div class="param-row hidden" data-param="pattern">
+                  <div class="flex items-center gap-2 mb-1.5">
+                    <span class="text-sm font-medium text-slate-700">pattern</span>
+                    <span class="text-red-400 text-xs">*</span>
+                    <span class="text-2xs px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 font-medium">pattern</span>
+                  </div>
+                  <input type="text" id="pattern-value" placeholder="*.shp" value="*.shp"
+                    class="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg bg-[#f8fafc] focus:outline-none focus:border-primary-500 focus:bg-white focus:ring-[3px] focus:ring-primary-500/8 transition-all"
+                    onchange="updatePreview()">
+                  <p class="text-2xs text-slate-400 mt-1">文件匹配模式，如 *.shp、*.tif</p>
+                </div>
+
+                <!-- Output parameter -->
+                <div class="param-row" data-param="output">
+                  <div class="flex items-center gap-2 mb-1.5">
+                    <span class="text-sm font-medium text-slate-700">output</span>
+                    <span class="text-red-400 text-xs">*</span>
+                    <span class="text-2xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium param-type-label">file_path</span>
+                  </div>
+                  <div class="flex gap-2">
+                    <input type="text" id="output-value" placeholder="选择输出 GeoJSON 路径" value="C:\GISData\roads.json"
+                      class="flex-1 h-10 px-3 text-sm border border-slate-200 rounded-lg bg-[#f8fafc] focus:outline-none focus:border-primary-500 focus:bg-white focus:ring-[3px] focus:ring-primary-500/8 transition-all"
+                      onchange="updatePreview()">
+                    <button onclick="mockBrowse('output', false)" class="h-10 px-3 border border-slate-200 rounded-lg text-xs font-medium text-slate-500 bg-white hover:bg-slate-50 flex-shrink-0">浏览…</button>
+                  </div>
+                  <p class="text-2xs text-slate-400 mt-1" id="output-hint">输出 GeoJSON 路径</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Batch explanation card -->
+            <div id="batch-explain" class="hidden rounded-xl border border-primary-200 bg-primary-50/40 p-4">
+              <div class="text-sm font-semibold text-primary-800 mb-2 flex items-center gap-2">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                </svg>
+                批量模式说明
+              </div>
+              <ul class="text-xs text-primary-700 space-y-1 list-disc list-inside">
+                <li>系统会遍历指定目录下所有匹配 <code class="bg-white px-1 rounded">*.shp</code> 的文件</li>
+                <li>对每个文件执行 ogr2ogr 转换命令</li>
+                <li>输出文件名自动使用 <code class="bg-white px-1 rounded">{原始文件名}.json</code> 格式</li>
+                <li>外层使用 <code class="bg-white px-1 rounded">for</code> 循环 + <code class="bg-white px-1 rounded">&&</code> 链，失败时中断</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Right: Script preview -->
+      <aside class="w-[520px] flex-shrink-0 border-l border-slate-200 bg-white flex flex-col overflow-hidden">
+        <div class="px-5 pt-4 pb-3 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <div class="text-base font-bold text-slate-800">脚本预览</div>
+            <div class="text-xs text-slate-500 mt-0.5" id="preview-subtitle">单文件命令</div>
+          </div>
+          <button onclick="copyScript()" class="text-xs text-primary-600 hover:text-primary-700 font-medium px-2 py-1 rounded hover:bg-primary-50">复制</button>
+        </div>
+        <div class="flex-1 overflow-y-auto scrollbar p-5">
+          <pre id="script-preview" class="bg-slate-900 text-slate-100 p-4 rounded-xl text-xs font-mono overflow-x-auto whitespace-pre-wrap leading-relaxed">
+@echo off
+ogr2ogr -f "GeoJSON" "C:\GISData\roads.json" "C:\GISData\roads.shp"
+          </pre>
+
+          <div id="batch-summary" class="hidden mt-4 rounded-xl border border-slate-200 p-4">
+            <div class="text-sm font-semibold text-slate-800 mb-2">批量执行摘要</div>
+            <div class="space-y-2 text-xs text-slate-600">
+              <div class="flex justify-between">
+                <span>遍历目录</span>
+                <span class="font-mono text-slate-800" id="summary-dir">C:\GISData</span>
+              </div>
+              <div class="flex justify-between">
+                <span>匹配模式</span>
+                <span class="font-mono text-slate-800" id="summary-pattern">*.shp</span>
+              </div>
+              <div class="flex justify-between">
+                <span>输出目录</span>
+                <span class="font-mono text-slate-800" id="summary-outdir">C:\GISData</span>
+              </div>
+              <div class="border-t border-slate-100 pt-2 flex justify-between">
+                <span>预计处理文件数</span>
+                <span class="font-mono text-primary-700 font-semibold">3 个</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="px-5 py-3 border-t border-slate-100 flex gap-2">
+          <button onclick="execute()" class="flex-1 h-10 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 shadow-[0_1px_3px_rgba(5,150,105,0.2)] flex items-center justify-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            确认执行
+          </button>
+          <button onclick="resetParams()" class="h-10 px-4 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">
+            重置
+          </button>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    let isBatchMode = false;
+
+    function toggleBatchMode() {
+      isBatchMode = $('batch-toggle').checked;
+      $('mode-label').textContent = isBatchMode ? '批量模式' : '单文件模式';
+
+      const banner = $('mode-banner');
+      const patternRow = document.querySelector('[data-param="pattern"]');
+      const batchExplain = $('batch-explain');
+      const batchSummary = $('batch-summary');
+      const subtitle = $('preview-subtitle');
+      const outputHint = $('output-hint');
+
+      // Update input/output type labels
+      const inputTypeLabels = document.querySelectorAll('.param-type-label');
+
+      if (isBatchMode) {
+        banner.className = 'rounded-lg px-4 py-2.5 text-sm flex items-center gap-2 bg-primary-50 text-primary-700 fade-in';
+        banner.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          </svg>
+          <span>当前为批量模式：遍历目录下所有匹配文件</span>
+        `;
+        patternRow.classList.remove('hidden');
+        batchExplain.classList.remove('hidden');
+        batchSummary.classList.remove('hidden');
+        subtitle.textContent = '批量循环命令（遍历目录执行）';
+        outputHint.textContent = '输出目录（每个输入文件会生成对应的 .json）';
+
+        // Change input type label
+        inputTypeLabels[0].textContent = 'folder_path';
+        inputTypeLabels[0].className = 'text-2xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium param-type-label';
+        inputTypeLabels[1].textContent = 'folder_path';
+        inputTypeLabels[1].className = 'text-2xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium param-type-label';
+
+        // Update placeholder and default values for demo
+        $('input-value').placeholder = '选择包含 Shapefile 的目录';
+        if ($('input-value').value.includes('.shp')) {
+          $('input-value').value = 'C:\\GISData';
+        }
+        $('output-value').placeholder = '选择输出目录';
+        if ($('output-value').value.includes('.json')) {
+          $('output-value').value = 'C:\\GISOutput';
+        }
+      } else {
+        banner.className = 'rounded-lg px-4 py-2.5 text-sm flex items-center gap-2 bg-slate-100 text-slate-600';
+        banner.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+          <span>当前为单文件模式：处理单个输入文件</span>
+        `;
+        patternRow.classList.add('hidden');
+        batchExplain.classList.add('hidden');
+        batchSummary.classList.add('hidden');
+        subtitle.textContent = '单文件命令';
+        outputHint.textContent = '输出 GeoJSON 路径';
+
+        inputTypeLabels[0].textContent = 'file_path';
+        inputTypeLabels[0].className = 'text-2xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium param-type-label';
+        inputTypeLabels[1].textContent = 'file_path';
+        inputTypeLabels[1].className = 'text-2xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium param-type-label';
+
+        $('input-value').placeholder = '选择输入 Shapefile 路径';
+        $('output-value').placeholder = '选择输出 GeoJSON 路径';
+      }
+
+      updatePreview();
+    }
+
+    function updatePreview() {
+      const input = $('input-value').value || 'C:\\GISData\\roads.shp';
+      const output = $('output-value').value || 'C:\\GISData\\roads.json';
+      const pattern = $('pattern-value').value || '*.shp';
+
+      if (isBatchMode) {
+        // Extract directory from input
+        const dir = input.replace(/\\$/, '');
+        const outDir = output.replace(/\\$/, '');
+
+        $('script-preview').textContent =
+`@echo off
+setlocal enabledelayedexpansion
+
+echo [Batch] 遍历 "${dir}\\${pattern}" 执行 Shapefile 转 GeoJSON...
+
+for %%f in ("${dir}\\${pattern}") do (
+  set "filename=%%~nf"
+  echo [Processing] %%f
+  ogr2ogr -f "GeoJSON" "${outDir}\\!filename!.json" "%%f"
+  if errorlevel 1 (
+    echo [Error] 处理 %%f 失败，中断批量任务
+    exit /b 1
+  )
+)
+
+echo [Done] 批量处理完成`;
+
+        // Update summary
+        $('summary-dir').textContent = dir;
+        $('summary-pattern').textContent = pattern;
+        $('summary-outdir').textContent = outDir;
+      } else {
+        $('script-preview').textContent =
+`@echo off
+echo [Step 1/1] Shapefile 转 GeoJSON
+ogr2ogr -f "GeoJSON" "${output}" "${input}"`;
+      }
+    }
+
+    function mockBrowse(field, isDir) {
+      const fakePaths = {
+        input: isBatchMode ? 'C:\\GISData' : 'C:\\GISData\\roads.shp',
+        output: isBatchMode ? 'C:\\GISOutput' : 'C:\\GISData\\roads.json',
+      };
+      $(field + '-value').value = fakePaths[field] || 'C:\\GISData';
+      updatePreview();
+    }
+
+    function copyScript() {
+      navigator.clipboard.writeText($('script-preview').textContent).then(() => {
+        alert('已复制到剪贴板');
+      });
+    }
+
+    function resetParams() {
+      $('input-value').value = isBatchMode ? 'C:\\GISData' : 'C:\\GISData\\roads.shp';
+      $('output-value').value = isBatchMode ? 'C:\\GISOutput' : 'C:\\GISData\\roads.json';
+      $('pattern-value').value = '*.shp';
+      updatePreview();
+    }
+
+    function execute() {
+      alert(isBatchMode ? '批量任务已提交（原型演示）' : '单文件任务已提交（原型演示）');
+    }
+
+    function $(id) { return document.getElementById(id); }
+  </script>
+</body>
+</html>

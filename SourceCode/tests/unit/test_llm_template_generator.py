@@ -72,6 +72,16 @@ class TestParseGeneratedResponse:
         with pytest.raises(ValueError):
             parse_generated_response("this is not json at all")
 
+    def test_empty_response_raises_clear_error(self) -> None:
+        """Empty LLM response raises a clear error instead of a json position error."""
+        with pytest.raises(ValueError, match="Empty LLM response"):
+            parse_generated_response("")
+
+    def test_whitespace_only_response_raises_clear_error(self) -> None:
+        """Whitespace-only LLM response is treated as empty."""
+        with pytest.raises(ValueError, match="Empty LLM response"):
+            parse_generated_response("   \n  ")
+
     def test_fix_unescaped_newlines_in_strings(self) -> None:
         """Raw newlines inside JSON string values are escaped to \\n."""
         text = '{"template_id": "test", "description": "Line one\nLine two"}'

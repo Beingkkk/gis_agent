@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>多指令合并执行 · UX 原型</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd',
+              400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8',
+              800: '#1e40af', 900: '#1e3a8a',
+            },
+          },
+          fontFamily: {
+            sans: ['Inter', 'Noto Sans SC', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'SF Mono', 'Fira Code', 'monospace'],
+          },
+          borderRadius: { sm: '8px', DEFAULT: '12px', lg: '16px' },
+          boxShadow: {
+            sm: '0 1px 2px rgba(0,0,0,0.04)',
+            DEFAULT: '0 1px 3px rgba(0,0,0,0.06)',
+            md: '0 4px 12px rgba(0,0,0,0.06)',
+            lg: '0 12px 32px rgba(0,0,0,0.08)',
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    body { font-family: 'Inter', 'Noto Sans SC', system-ui, sans-serif; background: #f8fafc; }
+    .scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
+    .scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    .fade-in { animation: fadeIn .2s ease-out both; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .step-enter { animation: stepEnter .25s ease-out both; }
+    @keyframes stepEnter { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+  </style>
+</head>
+<body class="h-screen w-screen overflow-hidden text-slate-800 antialiased">
+
+  <div class="h-full flex flex-col">
+    <!-- TopBar -->
+    <header class="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-6 flex-shrink-0">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-primary-600 text-white flex items-center justify-center font-bold text-sm">M</div>
+        <div>
+          <h1 class="text-base font-bold text-slate-800">多指令合并执行</h1>
+          <p class="text-2xs text-slate-400">UX 原型 · 串行脚本合并 + LLM 合理性校验</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <span id="step-badge" class="hidden px-2.5 py-1 rounded-full bg-primary-50 text-primary-700 text-xs font-medium">0 个步骤</span>
+        <button onclick="resetAll()" class="text-xs text-slate-500 hover:text-red-600 px-2 py-1 rounded hover:bg-slate-50">重置</button>
+      </div>
+    </header>
+
+    <!-- Workspace -->
+    <div class="flex-1 flex overflow-hidden">
+      <!-- Timeline + intent input -->
+      <main class="flex-1 flex flex-col min-w-0 bg-slate-50/60">
+        <div id="timeline" class="flex-1 overflow-y-auto p-6 scrollbar space-y-2">
+          <!-- Empty state -->
+          <div id="empty-state" class="h-full flex flex-col items-center justify-center text-slate-400">
+            <div class="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mb-4 text-slate-300">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
+            </div>
+            <p class="text-sm">还没有步骤</p>
+            <p class="text-xs mt-1">在下方输入意图，逐个添加模板步骤；完成后合并生成脚本。</p>
+          </div>
+        </div>
+
+        <!-- Floating merge button (appears when >=2 steps) -->
+        <div id="merge-float" class="hidden absolute left-6 bottom-24">
+          <button onclick="mergeScript()" class="px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold shadow-md hover:bg-emerald-700 flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M9 14l2 2 4-4"/></svg>
+            合并生成脚本
+          </button>
+        </div>
+
+        <!-- Bottom input area -->
+        <div class="border-t border-slate-200 bg-white p-4 flex-shrink-0 relative">
+          <!-- Matching panel (non-history, temporary) -->
+          <div id="match-panel" class="hidden mb-3 fade-in"></div>
+
+          <div class="flex items-center gap-3">
+            <div class="flex-1 relative">
+              <input id="intent-input" type="text"
+                placeholder="描述下一个步骤，例如：把 shp 转成 GeoJSON"
+                class="w-full h-11 pl-4 pr-4 rounded-lg border border-slate-200 bg-[#f8fafc] text-sm focus:outline-none focus:border-primary-500 focus:bg-white focus:ring-[3px] focus:ring-primary-500/10 transition-all"
+                onkeydown="if(event.key==='Enter')sendIntent()" />
+            </div>
+            <button id="send-btn" onclick="sendIntent()" class="h-11 px-5 rounded-lg bg-primary-600 text-white text-sm font-semibold hover:bg-primary-700 shadow-[0_1px_3px_rgba(37,99,235,0.2)] flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              匹配模板
+            </button>
+          </div>
+          <p class="text-2xs text-slate-400 mt-2 flex items-center gap-1">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            意图匹配结果不会进入历史记录，仅作为当前步骤的临时筛选。
+          </p>
+        </div>
+      </main>
+
+      <!-- Right detail panel -->
+      <aside id="detail-panel" class="w-[580px] flex-shrink-0 border-l border-slate-200 bg-white flex flex-col overflow-hidden">
+        <!-- Default guide -->
+        <div id="detail-guide" class="flex-1 flex flex-col items-center justify-center p-8 text-slate-400 text-center">
+          <div class="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-3 text-slate-300">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          </div>
+          <p class="text-sm">右侧面板将显示当前步骤的参数表单、合并脚本或执行日志。</p>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    // ═══════════════════════════════════════════════════════════════════
+    // Mock data
+    // ═══════════════════════════════════════════════════════════════════
+    const MOCK_TEMPLATES = {
+      shp2geojson: {
+        id: 'shp2geojson',
+        name: 'Shapefile 转 GeoJSON',
+        description: '使用 ogr2ogr 将 Shapefile 矢量数据转换为 GeoJSON 格式。',
+        category: 'vector',
+        params: [
+          { name: 'input', type: 'file_path', required: true, description: '输入 Shapefile 路径（.shp）' },
+          { name: 'output', type: 'file_path', required: true, description: '输出 GeoJSON 路径' },
+        ],
+      },
+      reproject: {
+        id: 'reproject',
+        name: '矢量数据重投影',
+        description: '使用 ogr2ogr 将矢量数据重投影到目标空间参考。',
+        category: 'vector',
+        params: [
+          { name: 'input', type: 'file_path', required: true, description: '输入矢量文件' },
+          { name: 'output', type: 'file_path', required: true, description: '输出文件路径' },
+          { name: 't_srs', type: 'crs', required: true, description: '目标坐标系（如 EPSG:4326）' },
+        ],
+      },
+      xyz_tiles: {
+        id: 'xyz_tiles',
+        name: '生成 XYZ 瓦片',
+        description: '使用 gdal2tiles 将栅格数据生成 XYZ/TMS 瓦片目录。',
+        category: 'raster',
+        params: [
+          { name: 'input', type: 'file_path', required: true, description: '输入栅格文件' },
+          { name: 'output_dir', type: 'folder_path', required: true, description: '输出瓦片目录' },
+          { name: 'zoom', type: 'string', required: false, description: '缩放级别范围', default: '8-15' },
+        ],
+      },
+    };
+
+    const TYPE_LABEL = {
+      file_path: '文件', folder_path: '目录', crs: '坐标系', string: '字符串', boolean: '布尔', integer: '整数', float: '数值', text: '文本', enum: '枚举',
+    };
+
+    // ═══════════════════════════════════════════════════════════════════
+    // State
+    // ═══════════════════════════════════════════════════════════════════
+    let state = {
+      steps: [],                // { id, templateId, templateName, params: {name:value} }
+      phase: 'IDLE',            // IDLE | MATCHING | PARAMS | MERGED | EXECUTING | DONE
+      draft: {                  // current step being edited
+        templateId: null,
+        values: {},
+      },
+      logs: [],
+      exec: { done: false, success: false, failedStep: null },
+    };
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Helpers
+    // ═══════════════════════════════════════════════════════════════════
+    function $(id) { return document.getElementById(id); }
+
+    function intentMatch(text) {
+      const t = text.toLowerCase();
+      const rules = [
+        { ids: ['shp2geojson'], keys: ['shp', 'shapefile', 'geojson', '矢量转格式'] },
+        { ids: ['reproject'], keys: ['投影', '重投影', '坐标系', 'srs'] },
+        { ids: ['xyz_tiles'], keys: ['瓦片', 'tile', 'xyz', '切片', 'tiles'] },
+      ];
+      for (const r of rules) {
+        if (r.keys.some(k => t.includes(k))) return r.ids[0];
+      }
+      return null;
+    }
+
+    function renderTypeTag(type) {
+      const map = {
+        file_path: 'bg-amber-50 text-amber-700',
+        folder_path: 'bg-amber-50 text-amber-700',
+        crs: 'bg-pink-50 text-pink-700',
+        string: 'bg-slate-100 text-slate-600',
+      };
+      return `<span class="inline-block text-2xs font-medium px-[6px] py-[1px] rounded ${map[type] || map.string}">${TYPE_LABEL[type] || type}</span>`;
+    }
+
+    function renderStepCard(step, index, total) {
+      const prev = index > 0 ? state.steps[index - 1] : null;
+      const hasLink = prev && prev.params.output && step.params.input;
+      const linkLabel = hasLink ? `${filename(prev.params.output)} → input` : '顺序执行';
+      const statusDot = state.phase === 'EXECUTING' || state.phase === 'DONE'
+        ? `<span class="step-status-${index} ml-2 w-2 h-2 rounded-full bg-slate-300" title="未开始"></span>`
+        : '';
+      return `
+        <div class="step-enter">
+          ${index > 0 ? `
+          <div class="flex items-center justify-center py-2">
+            <div class="flex items-center gap-2 text-xs text-slate-400">
+              <div class="w-6 h-px bg-slate-300"></div>
+              <span>${linkLabel}</span>
+              <div class="w-6 h-px bg-slate-300"></div>
+            </div>
+          </div>` : ''}
+          <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-shadow">
+            <div class="flex items-start justify-between mb-3">
+              <div class="flex items-center gap-3">
+                <span class="w-7 h-7 rounded-full bg-primary-100 text-primary-700 text-xs font-bold flex items-center justify-center">${index + 1}</span>
+                <div>
+                  <div class="text-sm font-bold text-slate-800 flex items-center">${step.templateName}${statusDot}</div>
+                  <div class="text-2xs text-slate-500 mt-0.5">${MOCK_TEMPLATES[step.templateId].description}</div>
+                </div>
+              </div>
+              ${state.phase !== 'EXECUTING' ? `
+              <button onclick="removeStep(${index})" class="text-xs text-slate-400 hover:text-red-600 px-2 py-1 rounded hover:bg-slate-50">删除</button>
+              ` : ''}
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              ${Object.entries(step.params).map(([k,v]) => v ? `
+                <div class="text-2xs bg-slate-50 border border-slate-100 rounded-lg px-2 py-1.5 truncate">
+                  <span class="text-slate-400">${k}:</span>
+                  <span class="font-mono text-slate-700 ml-1" title="${v}">${v}</span>
+                </div>
+              ` : '').join('')}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function filename(path) {
+      if (!path) return '';
+      const i = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+      return path.slice(i + 1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Render timeline
+    // ═══════════════════════════════════════════════════════════════════
+    function renderTimeline() {
+      const tl = $('timeline');
+      if (state.steps.length === 0) {
+        tl.innerHTML = `
+          <div id="empty-state" class="h-full flex flex-col items-center justify-center text-slate-400">
+            <div class="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mb-4 text-slate-300">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            </div>
+            <p class="text-sm">还没有步骤</p>
+            <p class="text-xs mt-1">在下方输入意图，逐个添加模板步骤；完成后合并生成脚本。</p>
+          </div>`;
+      } else {
+        tl.innerHTML = state.steps.map((s, i) => renderStepCard(s, i, state.steps.length)).join('');
+      }
+
+      const badge = $('step-badge');
+      if (state.steps.length > 0) {
+        badge.classList.remove('hidden');
+        badge.textContent = `${state.steps.length} 个步骤`;
+      } else {
+        badge.classList.add('hidden');
+      }
+
+      const merge = $('merge-float');
+      if (state.steps.length >= 2 && ['IDLE','PARAMS','MERGED'].includes(state.phase)) {
+        merge.classList.remove('hidden');
+      } else {
+        merge.classList.add('hidden');
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Detail panels
+    // ═══════════════════════════════════════════════════════════════════
+    function setDetail(html) {
+      $('detail-panel').innerHTML = html;
+    }
+
+    function showDetailGuide() {
+      setDetail(`
+        <div class="flex-1 flex flex-col items-center justify-center p-8 text-slate-400 text-center">
+          <div class="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-3 text-slate-300">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          </div>
+          <p class="text-sm">右侧面板将显示当前步骤的参数表单、合并脚本或执行日志。</p>
+        </div>`);
+    }
+
+    function renderParamForm(templateId, values) {
+      const tmpl = MOCK_TEMPLATES[templateId];
+      const rows = tmpl.params.map(p => {
+        const val = values[p.name] ?? '';
+        const filled = val !== '';
+        const inputCls = `w-full h-10 border rounded-lg px-3 text-sm transition-all focus:outline-none focus:ring-[3px] focus:ring-primary-500/10 ${filled ? 'border-emerald-200 bg-emerald-50/50 text-emerald-900' : 'border-slate-200 bg-[#f8fafc] focus:border-primary-500 focus:bg-white'}`;
+        let input = '';
+        if (p.type === 'file_path' || p.type === 'folder_path') {
+          input = `<div class="flex gap-2"><input type="text" value="${val}" placeholder="${p.description}" oninput="updateDraftValue('${p.name}', this.value)" class="${inputCls} flex-1" /><button type="button" onclick="mockBrowse('${p.name}', ${p.type==='folder_path'})" class="h-10 px-3 border border-slate-200 rounded-lg text-xs font-medium text-slate-500 bg-white hover:bg-slate-50">浏览…</button></div>`;
+        } else if (p.type === 'crs') {
+          input = `<input type="text" value="${val}" placeholder="EPSG:4326" oninput="updateDraftValue('${p.name}', this.value)" class="${inputCls}" />`;
+        } else {
+          input = `<input type="text" value="${val}" placeholder="${p.description}${p.default ? '（默认：'+p.default+'）':''}" oninput="updateDraftValue('${p.name}', this.value)" class="${inputCls}" />`;
+        }
+        return `
+          <div class="flex items-start gap-3 py-2">
+            <div class="w-[130px] flex-shrink-0 pt-2">
+              <div class="flex items-center gap-1 text-sm font-medium text-slate-700">
+                <span>${p.name}</span>
+                ${p.required ? '<span class="text-red-400">*</span>' : ''}
+              </div>
+              ${renderTypeTag(p.type)}
+            </div>
+            <div class="flex-1 min-w-0">${input}</div>
+          </div>`;
+      }).join('');
+
+      return `
+        <div class="flex flex-col h-full fade-in">
+          <div class="px-5 pt-4 pb-3 border-b border-slate-100">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-base font-bold text-slate-800">步骤参数</span>
+              <button onclick="cancelDraft()" class="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 rounded hover:bg-slate-50">取消</button>
+            </div>
+            <p class="text-xs text-slate-500">${tmpl.name}</p>
+          </div>
+          <div class="flex-1 overflow-y-auto px-5 py-3 scrollbar">
+            ${rows}
+          </div>
+          <div class="px-5 py-3 border-t border-slate-100 flex gap-2">
+            <button onclick="addStepFromDraft()" class="flex-1 h-10 rounded-lg bg-primary-600 text-white text-sm font-semibold hover:bg-primary-700 shadow-[0_1px_3px_rgba(37,99,235,0.2)] flex items-center justify-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              添加此步骤
+            </button>
+          </div>
+        </div>`;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Actions
+    // ═══════════════════════════════════════════════════════════════════
+    function sendIntent() {
+      const input = $('intent-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const panel = $('match-panel');
+      panel.classList.remove('hidden');
+      panel.innerHTML = `<div class="flex items-center gap-2 text-sm text-slate-500"><span class="w-4 h-4 border-2 border-slate-200 border-t-primary-500 rounded-full animate-spin"></span>正在分析意图…</div>`;
+
+      setTimeout(() => {
+        const matchedId = intentMatch(text);
+        if (!matchedId) {
+          panel.innerHTML = `
+            <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 flex items-start gap-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mt-0.5 flex-shrink-0"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <div class="flex-1">未匹配到合适模板，请换个说法，例如“shp 转 geojson”或“生成瓦片”。<button onclick="clearMatch()" class="ml-2 underline">关闭</button></div>
+            </div>`;
+          return;
+        }
+        const tmpl = MOCK_TEMPLATES[matchedId];
+        panel.innerHTML = `
+          <div class="rounded-xl border border-primary-200 bg-primary-50 p-3 fade-in">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-lg bg-white border border-primary-100 flex items-center justify-center text-primary-600 flex-shrink-0">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-bold text-slate-800">${tmpl.name}</div>
+                <div class="text-xs text-slate-500 mt-0.5">${tmpl.description}</div>
+                <div class="mt-2 flex gap-2">
+                  <button onclick="selectDraftTemplate('${matchedId}')" class="px-3 py-1.5 rounded-md bg-primary-600 text-white text-xs font-semibold hover:bg-primary-700">使用此模板</button>
+                  <button onclick="clearMatch()" class="px-3 py-1.5 rounded-md border border-slate-200 text-xs text-slate-600 hover:bg-white">重新输入</button>
+                </div>
+              </div>
+            </div>
+          </div>`;
+      }, 600);
+    }
+
+    function clearMatch() {
+      $('match-panel').classList.add('hidden');
+      $('match-panel').innerHTML = '';
+      $('intent-input').value = '';
+      $('intent-input').focus();
+    }
+
+    function selectDraftTemplate(templateId) {
+      state.phase = 'PARAMS';
+      state.draft = { templateId, values: {} };
+      // seed defaults
+      const tmpl = MOCK_TEMPLATES[templateId];
+      tmpl.params.forEach(p => { if (p.default) state.draft.values[p.name] = p.default; });
+      clearMatch();
+      setDetail(renderParamForm(templateId, state.draft.values));
+      $('intent-input').disabled = true;
+      $('send-btn').disabled = true;
+    }
+
+    function updateDraftValue(name, value) {
+      state.draft.values[name] = value;
+    }
+
+    function mockBrowse(name, isDir) {
+      // In real app: Electron dialog. Prototype uses fake path.
+      const fake = isDir ? `C:\\GISWorkspace\\tiles_${Date.now()}` : `C:\\GISWorkspace\\roads_${Date.now()}.${name==='input'?'shp':'json'}`;
+      updateDraftValue(name, fake);
+      // re-render form
+      selectDraftTemplate(state.draft.templateId);
+      // restore focus? not needed
+    }
+
+    function cancelDraft() {
+      state.phase = 'IDLE';
+      state.draft = { templateId: null, values: {} };
+      showDetailGuide();
+      $('intent-input').disabled = false;
+      $('send-btn').disabled = false;
+    }
+
+    function addStepFromDraft() {
+      const tmpl = MOCK_TEMPLATES[state.draft.templateId];
+      // validate required
+      const missing = tmpl.params.filter(p => p.required && !state.draft.values[p.name]);
+      if (missing.length) {
+        alert('请填写必填参数：' + missing.map(p => p.name).join(', '));
+        return;
+      }
+      state.steps.push({
+        id: `step_${Date.now()}`,
+        templateId: state.draft.templateId,
+        templateName: tmpl.name,
+        params: { ...state.draft.values },
+      });
+      state.phase = 'IDLE';
+      state.draft = { templateId: null, values: {} };
+      renderTimeline();
+      showDetailGuide();
+      $('intent-input').disabled = false;
+      $('send-btn').disabled = false;
+      $('intent-input').value = '';
+      $('intent-input').focus();
+    }
+
+    function removeStep(index) {
+      if (state.phase === 'EXECUTING') return;
+      state.steps.splice(index, 1);
+      renderTimeline();
+      if (state.phase === 'MERGED') showDetailGuide();
+    }
+
+    function resetAll() {
+      state = { steps: [], phase: 'IDLE', draft: { templateId: null, values: {} }, logs: [], exec: { done: false, success: false, failedStep: null } };
+      renderTimeline();
+      showDetailGuide();
+      $('intent-input').disabled = false;
+      $('send-btn').disabled = false;
+      $('intent-input').value = '';
+      clearMatch();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Merge & validation
+    // ═══════════════════════════════════════════════════════════════════
+    function buildScript() {
+      const lines = ['@echo off'];
+      state.steps.forEach((s, i) => {
+        lines.push(`echo [Step ${i + 1}/${state.steps.length}] ${s.templateName}`);
+        if (s.templateId === 'shp2geojson') {
+          lines.push(`ogr2ogr -f "GeoJSON" "${s.params.output}" "${s.params.input}"`);
+        } else if (s.templateId === 'reproject') {
+          lines.push(`ogr2ogr -f "GeoJSON" -t_srs "${s.params.t_srs}" "${s.params.output}" "${s.params.input}"`);
+        } else if (s.templateId === 'xyz_tiles') {
+          lines.push(`gdal2tiles.py -z "${s.params.zoom || '8-15'}" "${s.params.input}" "${s.params.output_dir}"`);
+        }
+        if (i < state.steps.length - 1) lines.push('&&');
+      });
+      return lines.join('\n');
+    }
+
+    function buildValidation() {
+      const checks = [];
+      // link checks
+      for (let i = 1; i < state.steps.length; i++) {
+        const prev = state.steps[i - 1];
+        const cur = state.steps[i];
+        if (prev.params.output && cur.params.input && prev.params.output === cur.params.input) {
+          checks.push({ ok: true, text: `第 ${i} 步 output（${filename(prev.params.output)}）与第 ${i + 1} 步 input 衔接正常。` });
+        } else if (prev.params.output && cur.params.input && prev.params.output !== cur.params.input) {
+          checks.push({ ok: false, text: `第 ${i} 步输出与第 ${i + 1} 步输入不一致，可能需要手动确认数据依赖。` });
+        }
+      }
+      // heuristic
+      const hasReproject = state.steps.some(s => s.templateId === 'reproject');
+      const hasTiles = state.steps.some(s => s.templateId === 'xyz_tiles');
+      if (hasTiles) {
+        checks.push({ ok: true, text: '瓦片步骤使用独立栅格输入，未与前序矢量步骤产生类型冲突。' });
+      }
+      if (hasReproject) {
+        checks.push({ ok: true, text: '重投影步骤已配置目标坐标系，建议确保后续步骤使用相同 SRS。' });
+      }
+      return checks;
+    }
+
+    function mergeScript() {
+      if (state.steps.length < 2) return;
+      state.phase = 'MERGED';
+      const script = buildScript();
+      const checks = buildValidation();
+      const allOk = checks.every(c => c.ok);
+      const warnCount = checks.filter(c => !c.ok).length;
+
+      setDetail(`
+        <div class="flex flex-col h-full fade-in">
+          <div class="px-5 pt-4 pb-3 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <div class="text-base font-bold text-slate-800">合并脚本预览</div>
+              <div class="text-xs text-slate-500 mt-0.5">LLM 已结合模板意图与参数完成合理性校验</div>
+            </div>
+            <span class="px-2.5 py-1 rounded-full text-xs font-medium ${allOk ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}">
+              ${allOk ? '校验通过' : `校验通过（${warnCount} 条建议）`}
+            </span>
+          </div>
+
+          <div class="flex-1 overflow-y-auto px-5 py-4 scrollbar space-y-4">
+            <!-- Validation panel -->
+            <div class="rounded-xl border ${allOk ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-200 bg-amber-50/30'} p-3">
+              <div class="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-2">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="${allOk ? 'text-emerald-600' : 'text-amber-600'}"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                LLM 合理性校验
+              </div>
+              <ul class="space-y-1.5">
+                ${checks.map(c => `
+                  <li class="flex items-start gap-2 text-xs ${c.ok ? 'text-slate-700' : 'text-amber-900'}">
+                    <span class="mt-0.5 flex-shrink-0">${c.ok
+                      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+                      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'}</span>
+                    <span>${c.text}</span>
+                  </li>
+                `).join('')}
+              </ul>
+            </div>
+
+            <!-- Script preview -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <div class="text-sm font-semibold text-slate-700">最终脚本（Windows cmd）</div>
+                <button onclick="copyScript()" class="text-xs text-primary-600 hover:text-primary-700 font-medium">复制</button>
+              </div>
+              <pre id="merged-script" class="bg-slate-900 text-slate-100 p-4 rounded-xl text-xs font-mono overflow-x-auto whitespace-pre-wrap leading-relaxed">${escapeHtml(script)}</pre>
+            </div>
+          </div>
+
+          <div class="px-5 py-3 border-t border-slate-100 flex gap-2">
+            <button onclick="executeScript()" class="flex-1 h-11 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 shadow-[0_1px_3px_rgba(5,150,105,0.2)] flex items-center justify-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              确认执行
+            </button>
+            <button onclick="backToEdit()" class="h-11 px-4 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">返回修改</button>
+          </div>
+        </div>
+      `);
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function copyScript() {
+      const text = $('merged-script').textContent;
+      navigator.clipboard.writeText(text).then(() => alert('已复制到剪贴板'));
+    }
+
+    function backToEdit() {
+      state.phase = 'IDLE';
+      showDetailGuide();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Execution simulation
+    // ═══════════════════════════════════════════════════════════════════
+    function executeScript() {
+      state.phase = 'EXECUTING';
+      state.logs = [];
+      state.exec = { done: false, success: false, failedStep: null };
+      renderTimeline();
+      $('intent-input').disabled = true;
+      $('send-btn').disabled = true;
+      $('merge-float').classList.add('hidden');
+
+      setDetail(`
+        <div class="flex flex-col h-full fade-in">
+          <div class="px-5 pt-4 pb-3 border-b border-slate-100">
+            <div class="text-base font-bold text-slate-800">执行日志</div>
+            <div class="text-xs text-slate-500 mt-0.5">按步骤串行执行，&& 链保证前序失败即中断</div>
+          </div>
+          <div id="exec-logs" class="flex-1 overflow-y-auto px-5 py-3 scrollbar bg-slate-950 font-mono text-xs leading-relaxed space-y-1"></div>
+          <div class="px-5 py-3 border-t border-slate-100 flex gap-2">
+            <button id="exec-done-btn" disabled class="flex-1 h-10 rounded-lg bg-slate-200 text-slate-500 text-sm font-semibold flex items-center justify-center gap-2">
+              执行中…
+            </button>
+          </div>
+        </div>
+      `);
+
+      const script = buildScript();
+      const lines = script.split('\n');
+      let i = 0;
+      let currentStep = -1;
+      const logEl = $('exec-logs');
+
+      const interval = setInterval(() => {
+        if (i >= lines.length) {
+          clearInterval(interval);
+          finishExec(true);
+          return;
+        }
+        const line = lines[i++];
+        if (line.startsWith('echo [Step')) {
+          currentStep++;
+          pushLog('stdout', `\n>>> ${line.replace('echo ', '').replace(/"/g, '')}`);
+          highlightStep(currentStep, 'running');
+        } else if (line === '&&') {
+          pushLog('stdout', '[&&] 前序命令成功，继续执行下一步');
+        } else if (line.startsWith('ogr2ogr') || line.startsWith('gdal2tiles')) {
+          pushLog('stdout', `> ${line}`);
+          // simulate command output
+          setTimeout(() => pushLog('stdout', `0...10...20...30...40...50...60...70...80...90...100 - done`), 200);
+          setTimeout(() => {
+            highlightStep(currentStep, 'done');
+          }, 500);
+        } else if (line.startsWith('@echo')) {
+          pushLog('stdout', line);
+        }
+      }, 900);
+    }
+
+    function pushLog(stream, line) {
+      state.logs.push({ stream, line });
+      const logEl = $('exec-logs');
+      if (!logEl) return;
+      const div = document.createElement('div');
+      div.className = stream === 'stderr' ? 'text-rose-400' : 'text-slate-200';
+      div.textContent = line;
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function highlightStep(index, status) {
+      const dots = document.querySelectorAll(`[class*="step-status-"]`);
+      dots.forEach((d, i) => {
+        if (i > index) return;
+        d.className = d.className.replace(/bg-\w+-300|bg-\w+-500|bg-rose-\w+/g, '');
+        if (i === index && status === 'running') {
+          d.classList.add('bg-primary-500', 'animate-pulse');
+          d.setAttribute('title', '执行中');
+        } else if (i <= index && status === 'done') {
+          d.classList.add('bg-emerald-500');
+          d.setAttribute('title', '已完成');
+        }
+      });
+    }
+
+    function finishExec(success) {
+      state.exec = { done: true, success, failedStep: null };
+      const btn = $('exec-done-btn');
+      if (!btn) return;
+      if (success) {
+        btn.disabled = false;
+        btn.className = 'flex-1 h-10 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 flex items-center justify-center gap-2';
+        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> 执行成功 · 开始新任务`;
+        btn.onclick = () => resetAll();
+        pushLog('stdout', '\n[done] 全部步骤执行成功');
+      }
+    }
+
+    // Initialize
+    renderTimeline();
+    showDetailGuide();
+  </script>
+</body>
+</html>

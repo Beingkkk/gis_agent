@@ -99,7 +99,8 @@ export default function MainPage() {
       try {
         const detail = await getTemplate(template.id)
         setSelectedTemplate(detail)
-        if (state === 'IDLE' || state === 'INTENT_CONFIRM') {
+        // Allow switching template in PARAM_COLLECT too (DC-UX-02)
+        if (state === 'IDLE' || state === 'INTENT_CONFIRM' || state === 'PARAM_COLLECT') {
           const updated = await lockTemplate(sessionId, template.id)
           setSession(updated)
         }
@@ -248,6 +249,10 @@ export default function MainPage() {
   // ─── Execute script via WebSocket ───────────────────────────────
   const handleExecute = async () => {
     if (!sessionId) return
+    if (state !== 'SCRIPT_PREVIEW') {
+      setExecLog((prev) => [...prev, '❌ 请先确认参数后再执行脚本'])
+      return
+    }
     setIsExecuting(true)
     setExecLog([])
     setExecResult(null)
@@ -358,6 +363,7 @@ export default function MainPage() {
     if (sessionId && selectedTemplate) {
       setExecResult(null)
       setExecLog([])
+      setEditedScript(null)
       lockTemplate(sessionId, selectedTemplate.id)
         .then((s) => setSession(s))
         .catch(() => {})
@@ -499,6 +505,8 @@ export default function MainPage() {
                     paramValues={taskContext?.params || {}}
                     missingParams={taskContext?.missing_params}
                     execEnv={execEnv}
+                    sessionId={sessionId || undefined}
+                    state={state}
                     onScriptChange={setEditedScript}
                     onRefreshScript={handleRefreshScript}
                     onExecute={handleExecute}

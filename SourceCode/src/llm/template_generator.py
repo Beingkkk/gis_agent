@@ -320,6 +320,9 @@ def parse_generated_response(text: str) -> dict[str, Any]:
     """
     cleaned = _strip_markdown_json(text)
 
+    if not cleaned:
+        raise ValueError("Empty LLM response")
+
     # --- Strategy 1: json5 (bare keys, single quotes, trailing commas) ---
     try:
         return json5.loads(cleaned)  # type: ignore[no-any-return]

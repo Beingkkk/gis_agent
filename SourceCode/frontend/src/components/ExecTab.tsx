@@ -9,6 +9,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import CmdEditor from './CmdEditor'
 import ExecStatusPanel from './ExecStatusPanel'
+import MarkdownContent from './MarkdownContent'
+import { getApiBaseUrl } from '../electron-api'
 import type { ExecResult, ErrorContext, TemplateDetail, ExecEnvVerifyRequest, ExecEnvVerifyResponse, ExecEnvSnapshot } from '../types'
 
 export type ExecPhase = 'preview' | 'executing' | 'success' | 'failure'
@@ -34,6 +36,10 @@ interface ExecTabProps {
   missingParams?: string[]
   /** 当前执行环境配置 */
   execEnv?: ExecEnvSnapshot | null
+  /** 会话 ID（批量转换需要） */
+  sessionId?: string
+  /** 后端会话状态，用于区分 PARAM_COLLECT / SCRIPT_PREVIEW */
+  state?: string
   /** 脚本编辑回调 */
   onScriptChange: (script: string) => void
   /** 刷新脚本（根据当前参数重新生成） */
@@ -81,6 +87,8 @@ export default function ExecTab({
   paramValues,
   missingParams,
   execEnv,
+  sessionId,
+  state,
   onScriptChange,
   onRefreshScript,
   onExecute,
@@ -104,6 +112,11 @@ export default function ExecTab({
   const [saveDefaultError, setSaveDefaultError] = useState<string | null>(null)
   const [condaEnvs, setCondaEnvs] = useState<string[]>([])
   const hasInitSync = useRef(false)
+
+  // Batch convert state
+  const [batchLoading, setBatchLoading] = useState(false)
+  const [batchContent, setBatchContent] = useState<string | null>(null)
+  const [batchError, setBatchError] = useState<string | null>(null)
 
   /** 首次 execEnv 可用时同步到本地状态（初始化/自动加载默认配置） */
   useEffect(() => {
@@ -208,6 +221,74 @@ export default function ExecTab({
     } finally {
       setSaveLoading(false)
     }
+  }
+
+  /** 批量转换 — WebSocket 流式输出 */
+  const handleBatchConvert = async () => {
+    if (!sessionId || !templateDetail) return
+    setBatchLoading(true)
+    setBatchError(null)
+    setBatchContent('')
+
+    try {
+      const backendUrl = await getApiBaseUrl()
+      if (!backendUrl) {
+        throw new Error('无法获取后端地址')
+      }
+      const wsBase = backendUrl.replace(/^http/, 'ws')
+      const wsUrl = `${wsBase}/ws/batch-convert/${sessionId}`
+
+      const ws = new WebSocket(wsUrl)
+      let fullContent = ''
+
+      ws.onopen = () => {
+        ws.send(
+          JSON.stringify({
+            script,
+            template_id: templateDetail.id,
+            params: paramValues || {},
+          })
+        )
+      }
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data)
+          if (msg.type === 'chunk') {
+            fullContent += msg.content
+            setBatchContent(fullContent)
+          } else if (msg.type === 'done') {
+            setBatchLoading(false)
+            ws.close()
+          } else if (msg.type === 'error') {
+            setBatchError(msg.message || '批量转换失败')
+            setBatchLoading(false)
+            ws.close()
+          }
+        } catch {
+          // ignore malformed messages
+        }
+      }
+
+      ws.onerror = () => {
+        setBatchError('WebSocket 连接失败')
+        setBatchLoading(false)
+      }
+
+      ws.onclose = () => {
+        setBatchLoading(false)
+      }
+    } catch (e) {
+      console.error('批量转换失败:', e)
+      setBatchError(e instanceof Error ? e.message : '批量转换请求失败')
+      setBatchLoading(false)
+    }
+  }
+
+  /** 关闭批量面板 */
+  const closeBatchPanel = () => {
+    setBatchContent(null)
+    setBatchError(null)
   }
 
   /** 环境配置按钮 */
@@ -483,10 +564,28 @@ export default function ExecTab({
               导出脚本
             </button>
             <button
+              onClick={handleBatchConvert}
+              disabled={batchLoading || !sessionId || !templateDetail}
+              className={`h-10 px-4 rounded-xl border text-sm font-medium transition-all flex items-center justify-center gap-1.5
+                ${batchLoading
+                  ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                  : 'border-violet-200 text-violet-700 hover:bg-violet-50 hover:border-violet-300'
+                }`}
+            >
+              {batchLoading ? (
+                <div className="w-4 h-4 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                </svg>
+              )}
+              批量指令
+            </button>
+            <button
               onClick={onExecute}
-              disabled={hasMissing}
+              disabled={hasMissing || state !== 'SCRIPT_PREVIEW'}
               className={`flex-1 h-10 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-1.5
-                ${hasMissing
+                ${hasMissing || state !== 'SCRIPT_PREVIEW'
                   ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                   : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-[0_1px_4px_rgba(16,185,129,0.2)]'
                 }`}
@@ -495,9 +594,54 @@ export default function ExecTab({
               >
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
-              {hasMissing ? `还有 ${missingParams!.length} 个必填参数` : '执行脚本'}
+              {hasMissing
+                ? `还有 ${missingParams!.length} 个必填参数`
+                : state !== 'SCRIPT_PREVIEW'
+                  ? '请先确认参数，或点击刷新'
+                  : '执行脚本'}
             </button>
           </div>
+
+          {/* Batch convert result panel */}
+          {(batchContent || batchError) && (
+            <div className="rounded-xl border border-violet-200 bg-violet-50/30 overflow-hidden fade-in"
+            >
+              <div className="px-4 py-2.5 bg-violet-50 border-b border-violet-100 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-violet-600"
+                  >
+                    <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                  </svg>
+                  <span className="text-sm font-semibold text-violet-800"
+                  >
+                    批量脚本建议
+                  </span>
+                </div>
+                <button
+                  onClick={closeBatchPanel}
+                  className="text-xs text-violet-600 hover:text-violet-800 px-2 py-1 rounded hover:bg-violet-100 transition-colors"
+                >
+                  关闭
+                </button>
+              </div>
+              <div className="px-4 py-3 max-h-[360px] overflow-y-auto"
+              >
+                {batchError ? (
+                  <div className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2"
+                  >
+                    {batchError}
+                  </div>
+                ) : (
+                  <MarkdownContent
+                    content={batchContent || ''}
+                    className="text-sm text-slate-800 leading-relaxed [&_a]:text-violet-600 [&_code]:bg-violet-100 [&_code]:text-violet-800 [&_blockquote]:border-violet-300 [&_hr]:border-violet-200"
+                  />
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )

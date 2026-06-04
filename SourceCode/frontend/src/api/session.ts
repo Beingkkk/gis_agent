@@ -92,3 +92,17 @@ export async function exportScript(
   })
   return resp.data
 }
+
+export async function batchConvert(
+  sessionId: string,
+  script: string,
+  templateId: string,
+  params: Record<string, string>
+): Promise<{ content: string }> {
+  const resp = await apiClient.post(`/session/${sessionId}/batch-convert`, {
+    script,
+    template_id: templateId,
+    params,
+  })
+  return resp.data
+}

@@ -126,6 +126,20 @@ class ExportScriptResponse(BaseModel):
     message: str
 
 
+class BatchConvertRequest(BaseModel):
+    """Batch script conversion request."""
+
+    script: str
+    template_id: str
+    params: dict[str, str]
+
+
+class BatchConvertResponse(BaseModel):
+    """Batch script conversion response."""
+
+    content: str
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -174,7 +188,12 @@ def _build_session_response(session_id: str, session: Session) -> SessionRespons
     if session.user_script:
         script_preview = session.user_script
     elif (
-        session.state in (SessionState.SCRIPT_PREVIEW, SessionState.ERROR_RECOVERY)
+        session.state
+        in (
+            SessionState.SCRIPT_PREVIEW,
+            SessionState.ERROR_RECOVERY,
+            SessionState.PARAM_COLLECT,
+        )
         and template
     ):
         try:
@@ -875,3 +894,69 @@ async def export_script(
         size=size,
         message="Script exported successfully",
     )
+
+
+@router.post("/{session_id}/batch-convert", response_model=BatchConvertResponse)
+async def batch_convert_script(
+    session_id: str,
+    request: BatchConvertRequest,
+    session_manager: SessionManager = Depends(get_session_manager),
+) -> BatchConvertResponse:
+    """Convert single-file script to batch script via LLM.
+
+    Takes the current rendered script + template metadata + user params,
+    sends them to LLM for batch conversion, and returns the LLM's
+    Markdown-formatted response. The frontend displays this directly;
+    no script replacement is performed.
+
+    Args:
+        session_id: Session UUID.
+        request: BatchConvertRequest with script, template_id, and params.
+        session_manager: SessionManager dependency.
+
+    Returns:
+        BatchConvertResponse with LLM response content.
+
+    Design:
+        plan-batch-convert v1.0.0 (DC-0113)
+    """
+    _get_session_or_404(session_id, session_manager)
+    registry = get_registry()
+
+    template = registry.get_template(request.template_id)
+    if template is None:
+        raise HTTPException(
+            status_code=400, detail=f"Template not found: {request.template_id}"
+        )
+
+    # Build params_meta from template definition
+    params_meta = [
+        {
+            "name": p.name,
+            "type": p.type,
+            "description": p.description,
+            "required": p.required,
+            "default": p.default,
+        }
+        for p in template.params
+    ]
+
+    from llm.batch_convert import convert_to_batch_script
+
+    try:
+        content = await asyncio.to_thread(
+            convert_to_batch_script,
+            script=request.script,
+            template_name=template.name,
+            params_meta=params_meta,
+            params_values=request.params,
+            client=get_llm_client(),
+        )
+    except Exception as exc:
+        logger.error("Batch convert failed: %s", exc)
+        content = (
+            f"批量转换失败：{exc}\n\n"
+            "请稍后重试，或手动编写 for 循环脚本。"
+        )
+
+    return BatchConvertResponse(content=content)

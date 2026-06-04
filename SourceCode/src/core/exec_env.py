@@ -21,6 +21,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -227,8 +228,8 @@ class ShellDetector:
 
         1. Git Bash
         2. Conda-embedded bash
-        3. cmd (always available)
-        4. PowerShell
+        3. PowerShell (better Unicode support than cmd)
+        4. cmd (always available)
         """
         # 1. Git Bash
         for path_str in cls._GIT_BASH_PATHS:
@@ -243,15 +244,15 @@ class ShellDetector:
             if conda_bash.exists():
                 return (ShellType.BASH, conda_bash)
 
-        # 3. cmd (builtin)
-        cmd_path = shutil.which("cmd")
-        if cmd_path:
-            return (ShellType.CMD, Path(cmd_path))
-
-        # 4. PowerShell
+        # 3. PowerShell (preferred over cmd for Unicode path support)
         ps_path = shutil.which("powershell") or shutil.which("pwsh")
         if ps_path:
             return (ShellType.POWERSHELL, Path(ps_path))
+
+        # 4. cmd (builtin)
+        cmd_path = shutil.which("cmd")
+        if cmd_path:
+            return (ShellType.CMD, Path(cmd_path))
 
         raise RuntimeError("No usable shell found on Windows")
 
@@ -709,7 +710,7 @@ class ShellExecutor:
             header = "#!/bin/bash\nset -euo pipefail\n"
             body = "\n".join(commands) + "\n"
         elif shell == ShellType.CMD:
-            header = "@echo off\n"
+            header = "@echo off\nchcp 65001 >nul\n"
             body_parts = []
             for cmd in commands:
                 body_parts.append(cmd)
@@ -800,7 +801,14 @@ class ShellExecutor:
         executable = str(self.env.shell_executable)
 
         if shell == ShellType.BASH:
-            cmd = [executable, str(script_path)]
+            # On Windows, MSYS/Git Bash interprets backslashes as escape
+            # sequences. Convert to forward slashes so the path survives.
+            script_arg = (
+                script_path.as_posix()
+                if sys.platform == "win32"
+                else str(script_path)
+            )
+            cmd = [executable, script_arg]
         elif shell == ShellType.CMD:
             cmd = [executable, "/c", str(script_path)]
         elif shell == ShellType.POWERSHELL:

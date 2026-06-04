@@ -113,6 +113,17 @@ async def handle_generator_websocket(websocket: WebSocket) -> None:
                 config=config,
                 on_chunk=on_chunk,
             )
+            if not full_text.strip():
+                logger.error("LLM returned empty response for template generation")
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": "LLM 返回为空，请检查输入内容或稍后重试。",
+                        "stage": "generation",
+                    }
+                )
+                await websocket.close()
+                return
             parsed = parse_generated_response(full_text)
         except ValueError as exc:
             logger.error("Failed to parse generated template: %s", exc)

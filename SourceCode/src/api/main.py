@@ -103,6 +103,7 @@ def create_app() -> FastAPI:
     from api.routes import pipeline as pipeline_routes
     from api.routes import session as session_routes
     from api.routes import templates as templates_routes
+    from api.websocket.batch_convert import handle_batch_convert_websocket
     from api.websocket.chat import handle_chat_websocket
     from api.websocket.execute import handle_execute_websocket
     from api.websocket.generator import handle_generator_websocket
@@ -127,6 +128,13 @@ def create_app() -> FastAPI:
     async def generator_websocket(websocket: WebSocket) -> None:
         """Template generation WebSocket endpoint for streaming LLM output."""
         await handle_generator_websocket(websocket)
+
+    @app.websocket("/ws/batch-convert/{session_id}")
+    async def batch_convert_websocket(
+        websocket: WebSocket, session_id: str
+    ) -> None:
+        """Batch convert WebSocket for streaming script conversion."""
+        await handle_batch_convert_websocket(websocket, session_id)
 
     @app.get("/health")
     async def health_check() -> dict[str, str]:

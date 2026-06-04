@@ -42,11 +42,16 @@ class TestShellDetectorDetect:
                 assert "bash" in str(path).lower()
 
     def test_windows_fallback_cmd(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """On Windows, fall back to cmd when no bash is found."""
+        """On Windows, fall back to cmd when neither bash nor PowerShell is found."""
         monkeypatch.setattr(platform, "system", lambda: "Windows")
 
+        def _which(cmd: str) -> str | None:
+            if cmd == "cmd":
+                return r"C:\Windows\System32\cmd.exe"
+            return None
+
         with patch.object(Path, "exists", return_value=False):
-            with patch("core.exec_env.shutil.which", return_value=r"C:\Windows\System32\cmd.exe"):
+            with patch("core.exec_env.shutil.which", side_effect=_which):
                 shell_type, path = ShellDetector.detect()
                 assert shell_type == ShellType.CMD
 
@@ -101,8 +106,13 @@ class TestShellDetectorResolve:
         """"auto" triggers detect()."""
         monkeypatch.setattr(platform, "system", lambda: "Windows")
 
+        def _which(cmd: str) -> str | None:
+            if cmd == "cmd":
+                return r"C:\Windows\System32\cmd.exe"
+            return None
+
         with patch.object(Path, "exists", return_value=False):
-            with patch("core.exec_env.shutil.which", return_value=r"C:\Windows\System32\cmd.exe"):
+            with patch("core.exec_env.shutil.which", side_effect=_which):
                 shell_type, path = ShellDetector.resolve_shell("auto")
                 assert shell_type == ShellType.CMD
 

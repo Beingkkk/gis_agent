@@ -6,7 +6,7 @@ export const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000,
+  timeout: 120000,
 })
 
 // Resolve absolute backend URL via IPC and switch axios to it.

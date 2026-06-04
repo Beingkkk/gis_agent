@@ -6,6 +6,7 @@ Design: DC-0036
 from unittest.mock import MagicMock, patch
 
 from llm.diagnosis import (
+    _extract_json_block,
     _fallback_diagnosis,
     _filter_fixed_params,
     _parse_diagnosis_response,
@@ -81,6 +82,104 @@ def test_parse_diagnosis_response_low_confidence_forces_false() -> None:
 
     assert result.confidence == 0.3
     assert result.can_auto_fix is False
+
+
+def test_parse_diagnosis_response_extracts_json_from_explanatory_text() -> None:
+    """JSON embedded in explanatory text is extracted and parsed."""
+    response = (
+        "分析如下：该错误通常由于输入坐标系不匹配导致。\n"
+        "```json\n"
+        '{"cause": "坐标系不匹配", '
+        '"suggestion": "指定 -t_srs", '
+        '"fixed_params": {"t_srs": "EPSG:4326"}, '
+        '"confidence": 0.9, '
+        '"can_auto_fix": true}\n'
+        "```\n"
+        "请根据建议修改参数后重试。"
+    )
+    result = _parse_diagnosis_response(response)
+
+    assert result.cause == "坐标系不匹配"
+    assert result.suggestion == "指定 -t_srs"
+    assert result.fixed_params == {"t_srs": "EPSG:4326"}
+    assert result.confidence == 0.9
+    assert result.can_auto_fix is True
+
+
+def test_parse_diagnosis_response_tolerates_json5_extensions() -> None:
+    """json5 tolerates bare keys, single quotes, and trailing commas."""
+    response = (
+        "```json\n"
+        "{\n"
+        "  cause: '文件缺失',\n"
+        "  suggestion: '检查路径',\n"
+        "  fixed_params: {},\n"
+        "  confidence: 0.8,\n"
+        "  can_auto_fix: false,\n"
+        "}\n"
+        "```"
+    )
+    result = _parse_diagnosis_response(response)
+
+    assert result.cause == "文件缺失"
+    assert result.confidence == 0.8
+    assert result.can_auto_fix is False
+
+
+def test_parse_diagnosis_response_bad_confidence_defaults_to_zero() -> None:
+    """Non-numeric confidence falls back to 0.0 instead of crashing."""
+    response = (
+        '{"cause": "x", "suggestion": "y", '
+        '"fixed_params": {}, "confidence": "high", "can_auto_fix": true}'
+    )
+    result = _parse_diagnosis_response(response)
+
+    assert result.confidence == 0.0
+    assert result.can_auto_fix is False
+
+
+def test_parse_diagnosis_response_null_confidence_defaults_to_zero() -> None:
+    """Null confidence falls back to 0.0."""
+    response = (
+        '{"cause": "x", "suggestion": "y", '
+        '"fixed_params": {}, "confidence": null, "can_auto_fix": true}'
+    )
+    result = _parse_diagnosis_response(response)
+
+    assert result.confidence == 0.0
+
+
+# ---------------------------------------------------------------------------
+# _extract_json_block
+# ---------------------------------------------------------------------------
+
+
+def test_extract_json_block_from_markdown_code_block() -> None:
+    """Extracts JSON content from a Markdown code block."""
+    response = "前缀\n```json\n{\"a\": 1}\n```\n后缀"
+    result = _extract_json_block(response)
+    assert result == '{"a": 1}'
+
+
+def test_extract_json_block_from_raw_text() -> None:
+    """Extracts the first balanced {...} block when no code block exists."""
+    response = "说明：{\"a\": 1} 之后还有 {\"b\": 2}"
+    result = _extract_json_block(response)
+    assert result == '{"a": 1}'
+
+
+def test_extract_json_block_handles_escaped_quotes() -> None:
+    """Escaped quotes inside strings do not confuse brace counting."""
+    response = 'text {\"key\": \"val\\\"ue\"} more'
+    result = _extract_json_block(response)
+    assert result == '{"key": "val\\"ue"}'
+
+
+def test_extract_json_block_no_json_returns_stripped_text() -> None:
+    """When no JSON-like content exists, return stripped original text."""
+    response = "just plain text"
+    result = _extract_json_block(response)
+    assert result == "just plain text"
 
 
 # ---------------------------------------------------------------------------

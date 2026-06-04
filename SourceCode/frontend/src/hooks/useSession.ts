@@ -50,6 +50,7 @@ interface SessionStore {
   updateLastQAMessage: (content: string) => void
   clearQAMessages: () => void
   setEditedScript: (script: string | null) => void
+  setDiagnosisFallback: () => void
 }
 
 type SessionStateFields = Omit<
@@ -64,6 +65,7 @@ type SessionStateFields = Omit<
   | 'updateLastQAMessage'
   | 'clearQAMessages'
   | 'setEditedScript'
+  | 'setDiagnosisFallback'
 >
 
 const initialState: SessionStateFields = {
@@ -131,4 +133,22 @@ export const useSession = create<SessionStore>((set) => ({
   clearQAMessages: () => set({ qaMessages: [] }),
 
   setEditedScript: (script) => set({ editedScript: script }),
+
+  setDiagnosisFallback: () => {
+    set((state) => ({
+      errorContext: state.errorContext
+        ? {
+            ...state.errorContext,
+            diagnosis: {
+              cause: '诊断服务暂时不可用',
+              suggestion:
+                '自动诊断请求失败，请检查网络或 API 配置后，点击“修改参数”重试。',
+              fixed_params: {},
+              confidence: 0,
+              can_auto_fix: false,
+            },
+          }
+        : state.errorContext,
+    }))
+  },
 }))

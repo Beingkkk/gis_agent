@@ -5,10 +5,11 @@ LLM-driven analysis of GDAL script execution failures.
 Design: DC-0036
 """
 
-import json
 import logging
 import re
 from typing import Any, Dict
+
+import json5
 
 from llm.client import LLMClient
 from llm.models import ErrorDiagnosis, Message
@@ -61,7 +62,9 @@ def analyze_execution_error(
         f"请分析错误根因，输出严格 JSON（不要 Markdown 代码块）：\n"
         f"{{\n"
         f'  "cause": "错误根因，用中文简洁描述",\n'
-        f'  "suggestion": "修复建议，用中文描述。当 can_auto_fix=true 时，必须在建议末尾包含【修复命令参考】区块，写出基于 fixed_params 修正后的完整 GDAL 命令，供用户直接参考执行",\n'
+        f'  "suggestion": "修复建议，用中文描述。当 can_auto_fix=true 时，'
+        f'必须在建议末尾包含【修复命令参考】区块，'
+        f'写出基于 fixed_params 修正后的完整 GDAL 命令，供用户直接参考执行",\n'
         f'  "fixed_params": {{"参数名": "修正后的值"}},\n'
         f'  "confidence": 0.0到1.0,\n'
         f'  "can_auto_fix": true或false\n'
@@ -85,19 +88,69 @@ def analyze_execution_error(
     return _parse_diagnosis_response(response)
 
 
+def _extract_json_block(response: str) -> str:
+    """Extract JSON object content from an LLM response.
+
+    Priority:
+    1. Content inside a Markdown ```json ... ``` or ``` ... ``` block.
+    2. First top-level balanced ``{...}`` block in the text.
+    3. The original stripped response if no JSON-like content is found.
+
+    This is more robust than a simple line-based regex because LLMs often
+    wrap JSON in code blocks or prepend explanatory sentences.
+    """
+    code_block_match = re.search(
+        r"```(?:json)?\s*\n?([\s\S]*?)\n?\s*```", response, flags=re.IGNORECASE
+    )
+    if code_block_match:
+        return code_block_match.group(1).strip()
+
+    start = response.find("{")
+    if start == -1:
+        return response.strip()
+
+    depth = 0
+    in_string = False
+    escape = False
+    for i, ch in enumerate(response[start:], start=start):
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"' and not in_string:
+            in_string = True
+        elif ch == '"' and in_string:
+            in_string = False
+        elif not in_string:
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return response[start : i + 1]
+
+    return response[start:].strip()
+
+
 def _parse_diagnosis_response(response: str) -> ErrorDiagnosis:
     """Parse LLM diagnosis response into ErrorDiagnosis.
 
-    Handles markdown code block stripping and JSON parsing.
-    Falls back to conservative diagnosis on any failure.
+    Uses json5 for tolerant parsing (bare keys, single quotes, trailing
+    commas) and extracts JSON from Markdown code blocks or surrounding
+    explanatory text. Falls back to a conservative diagnosis on any
+    parsing or validation failure.
     """
-    _cleaned = re.sub(
-        r"^```(?:json)?\s*|\s*```$", "", response.strip(), flags=re.MULTILINE
-    )
     try:
-        parsed = json.loads(_cleaned)
-    except json.JSONDecodeError:
-        logger.error("Failed to parse diagnosis response as JSON: %s", response)
+        cleaned = _extract_json_block(response)
+        try:
+            parsed = json5.loads(cleaned)
+        except ValueError:
+            logger.error("Failed to parse diagnosis response as JSON: %s", response)
+            return _fallback_diagnosis()
+    except Exception:
+        logger.exception("Unexpected error extracting JSON from diagnosis response")
         return _fallback_diagnosis()
 
     required_fields = (
@@ -117,7 +170,16 @@ def _parse_diagnosis_response(response: str) -> ErrorDiagnosis:
     cause = str(parsed["cause"])
     suggestion = str(parsed["suggestion"])
     fixed_params = _filter_fixed_params(parsed.get("fixed_params", {}))
-    confidence = float(parsed["confidence"])
+
+    try:
+        confidence = float(parsed["confidence"])
+    except (ValueError, TypeError):
+        logger.warning(
+            "Invalid confidence value %r in diagnosis response, defaulting to 0.0",
+            parsed.get("confidence"),
+        )
+        confidence = 0.0
+
     can_auto_fix = bool(parsed["can_auto_fix"])
 
     # Enforce low-confidence rule

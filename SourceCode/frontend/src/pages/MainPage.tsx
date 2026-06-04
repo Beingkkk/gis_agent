@@ -51,6 +51,7 @@ export default function MainPage() {
     updateLastQAMessage,
     clearQAMessages,
     setEditedScript,
+    setDiagnosisFallback,
   } = useSession()
 
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateDetail | null>(null)
@@ -311,7 +312,10 @@ export default function MainPage() {
                           console.log('[诊断] diagnoseSession 成功:', diagnosed.error_context?.diagnosis)
                           setSession(diagnosed)
                         })
-                        .catch((e) => console.error('[诊断] diagnoseSession 失败:', e))
+                        .catch((e) => {
+                          console.error('[诊断] diagnoseSession 失败:', e)
+                          setDiagnosisFallback()
+                        })
                     }
                   }
                 })

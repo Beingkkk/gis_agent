@@ -108,7 +108,7 @@ This removes the old keyword-based (`什么`, `怎么`) question detection from 
 The desktop UI splits error recovery across three pieces:
 1. **Backend websocket**: `websocket/execute.py` sets `ERROR_RECOVERY` + basic `ExecutionErrorContext` (stdout/stderr/returncode/duration_ms, diagnosis=None).
 2. **Backend diagnose endpoint**: `POST /session/{id}/diagnose` lazily triggers `llm.diagnosis.analyze_execution_error()`, populates `error_context.diagnosis` (cause, suggestion, fixed_params, confidence, can_auto_fix), and caches the result.
-3. **Frontend auto-trigger**: After WebSocket execution fails, `MainPage` automatically calls `diagnoseSession()` if `error_context.diagnosis` is absent. **No "一键诊断" button** — diagnosis is fully automatic.
+3. **Frontend auto-trigger**: After WebSocket execution fails, `MainPage` automatically calls `diagnoseSession()` if `error_context.diagnosis` is absent. **No "一键诊断" button** — diagnosis is fully automatic. If the diagnose request itself fails (network/timeout/LLM error), `useSession.setDiagnosisFallback()` injects a conservative fallback diagnosis so the UI exits the spinner and shows a actionable failure message instead of hanging on "LLM 诊断中，请稍候".
 
 **UI layout in ERROR_RECOVERY**:
 - **Left panel (ExecTab)**: Failure banner + diagnosis result (loading → cause + suggestion + can_auto_fix badge) + error output bash panel + action buttons: **"修改参数"** / **"放弃任务"** (DC-UX-12 v1.11.0). "重新执行" was removed — its behavior was identical to "修改参数".
@@ -198,7 +198,7 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
-**Production dependencies** (locked): `anthropic`, `jinja2`, `json5` (ADR-0002) — no others without explicit approval per constitution.md P5.
+**Production dependencies** (locked, ≤7 after ADR-0005): `anthropic`, `beautifulsoup4` (ADR-0003), `jinja2`, `json5` (ADR-0002), `pydantic>=2.0` (ADR-0004), `pydantic-settings>=2.0` (ADR-0004), `tenacity>=8.0` (ADR-0005). No others without explicit approval per constitution.md P5.
 
 **Environment variable overrides** (sensitive fields and common config):
 
@@ -334,7 +334,7 @@ Hard constraints from `Document/spec.md`:
 - **P2 (Show before execute)**: The UI must display the full script and require explicit user confirmation before execution
 - **P3 (Minimal permissions)**: Output paths are user-specified via file dialog (absolute paths). Timestamps are appended to prevent silent overwrites. Paths are normalized via `resolve()`.
 - **P4 (Template knowledge only)**: Usage guidance knowledge comes exclusively from J2 template metadata (`@concept`, `@note`, `@common_error`); basic concepts may be answered from LLM parametric knowledge. No external API calls for knowledge.
-- **P5 (Minimal deps)**: Production dependencies are locked to `anthropic`, `jinja2`, `json5` (ADR-0002)
+- **P5 (Minimal deps)**: Production dependencies are locked to 7 libraries: `anthropic`, `beautifulsoup4` (ADR-0003), `jinja2`, `json5` (ADR-0002), `pydantic` (ADR-0004), `pydantic-settings` (ADR-0004), `tenacity` (ADR-0005). No others without ADR approval.
 
 ## Key Files
 
@@ -357,7 +357,8 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `src/core/matching.py` | Unified template matching scoring (keywords=+3, concepts=+2, id/name/desc/notes=+1) |
 | `src/llm/prompts.py` | PromptBuilder with 5 scenario-specific system prompts (DC-0071): intent / template-qa / gis-expert / param / diagnosis |
 | `src/llm/qa.py` | `answer_question()` — code-level branching: `locked_template` determines template-knowledge vs GIS-expert mode |
-| `src/llm/diagnosis.py` | `analyze_execution_error()` — One-shot LLM error diagnosis (no history, DC-0106). Prompt requires a 【修复命令参考】 markdown code block when `can_auto_fix=true`. Returns structured `ErrorDiagnosis` (cause, suggestion, fixed_params, confidence, can_auto_fix). |
+| `src/llm/client.py` | LLM client wrapper around Anthropic SDK. Process-level singleton. Uses `tenacity` declarative `@retry` for transient failures (DC-0030~DC-0034, ADR-0005): 4 attempts, exponential backoff 1s→2s→4s→8s. Non-transient 4xx (401/403/400) fail fast. |
+| `src/llm/diagnosis.py` | `analyze_execution_error()` — One-shot LLM error diagnosis (no history, DC-0106). Uses `json5` and `_extract_json_block()` to robustly parse LLM JSON even when wrapped in Markdown code blocks or surrounded by explanatory text. Prompt requires a 【修复命令参考】 markdown code block when `can_auto_fix=true`. Returns structured `ErrorDiagnosis`. |
 | `src/llm/template_generator.py` | **Shared generation engine** (DC-0094, ADR-0002): `SYSTEM_PROMPT` + few-shot, `parse_generated_response()` (uses `json5` as primary parser for bare keys/single quotes/trailing commas, with lightweight fallback repairs for newlines/escapes/unescaped quotes), `sanitize_params()`, `auto_complete_params()`, `assemble_j2_body()` (assembles LLM JSON into complete .j2 file with comment header + `@echo off` + command body), `generate_template_sync()`, `generate_template_stream()`. |
 | `frontend/electron/main.ts` | Electron main process: frameless window, Python child process, IPC handlers (file dialogs + window controls) |
 | `frontend/electron/preload.ts` | `contextBridge` preload script exposing `selectFile`, `selectDirectory`, `getApiBaseUrl`, `windowControl` |
@@ -365,6 +366,7 @@ These files are referenced frequently enough to be worth remembering, or they em
 | `frontend/src/components/TopBar.tsx` | Custom title bar with draggable region and window control buttons (DC-E07) |
 | `frontend/src/components/Layout.tsx` | Two-column layout (DC-UX-13): main panel (flex-1, min-w-[480px]) + right detail panel (580px). Used by MainPage only |
 | `frontend/src/api/client.ts` | Axios instance with dynamic absolute baseURL via IPC |
+| `frontend/src/hooks/useSession.ts` | Zustand store: session snapshot state + `setDiagnosisFallback()` action that injects a conservative fallback diagnosis when the diagnose HTTP request fails, preventing the UI from hanging on the "LLM 诊断中，请稍候" spinner |
 | `frontend/src/hooks/useWebSocket.ts` | Generic WebSocket hook used by ExecTab and QATab |
 | `frontend/src/main.tsx` | Entry point using `HashRouter` (required for `file://` protocol) |
 | `frontend/src/pages/MainPage.tsx` | Main UI orchestrator: three-TAB lifecycle, WebSocket execution, state refresh, export script flow (saveFile dialog → backend write → shell.showItemInFolder) |

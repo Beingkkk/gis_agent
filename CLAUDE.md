@@ -6,32 +6,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GIS Agent (`gis-agent`) is a natural-language assistant for GIS data processing using GDAL tools. It accepts Chinese requests, maps them to predefined Jinja2 templates, generates batch scripts, and executes them only after explicit user confirmation.
 
-The project provides an Electron desktop application (`frontend/` + `api/`) as the **sole active user entry point**. The browser-based UI has been removed; Electron is the sole graphical entry point.
+The **Electron desktop app** (`frontend/` + `api/`) is the sole active user entry point. The project follows Specification-Driven Design: no functional code without a preceding `Document/plan-{module}.md` (see `constitution.md` RED-1).
 
-The project strictly follows Specification-Driven Design: no code without a preceding design document.
+**Local config**: `CLAUDE.local.md` (project root, not checked in) contains environment-specific paths and is loaded alongside this file.
 
-**Local config**: `CLAUDE.local.md` (project root, not checked in) contains environment-specific paths (Conda location, pytest working directory constraints). It is loaded alongside this file.
+## Development Workflow
 
-## Development Workflow (Specification-Driven)
-
-This project enforces a **design-first, document-driven, code-last** workflow. Any code change must have a supporting design document.
-
-The document hierarchy (highest to lowest authority):
+Document hierarchy (highest to lowest authority):
 
 ```
-Document/constitution.md  →  Document/spec.md  →  Document/plan-*.md  →  SourceCode/tasks/*.md  →  SourceCode/
+Document/constitution.md → Document/spec.md → Document/plan-*.md → SourceCode/tasks/*.md → SourceCode/
 ```
 
-**Key constraint**: Functional code cannot enter git history without a corresponding `Document/plan-{module}.md` already committed. See `RED-1` in `Document/constitution.md`.
-
-### Design Documents
-
-| Document | Location | Purpose |
-|----------|----------|---------|
-| `constitution.md` | `Document/` | Development constitution, coding standards, quality gates |
-| `spec.md` | `Document/` | Product requirements (MoSCoW), acceptance criteria |
-| `plan-{module}.md` | `Document/` | Module-level design plan (required before coding) |
-| `ADR-{NNNN}-{name}.md` | `Document/` | Architecture decision records |
+| Document | Purpose |
+|---|---|
+| `constitution.md` | Development constitution, coding standards, quality gates |
+| `spec.md` | Product requirements (MoSCoW), acceptance criteria |
+| `plan-{module}.md` | Module-level design plan (required before coding) |
+| `ADR-{NNNN}-{name}.md` | Architecture decision records |
 
 **Directory boundary**: `Document/` holds only docs; `SourceCode/` holds only code. Never mix them.
 
@@ -42,183 +34,129 @@ Strict layered architecture. Upper layers may call lower layers; **reverse depen
 ```
 Frontend (frontend/)    → React + TypeScript + Vite + Electron desktop app
 API layer (api/)        → FastAPI REST + WebSocket adapters (Python child process)
-Core layer (core/)      → template registry, param validator, session processor, matching engine
-App layer (llm/)        → LLM interaction, intent classification, template-knowledge Q&A, error diagnosis
+Core layer (core/)      → template registry, param validator, matching engine
+App layer (llm/)        → LLM interaction, intent classification, Q&A, diagnosis
 Infra layer             → anthropic SDK, jinja2, GDAL CLI
 Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker
 ```
 
 **Dependency rules**:
-- `frontend/` calls `api/` via HTTP/WebSocket only; never imports Python code
-- `api/` may depend on `core/`, `llm/`, `templates/`
-- `core/` may depend on `llm/`, `templates/`
-- `llm/` may depend on `core/` (for `TemplateDef` knowledge metadata in Q&A)
-- `templates/` may depend on `core/` (models)
-- `scripts/generate/` is a development-time tool, not a runtime layer
-- External library types must not leak upward through layer boundaries
+- `frontend/` calls `api/` via HTTP/WebSocket only; never imports Python code.
+- `api/` may depend on `core/`, `llm/`, `templates/`.
+- `core/` may depend on `llm/`, `templates/`.
+- `llm/` may depend on `core/` (for `TemplateDef` metadata in Q&A).
+- `templates/` may depend on `core/` (models).
+- `scripts/generate/` is a development-time tool, not a runtime layer.
+- External library types must not leak upward through layer boundaries.
 
 **Key design patterns**:
-- GDAL commands are rendered via Jinja2 templates in `data/templates/` — **never** string-concatenated
-- LLM calls (`anthropic`) are encapsulated in `llm/` only (CODE-3)
-- Session is immutable — every state transition returns a new `Session` instance via `with_*` methods
+- GDAL commands are rendered from Jinja2 templates in `data/templates/` — **never** string-concatenated (P1).
+- LLM calls (`anthropic`) are encapsulated in `llm/` only (CODE-3).
+- Session is immutable — every state transition returns a new `Session` via `with_*` methods.
+- Streamed interactions (LLM output, subprocess logs) must use WebSocket (CODE-5).
 
-**Frontend tech stack** (not obvious from filenames):
-- React 18 + TypeScript + Vite
-- TailwindCSS with custom config (`frontend/tailwind.config.js`): primary color scale (`#eff6ff` → `#1e3a8a`), `borderRadius: { sm: 8px, DEFAULT: 12px, lg: 16px }`, custom shadows, Inter/Noto Sans SC font stack
-- Zustand (`useSession`) for minimal UI state; `qaMessages` is local-only (DC-UX-15)
-- Axios (`api/client.ts`) with dynamic baseURL via IPC
-- ReactMarkdown + remark-gfm for diagnosis suggestion rendering
-- HashRouter (required for `file://` protocol)
+**Frontend stack**: React 18 + TypeScript + Vite, TailwindCSS with custom tokens (`frontend/tailwind.config.js`), Zustand (`useSession`), Axios with IPC-resolved absolute baseURL, ReactMarkdown + remark-gfm, HashRouter for `file://` protocol.
 
-## Module Design (Cross-Cutting Concerns)
+## Cross-Cutting Concerns
 
-Use `codegraph_search` to find specific functions. The following are design patterns that require reading multiple files to understand.
+Use `codegraph_search` to find specific functions. The patterns below require reading multiple files.
 
 ### Session State Machine
 
-`SessionState` has 6 states: `IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW → EXECUTING → ERROR_RECOVERY`.
+States: `IDLE → INTENT_CONFIRM → PARAM_COLLECT → SCRIPT_PREVIEW → EXECUTING → ERROR_RECOVERY`.
 
-- **Desktop UI**: The API routes (`api/routes/session.py`) handle state transitions via REST. `EXECUTING` is special — the `websocket/execute.py` handler runs the script asynchronously, then updates the session state: success → `IDLE` (clears history and error context); failure → `ERROR_RECOVERY` with `ExecutionErrorContext` (DC-0048). The frontend then calls `POST /session/{id}/diagnose` to trigger lazy LLM diagnosis (plan-core DC-0049).
+- State transitions are handled via REST in `api/routes/session.py`.
+- `EXECUTING` is asynchronous: `websocket/execute.py` runs the script, then updates state — success resets to `IDLE` (clears history/error), failure moves to `ERROR_RECOVERY` with `ExecutionErrorContext` (DC-0048).
+- The frontend then calls `POST /session/{id}/diagnose` to trigger lazy LLM diagnosis (DC-0049).
 
-**History isolation (DC-0107)**: `Session` maintains two separate message lists:
-- `history` — Discovery/Exec flow messages (intent matching, parameter submission, execution status)
-- `qa_history` — QATab multi-turn conversation history (DC-UX-14). WebSocket Q&A handler reads from and writes to `qa_history`; DiscoveryTab messages never pollute Q&A context.
+**History isolation (DC-0107)**: `Session` has two independent message lists:
+- `history` — Discovery/Exec flow messages.
+- `qa_history` — QATab multi-turn context. WebSocket Q&A handler reads from and writes to `qa_history`; Discovery messages never pollute Q&A.
 
 ### Two-Stage Intent Matching (DC-0098)
 
-`api/routes/session.py::process_intent` implements a two-stage pipeline for **DiscoveryTab only** (Q&A has its own endpoint, see below):
-1. **Coarse filter**: `core/matching.score_template_match()` on ALL templates (fast, code-level). Weights: keywords=+3, concepts=+2, id/name/description/notes=+1.
-2. **Fine rank**: `llm.intent.classify_intent()` on top-10 candidates (LLM semantic match).
-3. **Auto-decision** by confidence: ≥0.85 → `PARAM_COLLECT`; ≥0.50 → `INTENT_CONFIRM` (top-1 + alternates); <0.50 → `INTENT_CONFIRM` (top-3 keyword candidates).
+`api/routes/session.py::process_intent` runs a two-stage pipeline for **DiscoveryTab only**:
+1. **Coarse filter**: `core/matching.score_template_match()` on ALL templates. Weights: keywords=+3, concepts=+2, id/name/description/notes=+1.
+2. **Fine rank**: `llm.intent.classify_intent()` on top-10 candidates.
+3. **Auto-decision**: confidence ≥0.85 → `PARAM_COLLECT`; ≥0.50 → `INTENT_CONFIRM` with top-1 + alternates; <0.50 → `INTENT_CONFIRM` with top-3 keyword candidates.
 
-The same `score_template_match()` scoring is reused by Q&A context selection (`llm/qa.py`).
+The same scoring is reused by Q&A context selection (`llm/qa.py`).
 
-### Q&A API Separation (DC-0071, DC-0107, DC-UX-14/15)
+### Q&A API Separation
 
-Q&A and intent matching are separated at the API level:
-- **`POST /session/{id}/intent`** — DiscoveryTab only. Pure intent matching, no `is_question` keyword heuristic. All inputs go through template matching.
-- **`POST /session/{id}/chat`** — HTTP fallback (backend still implements). QATab **front-end uses WebSocket `/ws/chat/{id}`** for streaming (CODE-5). Always treated as a question. Calls `answer_question()` with `locked_template` to determine whether to include template context (template-knowledge mode) or not (GIS-expert mode).
+- **`POST /session/{id}/intent`** — DiscoveryTab only. All inputs go through template matching.
+- **`POST /session/{id}/chat`** — HTTP fallback. The front-end uses WebSocket `/ws/chat/{id}` for streaming.
+- `answer_question()` branches by `locked_template`: template-knowledge mode (locked) vs GIS-expert mode (unlocked).
 
-**Q&A history isolation**: The WebSocket chat handler (`api/websocket/chat.py`) reads `session.qa_history` as the conversation context for `answer_question()`, and appends both user and assistant messages back to `qa_history` after each round. This makes multi-turn Q&A actually functional (previously the handler only read `session.history` but never wrote back). The frontend maintains its own `qaMessages` local state (Zustand) for rendering; it does not consume `qa_history` from the backend snapshot (DC-UX-15).
+Intent is determined by which Tab the user is in, not by keyword parsing.
 
-This removes the old keyword-based (`什么`, `怎么`) question detection from `process_intent`. Intent is determined by which Tab the user is in, not by parsing their text.
+### ERROR_RECOVERY
 
-### ERROR_RECOVERY in the Desktop UI
+1. Backend WebSocket sets `ERROR_RECOVERY` + `ExecutionErrorContext`.
+2. `POST /session/{id}/diagnose` lazily runs `llm.diagnosis.analyze_execution_error()`, populates `error_context.diagnosis`, and caches it.
+3. Frontend auto-triggers diagnosis after execution failure. **No manual diagnosis button**.
+4. If `diagnoseSession()` itself fails, `useSession.setDiagnosisFallback()` injects a conservative diagnosis so the UI exits the spinner instead of hanging on "LLM 诊断中，请稍候".
 
-The desktop UI splits error recovery across three pieces:
-1. **Backend websocket**: `websocket/execute.py` sets `ERROR_RECOVERY` + basic `ExecutionErrorContext` (stdout/stderr/returncode/duration_ms, diagnosis=None).
-2. **Backend diagnose endpoint**: `POST /session/{id}/diagnose` lazily triggers `llm.diagnosis.analyze_execution_error()`, populates `error_context.diagnosis` (cause, suggestion, fixed_params, confidence, can_auto_fix), and caches the result.
-3. **Frontend auto-trigger**: After WebSocket execution fails, `MainPage` automatically calls `diagnoseSession()` if `error_context.diagnosis` is absent. **No "一键诊断" button** — diagnosis is fully automatic. If the diagnose request itself fails (network/timeout/LLM error), `useSession.setDiagnosisFallback()` injects a conservative fallback diagnosis so the UI exits the spinner and shows a actionable failure message instead of hanging on "LLM 诊断中，请稍候".
-
-**UI layout in ERROR_RECOVERY**:
-- **Left panel (ExecTab)**: Failure banner + diagnosis result (loading → cause + suggestion + can_auto_fix badge) + error output bash panel + action buttons: **"修改参数"** / **"放弃任务"** (DC-UX-12 v1.11.0). "重新执行" was removed — its behavior was identical to "修改参数".
-- **Diagnosis rendering**: The suggestion text is rendered with `ReactMarkdown` (supporting code blocks, lists, tables via `remark-gfm`). When `can_auto_fix=true`, the LLM prompt requires a 【修复命令参考】section containing the corrected GDAL command in a markdown code block, which the frontend renders as a dark-themed code panel.
-- **Right panel (DetailPanel)**: Template parameters remain visible in **read-only** form (title "参数值" via `ParamForm readOnly`). Diagnosis results and action buttons are **not** duplicated here.
-- **No Q&A Tab jump**: Diagnosis results are shown inline in ExecTab; jumping to Q&A Tab was removed as redundant.
+Diagnosis suggestion is rendered with `ReactMarkdown` + `remark-gfm`. When `can_auto_fix=true`, the prompt must include a 【修复命令参考】 markdown code block; the frontend renders it as a dark-themed code panel. Recovery actions are "修改参数" / "放弃任务".
 
 ### Template System
 
-Templates are discovered by scanning `.j2` files at startup (`templates/scanner.py` parses Jinja2 comment headers: `{# @id ... #}`, `{# @param ... #}`, `{# @concept ... #}`, `{# @note ... #}`, `{# @seealso ... #}`, `{# @common_error ... #}`, `{# @keyword ... #}`). No JSON registry — add a file and restart.
+Templates are discovered by scanning `.j2` files at startup (`templates/scanner.py` parses Jinja2 comment headers). No JSON registry — add a file and restart.
 
-The J2 template generator (`scripts/generate/`) is a **development-time only** batch tool (DC-0080) that converts GDAL HTML docs to `.j2` files via two-phase LLM workflow (generate → review, DC-0081).
+The J2 template generator (`scripts/generate/`) is a **development-time only** batch tool that converts GDAL HTML docs to `.j2` files via generate → review workflow.
 
-### Frontend State Architecture
+### Frontend State
 
-- `useSession` (Zustand) holds minimal UI state: `sessionId`, `state`, `taskContext`, `messages`, `scriptPreview`, `errorContext`, `execEnv`. QATab messages (`qaMessages`) are maintained locally by the frontend and never synced from the backend snapshot (DC-UX-15).
-- Every API call returns a `SessionSnapshot`; the frontend replaces its state wholesale (DC-UX-03).
-- HTTP for state transitions (intent/lock/params/clear). WebSocket for Q&A (`/ws/chat/{id}`), script execution (`/ws/execute/{id}`), and Pipeline execution (`/ws/pipeline-execute/{id}`). WebSocket is mandatory for any LLM streaming or subprocess log push (CODE-5).
-- **Three-TAB architecture** (DC-UX-10): Discovery (template search), Q&A (GIS expert chat), Exec (script execution). Discovery calls `processIntent` (HTTP); Q&A connects to `/ws/chat/{id}` (WebSocket); Exec triggers execution via HTTP then receives logs via `/ws/execute/{id}` (WebSocket).
-- After WebSocket execution completes, frontend calls `GET /session/{id}` to refresh the updated state.
-- Routing uses `HashRouter` (not `BrowserRouter`) because Electron loads from `file://` protocol. Routes: `/` (MainPage), `/generator` (GeneratorPage), `/pipeline` (PipelinePage).
-- API base URL is resolved via IPC (`getApiBaseUrl()`) returning an absolute URL like `http://localhost:18000`; the frontend never relies on relative `/api` paths in production.
-- Window is frameless (`frame: false`, `titleBarStyle: 'hidden'`) with a custom `TopBar` component providing title, navigation, and window control buttons (minimize/maximize/close) via IPC (`windowControl` API, DC-E07).
+- `useSession` (Zustand) holds minimal state. API calls return `SessionSnapshot`; the frontend replaces state wholesale (DC-UX-03).
+- `qaMessages` is local-only and never synced from backend (DC-UX-15).
+- Three-TAB architecture: Discovery (HTTP), Q&A (WebSocket), Exec (HTTP trigger + WebSocket logs).
+- Routing uses `HashRouter`: `/` MainPage, `/generator` GeneratorPage, `/pipeline` PipelinePage.
+- Window is frameless; `TopBar` provides custom title bar and window controls via IPC (DC-E07).
 
-### Pipeline Multi-Step Execution
+### GeneratorPage & Pipeline
 
-Pipeline (`/#/pipeline`) allows chaining multiple template steps with auto-linked parameters (output of step N → input of step N+1). It shares the same WebSocket execution infrastructure (`/ws/pipeline-execute/{id}`) as single-script execution. The backend merges step scripts with separators; execution environment (shell, conda) is reused from session.
-
-### GeneratorPage (J2 Template Wizard)
-
-Five-step wizard at `/#/generator`: Document input → Config → Preview → Review → Save.
-
-- **Step 3 Preview**: Displays the assembled `.j2` file (via `assemble_j2_body()`): Jinja2 comment header (`{# @id/@name/@param... #}`), `@echo off`, command body, `REM Done`. Features a Monaco-style code editor (dark theme, line numbers, Tab indentation), inline Jinja2 syntax highlighting, and live re-validation.
-- **Step 4 Review**: `ScriptSecurityChecker` validates the template. It detects Jinja2 syntax (`{{...}}`, `{#...#}`, `{%...%}`) and skips false positives (e.g. `|` in `{{ var | quote }}` is a filter, not a shell pipe). Real shell pipes/separators outside Jinja2 expressions are still blocked.
-- **Step 5 Save**: Hot-reload confirmation — backend calls `refresh_registry()` on save, new template is immediately available without restart.
+- **GeneratorPage**: Five-step J2 template wizard at `/#/generator`. Uses `assemble_j2_body()` to produce the complete `.j2` file. `ScriptSecurityChecker` validates Jinja2-aware dangerous patterns. Save hot-reloads the registry.
+- **Pipeline**: `/#/pipeline` chains template steps with auto-linked parameters, sharing the same WebSocket execution infrastructure.
 
 ## CodeGraph
 
-This project has a CodeGraph MCP server configured (`.codegraph/`). Prefer `codegraph_*` tools for structural questions — "what calls what", "where is X defined", "trace the flow from A to B". Use native grep/read only for literal text queries (string contents, comments, log messages) or to confirm a specific detail codegraph didn't cover.
+This project has a CodeGraph MCP server configured (`.codegraph/`). Prefer `codegraph_*` tools for structural questions; use native grep/read only for literal text queries.
 
 | Question | Tool |
 |---|---|
-| "Where is X defined?" / "Find symbol named X" | `codegraph_search` |
+| "Where is X defined?" | `codegraph_search` |
 | "What calls function Y?" | `codegraph_callers` |
-| "How does X reach Y? / trace the flow" | `codegraph_trace` |
+| "How does X reach Y?" | `codegraph_trace` |
 | "What would break if I changed Z?" | `codegraph_impact` |
-| "Give me context for a task/area" | `codegraph_context` |
-| "Show me several related symbols at once" | `codegraph_explore` |
+| "Context for a task/area" | `codegraph_context` |
+| "Several related symbols at once" | `codegraph_explore` |
 
-- Trust codegraph results — they come from a full AST parse. Do not re-verify with grep.
-- Don't grep first when looking up a symbol by name; `codegraph_search` is faster and returns kind + location + signature.
-- Don't chain `codegraph_search` + `codegraph_node` when you want context — `codegraph_context` is one call.
-- Don't loop `codegraph_node` over many symbols — one `codegraph_explore` call returns several symbols' source grouped in a single capped call.
-- Index lag: the file watcher debounces ~500ms behind writes; don't re-query immediately after editing a file in the same turn.
+Trust codegraph results — they come from a full AST parse. Don't re-verify with grep. Index lag is ~500ms behind writes.
 
-If `.codegraph/` does not exist, ask the user: *"Want me to run `codegraph init -i` to build the index?"*
+If `.codegraph/` does not exist, ask: *"Want me to run `codegraph init -i` to build the index?"*
 
 ## Environment
 
-GDAL is installed via Conda. Python dependencies are minimal and fixed.
-
-**Conda environment**: `gis-agent` at `C:\Users\PC\.conda\envs\gis-agent` (Python 3.11.15).
-
-```bash
-# Verify GDAL (bash shell)
-ogr2ogr --version
-
-# Verify GDAL (Python backend — may differ from bash PATH)
-"/c/Users/PC/.conda/envs/gis-agent/python" -c "import shutil; print(shutil.which('ogr2ogr'))"
-```
-
-**Important**: In the bash shell used by Claude Code, `conda activate` does not work. Always invoke the environment's Python directly by full path:
+**Conda environment**: `gis-agent` at `C:\Users\PC\.conda\envs\gis-agent` (Python 3.11.15). `conda activate` does not work in this bash shell; always invoke the environment Python directly:
 
 ```bash
 "/c/Users/PC/.conda/envs/gis-agent/python" --version
 ```
 
-**Installing Python dependencies**:
+**Production dependencies** (locked, ≤7): `anthropic`, `beautifulsoup4` (ADR-0003), `jinja2`, `json5` (ADR-0002), `pydantic>=2.0` (ADR-0004), `pydantic-settings>=2.0` (ADR-0004), `tenacity>=8.0` (ADR-0005). No others without ADR approval.
 
-```bash
-cd SourceCode
-
-# Production dependencies only
-pip install -e .
-
-# Development (includes test + lint tools, FastAPI backend deps)
-pip install -e ".[dev]"
-```
-
-**Production dependencies** (locked, ≤7 after ADR-0005): `anthropic`, `beautifulsoup4` (ADR-0003), `jinja2`, `json5` (ADR-0002), `pydantic>=2.0` (ADR-0004), `pydantic-settings>=2.0` (ADR-0004), `tenacity>=8.0` (ADR-0005). No others without explicit approval per constitution.md P5.
-
-**Environment variable overrides** (sensitive fields and common config):
+**Environment variables** (override `config.json`):
 
 ```bash
 export GISAGENT_LLM_AUTH_KEY="sk-your-key"
 export GISAGENT_LLM_BASE_URL="https://api.example.com"
 export GISAGENT_API_PORT=19000        # if 18000 is occupied
-export VITE_API_PORT=19000            # frontend dev proxy, keep in sync with API port
+export VITE_API_PORT=19000            # frontend dev proxy, keep in sync
 ```
 
-Naming rule: `GISAGENT_` + config path (uppercase, `_` separated). Takes precedence over `config.json`.
+Naming rule: `GISAGENT_` + config path (uppercase, `_` separated).
 
-**GDAL execution environment**: Script execution environment is configured at runtime via the ExecTab environment panel (not in `config.json`). Users select shell type (`bash`/`cmd`/`powershell`) and optionally a conda environment. The backend validates GDAL availability on demand. `shutil.which('ogr2ogr')` can be used to verify the backend can locate GDAL binaries.
-
-**Tailwind customizations** (`frontend/tailwind.config.js`):
-- `primary` color scale (50-900) using blue family
-- `borderRadius`: sm=8px, DEFAULT=12px, lg=16px
-- `boxShadow`: softer shadows (0-8% opacity)
-- `fontFamily`: Inter + Noto Sans SC for sans, JetBrains Mono for mono
-- When modifying frontend styles, prefer these custom tokens over raw values
+**Tailwind customizations** (`frontend/tailwind.config.js`): primary blue scale, `borderRadius: { sm: 8px, DEFAULT: 12px, lg: 16px }`, softer shadows, Inter/Noto Sans SC + JetBrains Mono.
 
 ## Commands
 
@@ -227,213 +165,132 @@ Naming rule: `GISAGENT_` + config path (uppercase, `_` separated). Takes precede
 ```bash
 cd SourceCode
 
-# Format code
+# Format / lint / type check
 ruff format src/ tests/ scripts/
-
-# Check style and errors
 ruff check src/ tests/ scripts/
-
-# Type check (strict)
 mypy --strict src/
 
-# Run all unit tests
+# Tests (must run from SourceCode/)
 pytest tests/unit/ -v
-
-# Run all unit tests with coverage
+pytest tests/unit/test_something.py -v
+pytest tests/unit/test_something.py::test_function_name -v
 pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 
-# Run a single test file
-pytest tests/unit/test_something.py -v
+# Install dependencies
+pip install -e .         # production only
+pip install -e ".[dev]"  # + test/lint/FastAPI deps
 
-# Run a single test function
-pytest tests/unit/test_something.py::test_function_name -v
-
-# Quick LLM end-to-end test (requires valid API key)
+# Quick LLM e2e test (requires valid API key)
 python scripts/test_e2e_qa.py
-```
 
-**pytest working directory constraint**: Test paths `tests/unit/` are resolved relative to `SourceCode/`. Running `pytest` outside `SourceCode/` fails because it cannot find the test files. Always execute test commands from within `SourceCode/`.
+# Batch generate J2 templates from GDAL HTML docs
+python scripts/generate_templates.py \
+  --source ../Document/Resource/gdal/build/doc/build/html/programs \
+  --output data/templates/ \
+  --config config/config.json
+```
 
 ### Frontend (Electron)
 
 ```bash
 cd SourceCode/frontend
 
-# Install dependencies (first time)
 npm install
+npm run electron:dev     # Vite + Electron concurrently
+npm run electron:build   # production build
 
-# Development: Vite dev server + Electron (concurrently)
-npm run electron:dev
-
-# Production build (Vite + electron-builder)
-npm run electron:build
-```
-
-**Type checking**:
-
-```bash
-cd SourceCode/frontend
-
-# Electron main process
-./node_modules/.bin/tsc -p electron/tsconfig.json --noEmit
-
-# Frontend renderer
+# Type check
 ./node_modules/.bin/tsc --noEmit -p tsconfig.json
-```
-
-### Running the Application
-
-**Electron desktop app (development)**:
-
-```bash
-cd SourceCode/frontend
-npm run electron:dev
-```
-
-`concurrently` starts both the Vite dev server and Electron. The Electron main process polls `http://localhost:5173` and loads the window once the dev server is ready.
-
-### Development Tools
-
-```bash
-# Batch generate J2 templates from GDAL HTML docs
-cd SourceCode
-python scripts/generate_templates.py \
-  --source ../Document/Resource/gdal/build/doc/build/html/programs \
-  --output data/templates/ \
-  --config config/config.json
-
-# Dry-run preview
-python scripts/generate_templates.py --source ... --output ... --dry-run
-
-# Force re-run (ignore breakpoint state)
-python scripts/generate_templates.py --source ... --output ... --force
+./node_modules/.bin/tsc -p electron/tsconfig.json --noEmit
 ```
 
 ## Tool Configuration
 
-`pyproject.toml` configures the development toolchain. Key settings:
-
-- **ruff**: `line-length = 88`, `target-version = "py310"`. `per-file-ignores` exempts `scripts/generate/*.py` and `tests/unit/test_generate_*.py` from import-sorting (`I001`) and line-length (`E501`) rules — these files contain LLM-generated JSON strings and long template bodies where strict formatting is impractical.
-- **mypy**: `strict = true`, `python_version = "3.10"`
-- **pytest**: `pythonpath = ["src"]` — eliminates manual `PYTHONPATH` setup when running from `SourceCode/`
+`pyproject.toml`:
+- **ruff**: `line-length = 88`, `target-version = "py310"`. `per-file-ignores` exempts `scripts/generate/*.py` and `tests/unit/test_generate_*.py` from `I001`/`E501`/`E402`.
+- **mypy**: `strict = true`, `python_version = "3.10"`.
+- **pytest**: `pythonpath = ["src"]`.
 
 ## Coding Standards
 
-- **Python 3.10+** with mandatory type annotations on all function parameters and return values
-- **88-character line limit**
-- All public functions/classes must have docstrings referencing their design decision (`DC-XXXX`)
-- All `except` blocks must log or re-raise — no silent swallowing
-- **CODE-5**: Streamed interactions (LLM output, subprocess logs) must use WebSocket; never use HTTP long-polling or sync requests with timeouts as a substitute
-- Template parameters in `.j2` files must be escaped to prevent command injection
+- Python 3.10+ with mandatory type annotations.
+- 88-character line limit.
+- Public functions/classes must have docstrings referencing design decisions (`DC-XXXX`).
+- All `except` blocks must log or re-raise — no silent swallowing.
+- Template parameters in `.j2` files must use `{{ param | quote }}` / `{{ param | safe_path }}`.
 
-## Security Principles
+## Security Principles (from `Document/spec.md`)
 
-Hard constraints from `Document/spec.md`:
-
-- **P1 (Template only)**: GDAL commands must be rendered from Jinja2 templates in `data/templates/` — dynamic string construction is prohibited
-- **P2 (Show before execute)**: The UI must display the full script and require explicit user confirmation before execution
-- **P3 (Minimal permissions)**: Output paths are user-specified via file dialog (absolute paths). Timestamps are appended to prevent silent overwrites. Paths are normalized via `resolve()`.
-- **P4 (Template knowledge only)**: Usage guidance knowledge comes exclusively from J2 template metadata (`@concept`, `@note`, `@common_error`); basic concepts may be answered from LLM parametric knowledge. No external API calls for knowledge.
-- **P5 (Minimal deps)**: Production dependencies are locked to 7 libraries: `anthropic`, `beautifulsoup4` (ADR-0003), `jinja2`, `json5` (ADR-0002), `pydantic` (ADR-0004), `pydantic-settings` (ADR-0004), `tenacity` (ADR-0005). No others without ADR approval.
+- **P1 (Template only)**: GDAL commands rendered from Jinja2 templates; no dynamic string construction.
+- **P2 (Show before execute)**: UI displays the full script and requires explicit confirmation.
+- **P3 (Minimal permissions)**: Output paths are user-specified absolute paths with timestamps to prevent silent overwrites.
+- **P4 (Template knowledge only)**: Usage guidance from J2 metadata (`@concept`, `@note`, `@common_error`); no external knowledge APIs.
+- **P5 (Minimal deps)**: Locked to the 7 production libraries listed above.
 
 ## Key Files
 
-These files are referenced frequently enough to be worth remembering, or they embody cross-cutting design decisions not obvious from the filename alone.
-
 | File | Why It Matters |
-|------|---------------|
-| `Document/constitution.md` | Source of truth for workflow rules (RED-1: no code without plan), quality gates, change control |
-| `Document/spec.md` | All requirements trace back here (F1-F11, P1-P5, UX-1~3) |
-| `Document/plan-core.md` | ERROR_RECOVERY design (DC-0048/DC-0049), matching engine (DC-0094), two-stage matching (DC-0098), one-shot LLM decisions (DC-0106), `qa_history` isolation (DC-0107) |
-| `Document/plan-ux.md` | WebSocket streaming (DC-UX-04/05), state→UI mapping, Q&A history isolation (DC-UX-14/15), diagnosis UX with markdown rendering, Pipeline/Generator UX |
-| `Document/plan-j2-generate.md` | J2 Template Generator: dual-mode (online + CLI batch), shared generation engine (DC-0094), multi-file import (DC-0095), WebSocket streaming generation (DC-0096) |
-| `Document/plan-electron.md` | Electron shell architecture, IPC design, Python process lifecycle |
-| `Document/plan-exec-env.md` | Execution environment config: ShellDetector, CondaEnvDetector, ShellExecutor; DC-0101~DC-0105 |
-| `Document/ADR-0002-introduce-json5.md` | Architecture decision: `json5` added to production deps for LLM JSON output容错 parsing |
-| `src/api/routes/session.py` | Two-stage intent matching API (DC-0098) + `POST /chat` for Q&A + `POST /diagnose` for lazy error diagnosis + `POST /export-script` for explicit script export (DC-UX-11a) |
-| `src/api/websocket/chat.py` | Q&A WebSocket handler: streams LLM output via `/ws/chat/{id}` (DC-UX-04). Reads `session.qa_history` as conversation context and persists user+assistant messages back to `qa_history` after each round (DC-UX-14) |
-| `src/api/websocket/execute.py` | Execution WebSocket handler: subprocess stdout/stderr streaming (DC-0048) |
-| `src/core/diagnosis.py` | Shared `build_diagnosis_context()` — eliminates duplication between API layer and deprecated processor (DC-0049) |
-| `src/core/matching.py` | Unified template matching scoring (keywords=+3, concepts=+2, id/name/desc/notes=+1) |
-| `src/llm/prompts.py` | PromptBuilder with 5 scenario-specific system prompts (DC-0071): intent / template-qa / gis-expert / param / diagnosis |
-| `src/llm/qa.py` | `answer_question()` — code-level branching: `locked_template` determines template-knowledge vs GIS-expert mode |
-| `src/llm/client.py` | LLM client wrapper around Anthropic SDK. Process-level singleton. Uses `tenacity` declarative `@retry` for transient failures (DC-0030~DC-0034, ADR-0005): 4 attempts, exponential backoff 1s→2s→4s→8s. Non-transient 4xx (401/403/400) fail fast. |
-| `src/llm/diagnosis.py` | `analyze_execution_error()` — One-shot LLM error diagnosis (no history, DC-0106). Uses `json5` and `_extract_json_block()` to robustly parse LLM JSON even when wrapped in Markdown code blocks or surrounded by explanatory text. Prompt requires a 【修复命令参考】 markdown code block when `can_auto_fix=true`. Returns structured `ErrorDiagnosis`. |
-| `src/llm/template_generator.py` | **Shared generation engine** (DC-0094, ADR-0002): `SYSTEM_PROMPT` + few-shot, `parse_generated_response()` (uses `json5` as primary parser for bare keys/single quotes/trailing commas, with lightweight fallback repairs for newlines/escapes/unescaped quotes), `sanitize_params()`, `auto_complete_params()`, `assemble_j2_body()` (assembles LLM JSON into complete .j2 file with comment header + `@echo off` + command body), `generate_template_sync()`, `generate_template_stream()`. |
-| `frontend/electron/main.ts` | Electron main process: frameless window, Python child process, IPC handlers (file dialogs + window controls) |
-| `frontend/electron/preload.ts` | `contextBridge` preload script exposing `selectFile`, `selectDirectory`, `getApiBaseUrl`, `windowControl` |
-| `frontend/src/electron-api.ts` | Renderer-side IPC wrappers including `WindowControlAPI` (minimize/maximize/close) |
-| `frontend/src/components/TopBar.tsx` | Custom title bar with draggable region and window control buttons (DC-E07) |
-| `frontend/src/components/Layout.tsx` | Two-column layout (DC-UX-13): main panel (flex-1, min-w-[480px]) + right detail panel (580px). Used by MainPage only |
-| `frontend/src/api/client.ts` | Axios instance with dynamic absolute baseURL via IPC |
-| `frontend/src/hooks/useSession.ts` | Zustand store: session snapshot state + `setDiagnosisFallback()` action that injects a conservative fallback diagnosis when the diagnose HTTP request fails, preventing the UI from hanging on the "LLM 诊断中，请稍候" spinner |
-| `frontend/src/hooks/useWebSocket.ts` | Generic WebSocket hook used by ExecTab and QATab |
-| `frontend/src/main.tsx` | Entry point using `HashRouter` (required for `file://` protocol) |
-| `frontend/src/pages/MainPage.tsx` | Main UI orchestrator: three-TAB lifecycle, WebSocket execution, state refresh, export script flow (saveFile dialog → backend write → shell.showItemInFolder) |
-| `frontend/src/components/DiscoveryTab.tsx` | Template discovery TAB: unified input box (local filter + intent send), card grid, candidate mode |
-| `frontend/src/components/QATab.tsx` | GIS Q&A TAB: chat stream, locked-template badge |
-| `frontend/src/components/ExecTab.tsx` | Script execution TAB: command preview / executing / success / failure states + runtime exec-env panel + export script button (DC-UX-11a) |
-| `frontend/src/components/paramGroups.ts` | Parameter grouping rules: 输入输出, 坐标系设置, 变换选项, 裁剪与范围, **栅格选项**, **图层设置**, 高级选项. Includes `GDAL_SHORTHANDS` exact-match for `co`/`lco`/`dsco` |
-| `frontend/src/api/health.ts` | Health API client — basic status check |
-| `frontend/src/api/pipeline.ts` | Pipeline API client — preview and execute multi-step pipelines |
-| `frontend/src/components/TabBar.tsx` | TAB switcher bar (Discovery / Q&A / Exec) with message count badge |
-| `frontend/src/components/CmdEditor.tsx` | Monaco-style script editor with Jinja2 syntax highlighting, live validation |
-| `frontend/src/components/ExecStatusPanel.tsx` | Execution result panel: success (green card with output/returncode/duration) / failure (diagnosis result rendered with ReactMarkdown + error output bash panel + "修改参数"/"放弃任务" actions). Diagnosis suggestion supports markdown code blocks for 【修复命令参考】. |
-| `frontend/src/components/DetailPanel.tsx` | Right-panel state renderer: `PARAM_COLLECT` → ParamForm (grouped); `SCRIPT_PREVIEW` → collapsible ParamForm only (script preview lives in ExecTab CmdEditor); `IDLE` (post-success) → read-only ParamForm showing grouped param values; `ERROR_RECOVERY` → read-only ParamForm (title "参数值", no buttons — diagnosis lives in ExecStatusPanel on left) |
-| `src/api/routes/generator.py` | Generator REST API: `POST /generate` (sync, calls shared engine + `assemble_j2_body()`), `POST /validate` (security + Jinja2 syntax), `POST /save` (category subdir + registry rescan), `POST /parse-document` (multi-file HTML/Markdown cleaning) |
-| `src/api/websocket/generator.py` | WebSocket streaming handler for template generation: `/ws/generator/generate` — streams LLM chunks, parses JSON, assembles full .j2 via `assemble_j2_body()`, returns done/error frames |
-| `frontend/src/pages/GeneratorPage.tsx` | Five-step J2 wizard: Document input → Config → Preview (assembled .j2 with comment header + `@echo off`) → Review (security check, Jinja2-aware) → Save (hot-reload). Step 3 Monaco-style editor with inline Jinja2 highlight and live re-validation |
-| `frontend/src/pages/PipelinePage.tsx` | Pipeline multi-step: template step editor with auto-linked parameters, merged script preview, WebSocket execution |
-| `src/api/routes/pipeline.py` | Pipeline REST API: `POST /pipeline` (preview merged script), `POST /pipeline/execute` (trigger execution) |
-| `src/core/exec_env.py` | `ShellDetector`, `CondaEnvDetector`, `EnvironmentBuilder`, `ShellExecutor` — shell detection, conda env var derivation, script write/execute (DC-0101~DC-0105) |
-| `src/api/websocket/execute.py` | Execution WebSocket handler: renders script from template/params, writes to `./cache/`, streams subprocess stdout/stderr, updates session state (DC-0048, DC-0105). Done message carries `stdout`/`stderr`/`duration_ms`/`returncode` so the frontend does not need to fall back to `execLog` for error output. |
-| `src/templates/scanner.py` | `.j2` file scanner — parses comment headers into `TemplateDef` at startup |
+|---|---|
+| `Document/constitution.md` | Source of truth for workflow rules (RED-1), quality gates, change control |
+| `Document/spec.md` | All requirements trace back here |
+| `Document/plan-core.md` | ERROR_RECOVERY, matching engine, two-stage matching, `qa_history` isolation |
+| `Document/plan-ux.md` | WebSocket streaming, state→UI mapping, diagnosis UX |
+| `Document/plan-j2-generate.md` | Template generator: shared engine, multi-file import, streaming |
+| `Document/plan-electron.md` | Electron shell, IPC, Python child process lifecycle |
+| `Document/plan-exec-env.md` | Shell/Conda detection and execution |
+| `src/api/routes/session.py` | Two-stage intent matching, Q&A, diagnose, export-script endpoints |
+| `src/api/websocket/chat.py` | Q&A WebSocket; reads/writes `qa_history` |
+| `src/api/websocket/execute.py` | Script execution WebSocket; streams stdout/stderr |
+| `src/core/matching.py` | Unified template scoring (keywords=+3, concepts=+2, rest=+1) |
+| `src/llm/client.py` | Anthropic SDK wrapper with `tenacity` retry: 4 attempts, 1→2→4→8s backoff (ADR-0005) |
+| `src/llm/diagnosis.py` | One-shot error diagnosis; uses `json5` + `_extract_json_block()` for robust LLM JSON parsing |
+| `src/llm/prompts.py` | PromptBuilder: 5 scenario-specific prompts (intent/qa/gis-expert/param/diagnosis) |
+| `src/llm/qa.py` | `answer_question()` branches by `locked_template` |
+| `src/llm/template_generator.py` | Shared generation engine; `parse_generated_response()`, `sanitize_params()`, `auto_complete_params()`, `assemble_j2_body()` |
+| `src/templates/engine.py` | Jinja2 rendering, custom filters (`quote`, `safe_path`), `ScriptSecurityChecker` |
+| `src/templates/scanner.py` | `.j2` file scanner; parses comment headers into `TemplateDef` |
+| `frontend/electron/main.ts` | Frameless window, Python child process, IPC handlers |
+| `frontend/src/hooks/useSession.ts` | Zustand store; `setDiagnosisFallback()` prevents permanent diagnosis spinner |
+| `frontend/src/pages/MainPage.tsx` | Three-TAB orchestrator: WebSocket execution, state refresh, export flow |
+| `frontend/src/api/client.ts` | Axios with dynamic absolute baseURL via IPC |
 
-### ParamForm readOnly Mode
+## When Working on This Repo
 
-`ParamForm` supports `readOnly?: boolean`:
-- Inputs are disabled, browse buttons hidden
-- Footer actions (confirm/cancel) hidden
-- Title changes from "参数设置" to "参数值"
-- Used by DetailPanel in `IDLE` (post-execution summary) and inside `SCRIPT_PREVIEW` (adjust params)
+- Verify a corresponding `Document/plan-{module}.md` exists before coding.
+- The `llm/` module is the **only** code allowed to import `anthropic` (CODE-3).
+- `PromptBuilder` has exactly **5 scenario-specific methods**; do not add catch-all prompts.
+- `Document/Resource/` and `SourceCode/config/config.json` are gitignored; never commit them.
+- Script execution writes to `./cache/`; users export explicitly via "Export Script".
 
 ## Adding New Templates
 
-New GDAL workflows are added by creating a `.j2` file in `SourceCode/data/templates/` with a Jinja2 comment header. The scanner parses the header at startup — no JSON registry edit needed.
+Create a `.j2` file in `SourceCode/data/templates/` with a Jinja2 comment header:
 
-**Comment header format**:
 ```jinja2
 {# @id my_template #}
 {# @name 我的模板名称 #}
 {# @description 一句话描述功能 #}
 {# @keyword shp #}
-{# @keyword shapefile #}
-{# @keyword geojson #}
 {# @concept "术语" — 概念解释文本 #}
 {# @note 使用前提或注意事项 #}
 {# @seealso related_template_id — 关联模板 #}
 {# @common_error "错误文本" — 原因与修复建议 #}
 {# @param input file_path required 输入文件路径 #}
 {# @param output file_path required 输出文件路径 #}
-{# @param of format optional 输出格式名称 default=GeoJSON options=GeoJSON,ESRI Shapefile,GPKG,KML #}
-{# @param t_srs crs optional 目标坐标系 default=EPSG:4326 #}
 ```
 
 **Template body rules**:
-- Use `{{ param_name | quote }}` for path/string parameters (auto-escapes for shell safety)
-- Use `{{ param_name | safe_path }}` for raw path output
-- Never use `+` or f-string style concatenation inside templates
-- Post-render security check (`ScriptSecurityChecker`) validates for dangerous patterns
+- Use `{{ param_name | quote }}` for path/string parameters.
+- Use `{{ param_name | safe_path }}` for raw path output.
+- Never use `+` or f-string style concatenation inside templates.
+- Post-render `ScriptSecurityChecker` validates dangerous patterns.
 
-After adding a template, restart the application to pick it up (templates are scanned at startup).
+Restart the application to pick up new templates (templates are scanned at startup).
 
-## When Working on This Repo
+### ParamForm readOnly Mode
 
-- Before implementing any feature, check if a corresponding `plan-{module}.md` exists in `Document/`. If not, the feature is not yet ready for coding.
-- When modifying code, verify the change aligns with the locked plan. If the plan needs updating, follow the change control process in `Document/constitution.md`.
-- The `llm/` module is the **only** code allowed to import `anthropic` (CODE-3). Never add anthropic imports outside `llm/`.
-- `PromptBuilder` provides **5 scenario-specific methods** (`build_intent_prompt`, `build_template_qa_prompt`, `build_gis_expert_prompt`, `build_param_prompt`, `build_diagnosis_prompt`). Do not add new catch-all methods — each LLM call scene gets its own dedicated prompt.
-- `Document/Resource/` is gitignored; do not commit its contents.
-- `SourceCode/config/config.json` is gitignored; never commit credentials.
-- The Electron desktop app (`frontend/`) is the sole active entry point.
-- Script execution writes temporary scripts to `./cache/` (project-relative, auto-created; DC-0105 v1.3.0), not to workspace or system temp. Users export scripts explicitly via the "Export Script" button (DC-UX-11a) which opens a save dialog and reveals the file in the file manager.
+`ParamForm` supports `readOnly?: boolean`:
+- Inputs are disabled, browse buttons hidden.
+- Footer actions hidden.
+- Title changes from "参数设置" to "参数值".
+- Used by DetailPanel in `IDLE` (post-success) and inside `SCRIPT_PREVIEW` (adjust params).

@@ -42,7 +42,7 @@ function TypeTag({ type }: { type: string }) {
 
   return (
     <span
-      className={`inline-block text-[9.5px] font-medium px-[5px] py-[1px] rounded ${config.cls}`}
+      className={`inline-block text-2xs font-medium px-[5px] py-[1px] rounded ${config.cls}`}
     >
       {config.label}
     </span>
@@ -70,8 +70,8 @@ function InfoTooltip({ description }: { description: string }) {
         <line x1="12" y1="8" x2="12.01" y2="8" />
       </svg>
       <span className="absolute left-full top-1/2 -translate-y-1/2 ml-2 z-50
-        w-[240px] px-3 py-2 rounded-lg bg-slate-800 text-slate-200
-        text-[11px] leading-relaxed shadow-lg
+        w-[260px] px-3 py-2 rounded-lg bg-slate-800 text-slate-200
+        text-xs leading-relaxed shadow-lg
         opacity-0 invisible group-hover:opacity-100 group-hover:visible
         transition-all duration-150 pointer-events-none"
       >
@@ -101,7 +101,7 @@ function ProgressBar({
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-[10.5px] text-slate-400 font-medium whitespace-nowrap">
+      <span className="text-2xs text-slate-400 font-medium whitespace-nowrap">
         {filled} / {total} 已填写
       </span>
     </div>
@@ -123,7 +123,7 @@ function ParamRow({
   readOnly?: boolean
 }) {
   const isFilled = value !== ''
-  const inputBase = `w-full h-8 border rounded-lg px-2.5 text-[12.5px]
+  const inputBase = `w-full h-10 border rounded-lg px-3 text-sm
     transition-all focus:outline-none focus:ring-[3px] focus:ring-blue-500/8`
   const inputFilled = readOnly
     ? `border-slate-100 bg-slate-50 text-slate-700 cursor-default`
@@ -216,8 +216,8 @@ function ParamRow({
               <button
                 type="button"
                 onClick={() => onBrowse(param.name, param.type === 'folder_path')}
-                className="h-8 px-2.5 border border-slate-200 rounded-lg
-                  text-[11px] font-medium text-slate-500 bg-white
+                className="h-10 px-3 border border-slate-200 rounded-lg
+                  text-xs font-medium text-slate-500 bg-white
                   hover:bg-slate-50 hover:border-slate-300 transition-all
                   whitespace-nowrap flex-shrink-0"
               >
@@ -243,11 +243,11 @@ function ParamRow({
     <div className="flex items-start gap-3 py-[7px] min-h-[40px]">
       {/* Label column */}
       <div className="w-[140px] flex-shrink-0 flex flex-col gap-[2px] pt-[5px]">
-        <div className="flex items-center gap-1 text-[12px] font-medium text-slate-700"
+        <div className="flex items-center gap-1 text-sm font-medium text-slate-700"
         >
           <span className="truncate" title={param.name}>{param.name}</span>
           {param.required && (
-            <span className="text-red-400 text-[11px]">*</span>
+            <span className="text-red-400 text-xs">*</span>
           )}
           <InfoTooltip description={param.description} />
         </div>
@@ -258,7 +258,7 @@ function ParamRow({
       <div className="flex-1 min-w-0 flex flex-col gap-[2px]">
         {renderInput()}
         {param.default && !isFilled && (
-          <span className="text-[10.5px] text-slate-400 flex items-center gap-1"
+          <span className="text-2xs text-slate-400 flex items-center gap-1"
           >
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" strokeWidth="2.5"
@@ -330,7 +330,7 @@ function ParamSection({
       <button
         type="button"
         onClick={onToggleExpand}
-        className="w-full flex items-center gap-2 px-5 py-2.5
+        className="w-full flex items-center gap-2 px-5 py-3.5
           hover:bg-slate-50 transition-colors text-left"
       >
         <svg
@@ -348,10 +348,10 @@ function ParamSection({
           <polyline points="9 18 15 12 9 6" />
         </svg>
 
-        <div className={`w-5 h-5 rounded-md flex items-center justify-center
+        <div className={`w-6 h-6 rounded-md flex items-center justify-center
           flex-shrink-0 ${colorCls}`}
         >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" strokeWidth="2.5"
             strokeLinecap="round" strokeLinejoin="round"
           >
@@ -359,12 +359,12 @@ function ParamSection({
           </svg>
         </div>
 
-        <span className="text-[12px] font-semibold text-slate-700 flex-1"
+        <span className="text-sm font-semibold text-slate-700 flex-1"
         >
           {title}
         </span>
 
-        <span className="text-[10.5px] text-slate-400 font-medium
+        <span className="text-2xs text-slate-400 font-medium
           bg-slate-50 px-[7px] py-[1px] rounded"
         >
           {filledCount} / {params.length}
@@ -496,7 +496,7 @@ export default function ParamForm({
       >
         <div className="flex items-center justify-between mb-2.5"
         >
-          <span className="text-[13px] font-bold text-slate-800"
+          <span className="text-base font-bold text-slate-800"
           >
             {readOnly ? '参数值' : '参数设置'}
           </span>
@@ -506,7 +506,7 @@ export default function ParamForm({
               <button
                 type="button"
                 onClick={collapseAll}
-                className="text-[11px] px-2 py-[3px] rounded-md border border-slate-200
+                className="text-xs px-2 py-[3px] rounded-md border border-slate-200
                   text-slate-500 hover:bg-slate-50 transition-all"
               >
                 − 收起
@@ -514,7 +514,7 @@ export default function ParamForm({
               <button
                 type="button"
                 onClick={expandAll}
-                className="text-[11px] px-2 py-[3px] rounded-md border border-slate-200
+                className="text-xs px-2 py-[3px] rounded-md border border-slate-200
                   text-slate-500 hover:bg-slate-50 transition-all"
               >
                 + 展开
@@ -550,8 +550,8 @@ export default function ParamForm({
         >
           <button
             type="submit"
-            className={`h-9 rounded-lg bg-blue-600 text-white
-              text-[12.5px] font-semibold hover:bg-blue-700 transition-all
+            className={`h-10 rounded-lg bg-blue-600 text-white
+              text-sm font-semibold hover:bg-blue-700 transition-all
               shadow-[0_1px_3px_rgba(37,99,235,0.2)]
               flex items-center justify-center gap-1.5
               ${onCancel ? 'flex-1' : 'w-full'}`}
@@ -568,8 +568,8 @@ export default function ParamForm({
             <button
               type="button"
               onClick={onCancel}
-              className="h-9 rounded-lg border border-slate-200 px-4
-                text-[12.5px] font-medium text-slate-600
+              className="h-10 rounded-lg border border-slate-200 px-4
+                text-sm font-medium text-slate-600
                 hover:bg-slate-50 transition-all"
             >
               取消

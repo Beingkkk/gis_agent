@@ -31,15 +31,15 @@ export default function DetailPanel({
             background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)',
           }}
         >
-          <div className="text-[12.5px] font-medium">
+          <div className="text-sm font-medium">
             当前任务 <strong className="text-emerald-600">{templateDetail.name}</strong>
-            <span className="text-[11px] text-slate-400 ml-1.5 font-mono">
+            <span className="text-xs text-slate-400 ml-1.5 font-mono">
               {templateDetail.id}
             </span>
           </div>
           <button
             onClick={onCancel}
-            className="text-[11px] font-medium px-2.5 py-[5px] rounded-md border border-red-100 text-red-600 hover:bg-red-50 transition-all"
+            className="text-xs font-medium px-2.5 py-[5px] rounded-md border border-red-100 text-red-600 hover:bg-red-50 transition-all"
           >
             放弃
           </button>
@@ -67,12 +67,12 @@ export default function DetailPanel({
             background: 'linear-gradient(135deg, #eff6ff 0%, #eff6ff 100%)',
           }}
         >
-          <div className="text-[12.5px] font-medium">
+          <div className="text-sm font-medium">
             脚本预览 <strong className="text-blue-600">{templateDetail.name}</strong>
           </div>
           <button
             onClick={onCancel}
-            className="text-[11px] font-medium px-2.5 py-[5px] rounded-md border border-red-100 text-red-600 hover:bg-red-50 transition-all"
+            className="text-xs font-medium px-2.5 py-[5px] rounded-md border border-red-100 text-red-600 hover:bg-red-50 transition-all"
           >
             放弃
           </button>
@@ -101,14 +101,14 @@ export default function DetailPanel({
             background: 'linear-gradient(135deg, #fef2f2 0%, #fef2f2 100%)',
           }}
         >
-          <div className="text-[12.5px] font-medium flex items-center gap-2">
+          <div className="text-sm font-medium flex items-center gap-2">
             <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
             <strong className="text-red-700">执行失败</strong>
-            <span className="text-[11px] text-red-400 font-mono">rc={errorContext.returncode}</span>
+            <span className="text-xs text-red-400 font-mono">rc={errorContext.returncode}</span>
           </div>
-          <span className="text-[11px] text-slate-400">参数值</span>
+          <span className="text-xs text-slate-400">参数值</span>
         </div>
 
         {/* Read-only param form */}
@@ -136,12 +136,12 @@ export default function DetailPanel({
             background: 'linear-gradient(135deg, #fef2f2 0%, #fef2f2 100%)',
           }}
         >
-          <div className="text-[12.5px] font-medium flex items-center gap-2">
+          <div className="text-sm font-medium flex items-center gap-2">
             <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
             <strong className="text-red-700">执行失败</strong>
-            <span className="text-[11px] text-red-400 font-mono">rc={errorContext.returncode}</span>
+            <span className="text-xs text-red-400 font-mono">rc={errorContext.returncode}</span>
           </div>
         </div>
       </div>
@@ -157,14 +157,14 @@ export default function DetailPanel({
           className="px-[18px] py-3.5 border-b border-slate-200 flex items-center justify-between"
           style={{ background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)' }}
         >
-          <div className="text-[12.5px] font-medium"
+          <div className="text-sm font-medium"
           >
             任务完成 <strong className="text-emerald-600">{templateDetail.name}</strong>
-            <span className="text-[11px] text-slate-400 ml-1.5 font-mono">{templateDetail.id}</span>
+            <span className="text-xs text-slate-400 ml-1.5 font-mono">{templateDetail.id}</span>
           </div>
           <button
             onClick={onCancel}
-            className="text-[11px] font-medium px-2.5 py-[5px] rounded-md border border-red-100 text-red-600 hover:bg-red-50 transition-all"
+            className="text-xs font-medium px-2.5 py-[5px] rounded-md border border-red-100 text-red-600 hover:bg-red-50 transition-all"
           >
             放弃
           </button>
@@ -191,7 +191,7 @@ export default function DetailPanel({
           <div className="pb-4 border-b border-slate-100">
             <div className="flex items-center gap-1.5 mb-2">
               <span
-                className={`text-[10.5px] font-semibold px-2 py-[3px] rounded-[5px] border ${
+                className={`text-2xs font-semibold px-2 py-[3px] rounded-[5px] border ${
                   templateDetail.category === 'vector'
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                     : templateDetail.category === 'raster'
@@ -207,7 +207,7 @@ export default function DetailPanel({
                       ? '数据库'
                       : '通用'}
               </span>
-              <span className="text-[10.5px] text-slate-400 font-mono bg-slate-50 px-1.5 py-[2px] rounded">
+              <span className="text-2xs text-slate-400 font-mono bg-slate-50 px-1.5 py-[2px] rounded">
                 {templateDetail.tool_source || 'GDAL'}
               </span>
             </div>
@@ -222,7 +222,7 @@ export default function DetailPanel({
           {/* Params preview */}
           {templateDetail.params.length > 0 && (
             <div>
-              <h3 className="text-[10.5px] font-semibold text-slate-400 uppercase tracking-[0.8px] mb-3">
+              <h3 className="text-2xs font-semibold text-slate-400 uppercase tracking-[0.8px] mb-3">
                 参数
               </h3>
               <div className="space-y-2">
@@ -234,9 +234,9 @@ export default function DetailPanel({
                     <span className="font-medium text-slate-700">{p.name}</span>
                     <div className="flex items-center gap-2">
                       {p.required && (
-                        <span className="text-[10px] text-red-500 font-semibold">*必填</span>
+                        <span className="text-2xs text-red-500 font-semibold">*必填</span>
                       )}
-                      <span className="text-[10px] text-slate-400 bg-white px-1.5 py-[1px] rounded">
+                      <span className="text-2xs text-slate-400 bg-white px-1.5 py-[1px] rounded">
                         {p.type}
                       </span>
                     </div>
@@ -248,7 +248,7 @@ export default function DetailPanel({
 
           {templateDetail.concepts.length > 0 && (
             <div>
-              <h3 className="text-[10.5px] font-semibold text-slate-400 uppercase tracking-[0.8px] mb-3">
+              <h3 className="text-2xs font-semibold text-slate-400 uppercase tracking-[0.8px] mb-3">
                 概念
               </h3>
               <div className="space-y-2">
@@ -264,7 +264,7 @@ export default function DetailPanel({
 
           {templateDetail.notes.length > 0 && (
             <div>
-              <h3 className="text-[10.5px] font-semibold text-slate-400 uppercase tracking-[0.8px] mb-3">
+              <h3 className="text-2xs font-semibold text-slate-400 uppercase tracking-[0.8px] mb-3">
                 注意事项
               </h3>
               <div className="space-y-2">
@@ -280,7 +280,7 @@ export default function DetailPanel({
 
           {templateDetail.common_errors.length > 0 && (
             <div>
-              <h3 className="text-[10.5px] font-semibold text-slate-400 uppercase tracking-[0.8px] mb-3">
+              <h3 className="text-2xs font-semibold text-slate-400 uppercase tracking-[0.8px] mb-3">
                 常见错误
               </h3>
               <div className="space-y-2">
@@ -306,7 +306,7 @@ export default function DetailPanel({
 
           {templateDetail.seealso.length > 0 && (
             <div>
-              <h3 className="text-[10.5px] font-semibold text-slate-400 uppercase tracking-[0.8px] mb-3">
+              <h3 className="text-2xs font-semibold text-slate-400 uppercase tracking-[0.8px] mb-3">
                 相关模板
               </h3>
               <div className="flex flex-col gap-1">

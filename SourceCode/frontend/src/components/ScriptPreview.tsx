@@ -19,10 +19,10 @@ export default function ScriptPreview({
     <div className="space-y-4">
       <div className="relative">
         <div className="flex items-center justify-between bg-[#1e293b] text-slate-400 px-3.5 py-2 rounded-t-lg border-b border-white/[0.06]">
-          <span className="text-[11px] font-medium font-mono">脚本预览</span>
+          <span className="text-xs font-medium font-mono">脚本预览</span>
           <button
             onClick={handleCopy}
-            className="text-[11px] font-medium text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+            className="text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />

@@ -196,7 +196,7 @@ export default function TopBar({ state, title, backTo }: TopBarProps) {
             <path d="M2 12l10 5 10-5" />
           </svg>
         </div>
-        <span className="text-[13px] font-bold text-slate-700 tracking-tight">GIS Agent</span>
+        <span className="text-base font-bold text-slate-700 tracking-tight">GIS Agent</span>
       </div>
 
       {/* ── Center: Draggable region (state badge only) ── */}
@@ -206,11 +206,11 @@ export default function TopBar({ state, title, backTo }: TopBarProps) {
         onDoubleClick={handleDoubleClick}
       >
         {title ? (
-          <span className="text-[13px] font-semibold text-slate-600 truncate">{title}</span>
+          <span className="text-base font-semibold text-slate-600 truncate">{title}</span>
         ) : (
           label && (
             <span
-              className={`rounded-full px-2.5 py-[2px] text-[10px] font-semibold flex-shrink-0 ${label.color}`}
+              className={`rounded-full px-2.5 py-[2px] text-2xs font-semibold flex-shrink-0 ${label.color}`}
             >
               {label.text}
             </span>

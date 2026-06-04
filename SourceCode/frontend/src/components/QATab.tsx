@@ -83,14 +83,14 @@ export default function QATab({
       {/* Header */}
       <div className="h-[52px] bg-white border-b border-slate-200 flex items-center justify-between px-5 flex-shrink-0">
         <div className="flex items-center gap-2">
-          <span className="text-[13px] font-medium text-slate-900">GIS 问答</span>
+          <span className="text-base font-medium text-slate-900">GIS 问答</span>
           {lockedTemplateName && (
-            <span className="text-[10px] px-2 py-[2px] rounded-md bg-blue-50 text-blue-600 border border-blue-100 font-medium truncate max-w-[180px]" title={`基于模板「${lockedTemplateName}」回答`}>
+            <span className="text-2xs px-2 py-[2px] rounded-md bg-blue-50 text-blue-600 border border-blue-100 font-medium truncate max-w-[180px]" title={`基于模板「${lockedTemplateName}」回答`}>
               📋 {lockedTemplateName}
             </span>
           )}
           {messages.length > 0 && (
-            <span className="text-[10px] px-1.5 py-[1px] rounded-full bg-slate-100 text-slate-400">
+            <span className="text-2xs px-1.5 py-[1px] rounded-full bg-slate-100 text-slate-400">
               {messages.length} 条
             </span>
           )}
@@ -100,7 +100,7 @@ export default function QATab({
           {messages.length > 0 && (
             <button
               onClick={handleClearClick}
-              className="text-[11px] font-medium px-2.5 py-[5px] rounded-md border border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-all flex items-center gap-1"
+              className="text-xs font-medium px-2.5 py-[5px] rounded-md border border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-all flex items-center gap-1"
               title="清空问答历史"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -170,7 +170,7 @@ export default function QATab({
             </svg>
           </button>
         </div>
-        <p className="text-[11px] text-slate-400 mt-2 text-center">
+        <p className="text-xs text-slate-400 mt-2 text-center">
           按 Enter 发送，Shift + Enter 换行
         </p>
       </div>
@@ -185,20 +185,20 @@ export default function QATab({
             className="bg-white rounded-xl shadow-lg px-6 py-5 max-w-[320px] w-full mx-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-sm font-semibold text-slate-900 mb-2">确认清空</h3>
-            <p className="text-[13px] text-slate-500 leading-relaxed mb-5">
+            <h3 className="text-base font-semibold text-slate-900 mb-2">确认清空</h3>
+            <p className="text-sm text-slate-500 leading-relaxed mb-5">
               确定要清空问答历史吗？清空后不可恢复。
             </p>
             <div className="flex gap-2 justify-end">
               <button
                 onClick={handleCancelClear}
-                className="text-[13px] px-3.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"
+                className="text-sm px-3.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"
               >
                 取消
               </button>
               <button
                 onClick={handleConfirmClear}
-                className="text-[13px] px-3.5 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-all"
+                className="text-sm px-3.5 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-all"
               >
                 确定清空
               </button>

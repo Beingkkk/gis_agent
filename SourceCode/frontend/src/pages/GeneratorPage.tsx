@@ -481,7 +481,7 @@ export default function GeneratorPage() {
                       >
                         <div className="flex items-center gap-2">
                           <span className="text-sm text-gray-700">{file.name}</span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                          <span className="text-2xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
                             {file.fileType}
                           </span>
                           {parseResult && (
@@ -645,15 +645,15 @@ export default function GeneratorPage() {
               {/* Metadata grid */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">ID</p>
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">ID</p>
                   <p className="text-sm font-mono text-gray-800 mt-0.5">{generated.template_id}</p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">名称</p>
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">名称</p>
                   <p className="text-sm text-gray-800 mt-0.5">{generated.name}</p>
                 </div>
                 <div className="col-span-2 bg-gray-50 rounded-lg p-3">
-                  <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">描述</p>
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">描述</p>
                   <p className="text-sm text-gray-700 mt-0.5">{generated.description}</p>
                 </div>
               </div>
@@ -722,13 +722,13 @@ export default function GeneratorPage() {
                         <tr key={p.name} className="hover:bg-gray-50">
                           <td className="px-3 py-2 font-mono text-xs text-gray-700">{p.name}</td>
                           <td className="px-3 py-2">
-                            <span className="text-[11px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{p.type}</span>
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{p.type}</span>
                           </td>
                           <td className="px-3 py-2">
                             {p.required ? (
-                              <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 font-medium">必填</span>
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-600 font-medium">必填</span>
                             ) : (
-                              <span className="text-[11px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-400">可选</span>
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-400">可选</span>
                             )}
                           </td>
                           <td className="px-3 py-2 text-xs text-gray-500">{p.description || '-'}</td>
@@ -767,8 +767,8 @@ export default function GeneratorPage() {
                     {/* Monaco-style editor */}
                     <div className="rounded-lg border border-gray-300 overflow-hidden bg-[#1e1e1e]">
                       <div className="flex items-center justify-between px-3 py-1.5 bg-[#252526] border-b border-[#333]">
-                        <span className="text-[11px] text-gray-400">{generated.template_id}.j2</span>
-                        <span className="text-[10px] text-gray-500">Jinja2</span>
+                        <span className="text-xs text-gray-400">{generated.template_id}.j2</span>
+                        <span className="text-2xs text-gray-500">Jinja2</span>
                       </div>
                       <div className="flex">
                         <div className="bg-[#1e1e1e] border-r border-[#333] py-2 select-none">
@@ -852,8 +852,8 @@ export default function GeneratorPage() {
                 ) : (
                   <div className="rounded-lg border border-gray-200 overflow-hidden">
                     <div className="flex items-center justify-between px-3 py-1.5 bg-gray-100 border-b border-gray-200">
-                      <span className="text-[11px] text-gray-500 font-mono">{generated.template_id}.j2</span>
-                      <span className="text-[10px] text-gray-400">Jinja2</span>
+                      <span className="text-xs text-gray-500 font-mono">{generated.template_id}.j2</span>
+                      <span className="text-2xs text-gray-400">Jinja2</span>
                     </div>
                     <div className="bg-[#1e1e1e] p-3 overflow-x-auto max-h-[400px] overflow-y-auto">
                       <pre

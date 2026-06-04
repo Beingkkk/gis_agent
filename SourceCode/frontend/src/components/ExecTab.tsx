@@ -217,7 +217,7 @@ export default function ExecTab({
       <button
         type="button"
         onClick={handleToggleEnvPanel}
-        className={`flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[11px] font-medium border transition-colors flex-shrink-0 ${
+        className={`flex items-center gap-1.5 h-10 px-2.5 rounded-md text-xs font-medium border transition-colors flex-shrink-0 ${
           hasEnv
             ? 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100'
             : 'bg-white text-slate-500 border-slate-200 hover:bg-blue-50 hover:text-blue-600'
@@ -248,12 +248,12 @@ export default function ExecTab({
         >
           <div className="flex items-center gap-2"
           >
-            <span className={`text-[10px] font-semibold px-2 py-[2px] rounded-full ${label.color}`}
+            <span className={`text-2xs font-semibold px-2 py-[2px] rounded-full ${label.color}`}
             >
               {label.text}
             </span>
             {templateName && (
-              <span className="text-[13px] font-medium text-slate-900"
+              <span className="text-base font-medium text-slate-900"
               >
                 {templateName}
               </span>
@@ -267,20 +267,20 @@ export default function ExecTab({
         {/* Environment Config Panel */}
         {envPanelOpen && (
           <div className="border-b border-slate-200 bg-slate-50 px-5 py-4 space-y-3 flex-shrink-0">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-[0.8px]">
+            <div className="text-xs font-semibold text-slate-500 uppercase tracking-[0.8px]">
               执行环境配置
             </div>
             <div className="grid grid-cols-2 gap-3">
               {/* Shell type */}
               <div>
-                <label className="block text-[11px] text-slate-500 mb-1">Shell 类型</label>
+                <label className="block text-xs text-slate-500 mb-1">Shell 类型</label>
                 <select
                   value={shellType}
                   onChange={(e) => {
                     setShellType(e.target.value)
                     setShellPath('')
                   }}
-                  className="w-full h-8 px-2 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:border-blue-400"
+                  className="w-full h-10 px-2 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:border-blue-400"
                 >
                   <option value="auto">自动探测</option>
                   <option value="bash">Bash</option>
@@ -290,7 +290,7 @@ export default function ExecTab({
               </div>
               {/* Environment type */}
               <div>
-                <label className="block text-[11px] text-slate-500 mb-1">环境类型</label>
+                <label className="block text-xs text-slate-500 mb-1">环境类型</label>
                 <select
                   value={envType}
                   onChange={async (e) => {
@@ -308,7 +308,7 @@ export default function ExecTab({
                       setEnvName('')
                     }
                   }}
-                  className="w-full h-8 px-2 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:border-blue-400"
+                  className="w-full h-10 px-2 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:border-blue-400"
                 >
                   <option value="system">系统默认</option>
                   <option value="conda">Conda 环境</option>
@@ -318,7 +318,7 @@ export default function ExecTab({
             {/* Conda env name */}
             {envType === 'conda' && (
               <div>
-                <label className="block text-[11px] text-slate-500 mb-1">Conda 环境名</label>
+                <label className="block text-xs text-slate-500 mb-1">Conda 环境名</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -326,7 +326,7 @@ export default function ExecTab({
                     onChange={(e) => setEnvName(e.target.value)}
                     placeholder="输入或选择环境名"
                     list="conda-envs"
-                    className="flex-1 h-8 px-2 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:border-blue-400"
+                    className="flex-1 h-10 px-2 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:border-blue-400"
                   />
                   <datalist id="conda-envs">
                     {condaEnvs.map((env) => (
@@ -338,7 +338,7 @@ export default function ExecTab({
             )}
             {/* Custom shell path */}
             <div>
-              <label className="block text-[11px] text-slate-500 mb-1">
+              <label className="block text-xs text-slate-500 mb-1">
                 Shell 路径（可选，覆盖自动探测）
               </label>
               <input
@@ -346,7 +346,7 @@ export default function ExecTab({
                 value={shellPath}
                 onChange={(e) => setShellPath(e.target.value)}
                 placeholder="例如 C:\Program Files\Git\bin\bash.exe"
-                className="w-full h-8 px-2 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:border-blue-400"
+                className="w-full h-10 px-2 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:border-blue-400"
               />
             </div>
             {/* Actions */}
@@ -354,7 +354,7 @@ export default function ExecTab({
               <button
                 onClick={handleVerify}
                 disabled={verifyLoading}
-                className="h-8 px-3 rounded-md bg-white border border-slate-200 text-xs font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-colors flex items-center gap-1.5"
+                className="h-10 px-3 rounded-md bg-white border border-slate-200 text-xs font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-colors flex items-center gap-1.5"
               >
                 {verifyLoading && (
                   <div className="w-3 h-3 border-2 border-slate-300 border-t-transparent rounded-full animate-spin" />
@@ -364,7 +364,7 @@ export default function ExecTab({
               <button
                 onClick={handleSave}
                 disabled={saveLoading || !verifyResult?.valid}
-                className={`h-8 px-3 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                className={`h-10 px-3 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${
                   verifyResult?.valid
                     ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                     : 'bg-slate-200 text-slate-400 cursor-not-allowed'
@@ -378,7 +378,7 @@ export default function ExecTab({
             </div>
             {/* Verify result */}
             {verifyResult && (
-              <div className={`rounded-md px-3 py-2 text-[11px] ${
+              <div className={`rounded-md px-3 py-2 text-xs ${
                 verifyResult.valid
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                   : 'bg-red-50 text-red-700 border border-red-200'
@@ -401,7 +401,7 @@ export default function ExecTab({
             )}
             {/* Default save error */}
             {saveDefaultError && (
-              <div className="rounded-md px-3 py-2 text-[11px] bg-amber-50 text-amber-700 border border-amber-200">
+              <div className="rounded-md px-3 py-2 text-xs bg-amber-50 text-amber-700 border border-amber-200">
                 ⚠ {saveDefaultError}
               </div>
             )}
@@ -425,12 +425,12 @@ export default function ExecTab({
             >
               <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between"
               >
-                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-[0.8px]"
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-[0.8px]"
                 >
                   参数摘要
                 </span>
                 {hasMissing && (
-                  <span className="text-[10px] px-2 py-[2px] rounded bg-amber-50 text-amber-600 border border-amber-200"
+                  <span className="text-2xs px-2 py-[2px] rounded bg-amber-50 text-amber-600 border border-amber-200"
                   >
                     {missingParams!.length} 个必填参数未填
                   </span>
@@ -517,12 +517,12 @@ export default function ExecTab({
           >
             <div className="w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"
             />
-            <span className={`text-[10px] font-semibold px-2 py-[2px] rounded-full ${label.color}`}
+            <span className={`text-2xs font-semibold px-2 py-[2px] rounded-full ${label.color}`}
             >
               {label.text}
             </span>
             {templateName && (
-              <span className="text-[13px] font-medium text-slate-900"
+              <span className="text-base font-medium text-slate-900"
               >
                 {templateName}
               </span>
@@ -531,7 +531,7 @@ export default function ExecTab({
           <div className="flex items-center gap-2">
             <button
               onClick={onCancelExecute}
-              className="text-[11px] font-medium px-2.5 py-[5px] rounded-md border border-red-100 text-red-600 hover:bg-red-50 transition-all"
+              className="text-xs font-medium px-2.5 py-[5px] rounded-md border border-red-100 text-red-600 hover:bg-red-50 transition-all"
             >
               取消
             </button>
@@ -547,7 +547,7 @@ export default function ExecTab({
             >
               <div className="px-4 py-2 bg-[#1e293b] border-b border-white/[0.06] flex items-center justify-between"
               >
-                <span className="text-[11px] font-medium text-slate-400 font-mono"
+                <span className="text-xs font-medium text-slate-400 font-mono"
                 >
                   执行命令
                 </span>
@@ -566,11 +566,11 @@ export default function ExecTab({
           >
             <div className="px-4 py-2 bg-[#1e293b] border-b border-white/[0.06] flex items-center justify-between flex-shrink-0"
             >
-              <span className="text-[11px] font-medium text-slate-400 font-mono"
+              <span className="text-xs font-medium text-slate-400 font-mono"
               >
                 执行日志
               </span>
-              <span className="text-[10px] text-slate-600"
+              <span className="text-2xs text-slate-600"
               >
                 {execLog.length} 行
               </span>
@@ -606,12 +606,12 @@ export default function ExecTab({
       >
         <div className="flex items-center gap-2"
         >
-          <span className={`text-[10px] font-semibold px-2 py-[2px] rounded-full ${label.color}`}
+          <span className={`text-2xs font-semibold px-2 py-[2px] rounded-full ${label.color}`}
           >
             {label.text}
           </span>
           {templateName && (
-            <span className="text-[13px] font-medium text-slate-900"
+            <span className="text-base font-medium text-slate-900"
             >
               {templateName}
             </span>

@@ -70,7 +70,7 @@ export default function ChatArea({
       <div className="h-[52px] bg-white border-b border-slate-200 flex items-center justify-between px-5 flex-shrink-0">
         <div className="flex items-center gap-2">
           <div className={`w-[7px] h-[7px] rounded-full ${dotColor} ${isActive ? 'shadow-[0_0_0_3px_rgba(16,185,129,0.15)]' : ''} transition-all duration-300`} />
-          <span className="text-[13px] font-medium text-slate-900">{text}</span>
+          <span className="text-base font-medium text-slate-900">{text}</span>
           {sub && (
             <span className="text-xs text-slate-400 ml-1">{sub}</span>
           )}
@@ -89,7 +89,7 @@ export default function ChatArea({
             <button
               type="button"
               onClick={handleBrowseClick}
-              className="h-7 px-2.5 rounded-md bg-white text-slate-500 text-[11px] hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-colors border border-slate-200 font-medium flex-shrink-0"
+              className="h-8 px-2.5 rounded-md bg-white text-slate-500 text-xs hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-colors border border-slate-200 font-medium flex-shrink-0"
             >
               浏览
             </button>

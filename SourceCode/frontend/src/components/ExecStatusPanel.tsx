@@ -56,7 +56,7 @@ export default function ExecStatusPanel({
         {/* Result details */}
         <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
           <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-[0.8px]">结果详情</span>
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-[0.8px]">结果详情</span>
           </div>
           <div className="px-4 py-3 space-y-2">
             {result.output_path && (
@@ -79,9 +79,9 @@ export default function ExecStatusPanel({
         {/* Stdout preview */}
         {result.stdout && (
           <div>
-            <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-[0.8px] mb-2">输出内容</h4>
+            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-[0.8px] mb-2">输出内容</h4>
             <div className="bg-[#0f172a] rounded-lg overflow-hidden">
-              <pre className="text-slate-300 p-3 text-[11px] font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-[200px] overflow-y-auto">
+              <pre className="text-slate-300 p-3 text-xs font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-[200px] overflow-y-auto">
                 {result.stdout}
               </pre>
             </div>
@@ -151,13 +151,13 @@ export default function ExecStatusPanel({
           </div>
           <div className="space-y-2">
             <div>
-              <span className="text-[11px] font-medium text-amber-600 uppercase">根因</span>
+              <span className="text-xs font-medium text-amber-600 uppercase">根因</span>
               <div className="text-sm text-amber-700 mt-0.5 markdown-body [&_p]:mb-1 [&_p:last-child]:mb-0 [&_pre]:bg-slate-900 [&_pre]:text-slate-200 [&_pre]:p-2.5 [&_pre]:rounded-md [&_pre]:text-xs [&_pre]:font-mono [&_pre]:overflow-x-auto [&_pre]:my-1.5 [&_code]:bg-amber-100 [&_code]:text-amber-800 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{diagnosis.cause}</ReactMarkdown>
               </div>
             </div>
             <div>
-              <span className="text-[11px] font-medium text-amber-600 uppercase">建议</span>
+              <span className="text-xs font-medium text-amber-600 uppercase">建议</span>
               <div className="text-sm text-amber-700 mt-0.5 markdown-body [&_p]:mb-1 [&_p:last-child]:mb-0 [&_pre]:bg-slate-900 [&_pre]:text-slate-200 [&_pre]:p-2.5 [&_pre]:rounded-md [&_pre]:text-xs [&_pre]:font-mono [&_pre]:overflow-x-auto [&_pre]:my-1.5 [&_code]:bg-amber-100 [&_code]:text-amber-800 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{diagnosis.suggestion}</ReactMarkdown>
               </div>
@@ -190,9 +190,9 @@ export default function ExecStatusPanel({
       {/* Error output: fallback to errorContext when result is empty */}
       {(result.stderr || result.stdout || errorContext?.stderr || errorContext?.stdout) && (
         <div>
-          <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-[0.8px] mb-2">错误输出</h4>
+          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-[0.8px] mb-2">错误输出</h4>
           <div className="bg-[#0f172a] rounded-lg overflow-hidden">
-            <pre className="text-slate-300 p-3 text-[11px] font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-[240px] overflow-y-auto">
+            <pre className="text-slate-300 p-3 text-xs font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-[240px] overflow-y-auto">
               {result.stderr || result.stdout || errorContext?.stderr || errorContext?.stdout}
             </pre>
           </div>

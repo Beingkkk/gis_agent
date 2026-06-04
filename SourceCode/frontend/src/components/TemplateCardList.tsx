@@ -130,7 +130,7 @@ export default function TemplateCardList({
           <button
             key={template.id}
             onClick={() => onSelect(template)}
-            className={`text-left rounded-xl border p-3 transition-all duration-200 relative overflow-hidden group ${
+            className={`text-left rounded-xl border p-4 transition-all duration-200 relative overflow-hidden group ${
               isSelected
                 ? 'border-blue-500 bg-blue-50 shadow-[0_0_0_3px_rgba(37,99,235,0.06)]'
                 : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-md'
@@ -138,7 +138,7 @@ export default function TemplateCardList({
           >
             {/* Category badge - top right */}
             <span
-              className={`absolute top-2.5 right-2.5 text-[10px] px-1.5 py-[2px] rounded border font-semibold ${styles.bg} ${styles.text} ${styles.border}`}
+              className={`absolute top-2.5 right-2.5 text-2xs px-1.5 py-[2px] rounded border font-semibold ${styles.bg} ${styles.text} ${styles.border}`}
             >
               {CATEGORY_LABELS[cat] || cat}
             </span>
@@ -163,14 +163,14 @@ export default function TemplateCardList({
 
             {/* Template ID */}
             <div className="mb-1.5 pr-16">
-              <span className="text-[10px] text-slate-400 font-mono bg-slate-50 px-1.5 py-[1px] rounded">
+              <span className="text-2xs text-slate-400 font-mono bg-slate-50 px-1.5 py-[1px] rounded">
                 <HighlightText text={template.id} query={searchQuery} />
               </span>
             </div>
 
             {/* Name */}
             <h3
-              className={`text-[13px] font-semibold leading-tight mb-1.5 pr-2 ${
+              className={`text-base font-bold leading-tight mb-1.5 pr-2 ${
                 isSelected ? 'text-blue-700' : 'text-slate-900 group-hover:text-blue-600'
               } transition-colors`}
             >
@@ -178,7 +178,7 @@ export default function TemplateCardList({
             </h3>
 
             {/* Description */}
-            <p className="text-[11px] text-slate-500 leading-relaxed line-clamp-2 mb-2">
+            <p className="text-xs text-slate-500 leading-relaxed line-clamp-2 mb-2">
               <HighlightText text={template.description} query={searchQuery} />
             </p>
 
@@ -188,7 +188,7 @@ export default function TemplateCardList({
                 {template.keywords.slice(0, 3).map((kw) => (
                   <span
                     key={kw}
-                    className={`text-[10px] px-1.5 py-[1px] rounded border ${
+                    className={`text-2xs px-1.5 py-[1px] rounded border ${
                       searchQuery.trim() &&
                       kw.toLowerCase().includes(searchQuery.trim().toLowerCase())
                         ? 'bg-yellow-100 border-yellow-300 text-yellow-700'
@@ -199,7 +199,7 @@ export default function TemplateCardList({
                   </span>
                 ))}
                 {template.keywords.length > 3 && (
-                  <span className="text-[10px] px-1 py-[1px] text-slate-300">
+                  <span className="text-2xs px-1 py-[1px] text-slate-300">
                     +{template.keywords.length - 3}
                   </span>
                 )}
@@ -209,7 +209,7 @@ export default function TemplateCardList({
             {/* Tool source */}
             {template.tool_source && (
               <div className="mt-1.5">
-                <span className="text-[10px] px-1.5 py-[2px] bg-slate-50 text-slate-400 rounded">
+                <span className="text-2xs px-1.5 py-[2px] bg-slate-50 text-slate-400 rounded">
                   {template.tool_source}
                 </span>
               </div>

@@ -71,13 +71,13 @@ function CandidateCard({
           {index + 1}
         </span>
         <div className="flex-1 min-w-0">
-          <div className="text-[14px] font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
+          <div className="text-lg font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
             {candidate.name}
           </div>
           <div className="text-xs text-slate-500 mt-1 leading-relaxed">
             {candidate.description}
           </div>
-          <div className="mt-2 flex items-center gap-1 text-[11px] text-blue-500 font-medium">
+          <div className="mt-2 flex items-center gap-1 text-xs text-blue-500 font-medium">
             <span>点击选择此模板</span>
             <svg
               width="12"
@@ -200,7 +200,7 @@ export default function DiscoveryTab({
           <div className="flex-1 overflow-y-auto">
             {/* 候选结果标题 */}
             <div className="px-5 pt-5 pb-3">
-              <h2 className="text-[15px] font-semibold text-slate-900 tracking-tight"
+              <h2 className="text-lg font-semibold text-slate-900 tracking-tight"
               >
                 匹配到 {candidates.length} 个候选模板
               </h2>
@@ -229,7 +229,7 @@ export default function DiscoveryTab({
             <div className="px-4 pt-4 pb-2 flex-shrink-0 flex items-center justify-between"
             >
               <div>
-                <h2 className="text-[15px] font-semibold text-slate-900 tracking-tight"
+                <h2 className="text-lg font-semibold text-slate-900 tracking-tight"
                 >
                   模板库
                 </h2>
@@ -239,7 +239,7 @@ export default function DiscoveryTab({
                     : '选择模板开始数据处理任务'}
                 </p>
               </div>
-              <span className="text-[11px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full"
+              <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full"
               >
                 {filteredTemplates.length}
               </span>
@@ -272,7 +272,7 @@ export default function DiscoveryTab({
                 <button
                   key={tag.key}
                   onClick={() => setActiveTag(tag.key)}
-                  className={`text-[11px] font-medium px-2.5 py-1 rounded-md border transition-all ${
+                  className={`text-xs font-medium px-2.5 py-1 rounded-md border transition-all ${
                     activeTag === tag.key
                       ? TAG_ACTIVE_STYLES[tag.key]
                       : 'bg-slate-50 text-slate-500 border-transparent hover:bg-slate-100'
@@ -302,7 +302,7 @@ export default function DiscoveryTab({
             <div className="px-3 py-2.5 border-t border-slate-200 flex-shrink-0"
             >
               <button
-                className="w-full h-9 border border-dashed border-slate-200 rounded-lg bg-slate-50 text-slate-500 text-[13px] font-medium flex items-center justify-center gap-1.5 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                className="w-full h-10 border border-dashed border-slate-200 rounded-lg bg-slate-50 text-slate-500 text-base font-medium flex items-center justify-center gap-1.5 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-all"
                 onClick={() => navigate('/generator')}
               >
                 <svg
@@ -398,7 +398,7 @@ export default function DiscoveryTab({
             )}
           </button>
         </div>
-        <p className="text-[11px] text-slate-400 mt-2 text-center"
+        <p className="text-xs text-slate-400 mt-2 text-center"
         >
           {searchQuery.trim()
             ? '按 Enter 发送意图匹配，实时过滤中...'

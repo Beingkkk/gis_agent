@@ -77,11 +77,11 @@ export default function CmdEditor({
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3.5 py-2 bg-[#1e293b] border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-medium text-slate-400 font-mono">
+          <span className="text-xs font-medium text-slate-400 font-mono">
             bash
           </span>
           {missingParams && missingParams.length > 0 && (
-            <span className="text-[10px] px-2 py-[2px] rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <span className="text-2xs px-2 py-[2px] rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
               还有 {missingParams.length} 个必填参数未填
             </span>
           )}
@@ -90,7 +90,7 @@ export default function CmdEditor({
           {onRefresh && !readOnly && (
             <button
               onClick={onRefresh}
-              className="text-[11px] font-medium text-slate-400 hover:text-blue-400 transition-colors flex items-center gap-1 px-2 py-1 rounded hover:bg-white/5"
+              className="text-xs font-medium text-slate-400 hover:text-blue-400 transition-colors flex items-center gap-1 px-2 py-1 rounded hover:bg-white/5"
               title="根据当前参数刷新命令"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -103,7 +103,7 @@ export default function CmdEditor({
           )}
           <button
             onClick={handleCopy}
-            className="text-[11px] font-medium text-slate-400 hover:text-blue-400 transition-colors flex items-center gap-1 px-2 py-1 rounded hover:bg-white/5"
+            className="text-xs font-medium text-slate-400 hover:text-blue-400 transition-colors flex items-center gap-1 px-2 py-1 rounded hover:bg-white/5"
             title="复制命令"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -122,7 +122,7 @@ export default function CmdEditor({
           {Array.from({ length: lineCount }, (_, i) => (
             <div
               key={i}
-              className="text-right pr-2 text-[11px] text-slate-600 font-mono leading-[22px]"
+              className="text-right pr-2 text-xs text-slate-600 font-mono leading-[22px]"
             >
               {i + 1}
             </div>
@@ -138,7 +138,7 @@ export default function CmdEditor({
           onScroll={handleScroll}
           readOnly={readOnly}
           spellCheck={false}
-          className={`flex-1 bg-transparent text-slate-200 p-3 text-[12.5px] font-mono leading-[22px] resize-none outline-none whitespace-pre
+          className={`flex-1 bg-transparent text-slate-200 p-3 text-sm font-mono leading-[22px] resize-none outline-none whitespace-pre
             ${readOnly ? 'cursor-default' : 'cursor-text'}
             ${isHovered && !readOnly ? 'bg-white/[0.01]' : ''}`}
           style={{ tabSize: 4 }}

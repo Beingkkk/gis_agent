@@ -4,8 +4,16 @@ Design: plan-j2-generate DC-0082, DC-0088
 """
 
 import re
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
+
+# Add src/ to path for shared llm.template_generator imports
+_SRC_DIR = Path(__file__).parent.parent / "src"
+sys.path.insert(0, str(_SRC_DIR))
+
+from llm.template_generator import _extract_template_vars
 
 
 # ---------------------------------------------------------------------------
@@ -82,13 +90,9 @@ class TemplateDefinition:
             if p.required and p.default is not None:
                 raise ValueError(f"Required param {p.name!r} cannot have default")
 
-        # Check that all {{ var }} in command_template correspond to declared params
-        template_vars = set(
-            re.findall(r"\{\{\s*(\w+)(?:\s*\|[^}]*)?\s*\}\}", self.command_template)
-        )
-        if_vars = set(re.findall(r"{%\s*if\s+(\w+)\s*%}", self.command_template))
-        all_vars = template_vars | if_vars
-        undeclared = all_vars - param_names - {"endif"}
+        # Check that all template variables in command_template correspond to declared params
+        all_vars = _extract_template_vars(self.command_template)
+        undeclared = all_vars - param_names
         if undeclared:
             raise ValueError(f"Command template uses undeclared params: {undeclared}")
 

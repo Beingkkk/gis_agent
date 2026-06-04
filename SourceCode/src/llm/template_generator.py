@@ -8,10 +8,12 @@ Design:
 
 import ast
 import json
-import json5
 import logging
 import re
 from typing import Any, Callable
+
+import json5
+from jinja2 import Environment, meta
 
 from llm.client import LLMClient
 from llm.models import Message
@@ -369,7 +371,7 @@ def parse_generated_response(text: str) -> dict[str, Any]:
         ast_result = ast.literal_eval(_fix_json_keys(cleaned))
         if isinstance(ast_result, dict):
             logger.info("Parsed LLM output using ast.literal_eval fallback")
-            return ast_result  # type: ignore[no-any-return]
+            return ast_result
     except (ValueError, SyntaxError) as exc:
         logger.debug("AST parse fallback failed: %s", exc)
 
@@ -426,12 +428,21 @@ def sanitize_params(params: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _extract_template_vars(command_template: str) -> set[str]:
-    """Extract all variable names used in a Jinja2 template."""
-    template_vars = set(
-        re.findall(r"\{\{\s*(\w+)(?:\s*\|[^}]*)?\s*\}\}", command_template)
-    )
-    if_vars = set(re.findall(r"{%\s*if\s+(\w+)\s*%}", command_template))
-    return (template_vars | if_vars) - {"endif"}
+    """Extract all variable names used in a Jinja2 template.
+
+    Uses Jinja2's AST-based ``meta.find_undeclared_variables`` instead of
+    regex so that filters, attribute access, and complex control flow are
+    handled correctly.
+
+    The custom filters ``quote`` and ``safe_path`` registered by
+    ``TemplateEngine`` are stubbed here so that parsing does not fail on
+    templates that use them.
+    """
+    env = Environment()
+    env.filters["quote"] = lambda x: x
+    env.filters["safe_path"] = lambda x: x
+    parsed = env.parse(command_template)
+    return meta.find_undeclared_variables(parsed)
 
 
 def auto_complete_params(body: str, params: list[dict[str, Any]]) -> list[dict[str, Any]]:

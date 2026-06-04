@@ -8,9 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from llm.models import Message
 from llm.template_generator import (
-    _fix_json_keys,
+    _extract_template_vars,
     _fix_json_string_issues,
     assemble_j2_body,
     auto_complete_params,
@@ -480,3 +479,46 @@ class TestAssembleJ2Body:
         lines = body.split("\n")
         assert len(lines) > 5  # header + blank + @echo + REMs + blank + cmd + blank + REM
         assert lines[0] == "{# @id test_tool #}"
+
+
+class TestExtractTemplateVars:
+    """Tests for _extract_template_vars using Jinja2 AST."""
+
+    def test_extracts_simple_variables(self) -> None:
+        """Simple {{ var }} and {% if var %} references are extracted."""
+        body = (
+            'ogr2ogr{% if append %} -append{% endif %}'
+            ' {{ output | quote }} {{ input | quote }}'
+        )
+        result = _extract_template_vars(body)
+        assert result == {"append", "output", "input"}
+
+    def test_ignores_declared_variables(self) -> None:
+        """Variables declared inside loops are not reported as undeclared."""
+        body = '{% for opt in options %}{{ opt }}{% endfor %}'
+        result = _extract_template_vars(body)
+        assert result == {"options"}
+
+    def test_extracts_attribute_access(self) -> None:
+        """Attribute access returns the root variable, not the full path."""
+        body = '{{ item.name }} {{ item.value }}'
+        result = _extract_template_vars(body)
+        assert result == {"item"}
+
+    def test_extracts_subscript_access(self) -> None:
+        """Subscript access returns the container variable."""
+        body = '{{ items[0] }} {{ mapping["key"] }}'
+        result = _extract_template_vars(body)
+        assert result == {"items", "mapping"}
+
+    def test_handles_is_defined_test(self) -> None:
+        """Tests like 'if append is defined' still report the variable."""
+        body = '{% if append is defined %}-append{% endif %}'
+        result = _extract_template_vars(body)
+        assert result == {"append"}
+
+    def test_no_variables_in_plain_text(self) -> None:
+        """Plain command text yields an empty set."""
+        body = 'ogr2ogr -f GeoJSON output.shp input.shp'
+        result = _extract_template_vars(body)
+        assert result == set()

@@ -44,7 +44,7 @@ select = ["E", "F", "W", "I"]
 ignore = []
 
 [tool.ruff.lint.per-file-ignores]
-"scripts/generate/*.py" = ["I001", "E501"]
+"scripts/generate/*.py" = ["I001", "E402", "E501"]
 "scripts/generate_templates.py" = ["I001", "E402"]
 "tests/unit/test_generate_*.py" = ["I001", "E501"]
 

@@ -395,7 +395,7 @@ System: 你是一名 GDAL 命令行专家。根据提供的文档提取信息，
 - 原始 HTML 文档含有大量导航、脚本、样式等 LLM 无关内容，直接输入浪费 token 且干扰生成质量
 - Markdown 文档常包含 YAML frontmatter、链接语法等格式化噪音，需要预处理
 - 提取与 LLM 生成解耦：用户可在导入后预览清洗结果，不满意可手动编辑后再生成
-- 复用标准库实现，零额外依赖（`html.parser.HTMLParser`）
+- HTML 解析使用 `beautifulsoup4`（ADR-0003），替代手写 `HTMLParser` 状态机，提升可靠性并降低维护成本。Markdown 清洗继续使用正则，无额外依赖
 
 **支持的文件格式**:
 | 格式 | 扩展名 | 清洗策略 |
@@ -424,7 +424,7 @@ HtmlExtractor / MarkdownExtractor 清洗
 ```
 
 **代码位置**:
-- `templates/extractors.py` — `HtmlExtractor`（基于 `HTMLParser`） + `MarkdownExtractor`
+- `templates/extractors.py` — `HtmlExtractor`（基于 `BeautifulSoup`） + `MarkdownExtractor`（基于正则）
 - `api/routes/generator.py` — `POST /generator/parse-document`
 - `frontend/src/pages/GeneratorPage.tsx` — Step 1 文件导入 UI
 
@@ -974,6 +974,7 @@ Step 5 保存成功后：
 
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
+| v3.3.0 | 2026-06-04 | **HTML 解析器迁移**（ADR-0003）：`DC-0088` 的 HTML 提取从手写 `HTMLParser` 状态机迁移到 `beautifulsoup4`。`HtmlExtractor`（在线模式）和 `_GDALDocParser`（CLI 批量模式）均改用 `bs4.BeautifulSoup`，接口契约不变。删除 ~170 行状态机代码，提升对残缺/不规范 HTML 的容错能力。Markdown 清洗继续使用正则，不受影响 |
 | v3.2.0 | 2026-06-03 | **完整 .j2 组装**（DC-0094 v2）：API/WS 返回的 `body` 由裸 `command_template` 改为调用 `assemble_j2_body()` 组装的标准 `.j2` 文件（含 comment header + `@echo off` + 命令体），与 CLI `renderer.py` 输出格式一致；**安全校验 Jinja2 感知**：`ScriptSecurityChecker.check()` 在检测到模板文件时先清理 Jinja2 构造（`{{...}}`、`{#...#}`、`{%...%}`），避免 `\|` filter 被误判为 shell 管道；前端预览 `pre` 默认文字颜色改为 `text-gray-300` 解决黑色背景看不清问题 |
 | v3.1.0 | 2026-06-03 | **Token 预算策略调整**（DC-0095 v2）：预算上限从 2000 提升到 12000 tokens；检查位置从 `parse-document` 前移到 `generate` / WebSocket 调用前；`parse-document` 不再拦截，始终返回 200 含 `estimated_tokens`；前端 Step 1 超预算时改为黄色警告（不阻止"下一步"），Step 2 "生成模板"按钮不因 token 数禁用；测试用例同步更新；T-GEN-WEB-11~16 标记为已完成 |
 | v3.0.0 | 2026-06-03 | **统一生成引擎**（DC-0094）：提取 CLI 完整引擎到 `src/llm/template_generator.py`，在线模式与批量模式共用提示词/解析/重试/参数补全逻辑；**多文件导入**（DC-0095）：`parse-document` 支持文件数组，前端显示 token 预算检查，超限时明确提示；**WebSocket 流式生成**（DC-0096）：新增 `/ws/generator/generate` 端点，前端 Step 2 显示实时流式面板，消除 HTTP 30s 超时；新增 T-GEN-WEB-11~16；测试策略补充共享引擎、WebSocket、多文件用例 |

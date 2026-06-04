@@ -9,8 +9,11 @@ description = "Command-line assistant for GIS data processing using GDAL tools"
 requires-python = ">=3.10"
 dependencies = [
     "anthropic",
+    "beautifulsoup4",
     "jinja2",
     "json5",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
 ]
 
 [project.scripts]

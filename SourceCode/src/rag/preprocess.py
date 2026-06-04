@@ -3,17 +3,18 @@
 Converts GDAL Sphinx-generated HTML into structured JSON chunks for
 vector retrieval. Used only at development time; not imported at runtime.
 
-Design: DC-0020, DC-0021, DC-0025
+Design: DC-0020, DC-0021, DC-0025, ADR-0003
 """
 
 import fnmatch
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+
+from bs4 import BeautifulSoup
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -32,186 +33,16 @@ class DocumentChunk:
     token_estimate: int
 
 
-# Internal mutable structure used during parsing.
-@dataclass
-class _Section:
-    title: str = ""
-    section: str = ""
-    section_id: str = ""
-    content_parts: list[str] = field(default_factory=list)
-    order: int = 0
-
-
 # ---------------------------------------------------------------------------
-# HTML parser
-# ---------------------------------------------------------------------------
-
-
-class _GDALDocParser(HTMLParser):
-    """Parse GDAL Sphinx HTML and extract structured text sections.
-
-    Extracts content from <div role="main"> or <div itemprop="articleBody">,
-    skipping navigation, scripts, styles, and footers.
-    """
-
-    _NOISE_TAGS: frozenset[str] = frozenset(
-        {"script", "style", "nav", "footer", "form", "noscript"}
-    )
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.doc_title: str = ""
-        self.in_title: bool = False
-        self.tag_stack: list[str] = []
-        self.main_depth: int = 0
-        self.noise_depth: int = 0
-        self.section_stack: list[_Section] = []
-        self.sections: list[_Section] = []
-        self._section_counter: int = 0
-        self.in_heading: bool = False
-        self._heading_buf: list[str] = []
-        self._in_pre: bool = False
-
-    # --- helpers ---
-
-    def _is_main_div(self, tag: str, attrs: list[tuple[str, str | None]]) -> bool:
-        if tag != "div":
-            return False
-        attr_dict = dict(attrs)
-        return (
-            attr_dict.get("role") == "main"
-            or attr_dict.get("itemprop") == "articleBody"
-        )
-
-    @staticmethod
-    def _clean_text(text: str) -> str:
-        """Collapse excessive whitespace but preserve single newlines."""
-        # Replace any whitespace run with a single space
-        cleaned = " ".join(text.split())
-        # Strip Unicode private-use characters (e.g. Font Awesome icons)
-        cleaned = "".join(ch for ch in cleaned if not (0xE000 <= ord(ch) <= 0xF8FF))
-        return cleaned.strip()
-
-    @staticmethod
-    def _clean_heading(text: str) -> str:
-        """Clean heading text: drop headerlink icons and collapse space."""
-        text = "".join(ch for ch in text if not (0xE000 <= ord(ch) <= 0xF8FF))
-        return " ".join(text.split()).strip()
-
-    # --- handlers ---
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.tag_stack.append(tag)
-
-        if tag == "title":
-            self.in_title = True
-        elif self._is_main_div(tag, attrs):
-            self.main_depth = len(self.tag_stack)
-        elif tag in self._NOISE_TAGS and self.main_depth > 0:
-            if self.noise_depth == 0:
-                self.noise_depth = len(self.tag_stack)
-        elif tag == "section" and self.main_depth > 0:
-            attr_dict = dict(attrs)
-            sid = attr_dict.get("id") or ""
-            sec = _Section(
-                title=self.doc_title,
-                section=sid,
-                section_id=sid,
-                order=self._section_counter,
-            )
-            self._section_counter += 1
-            self.section_stack.append(sec)
-        elif tag in {"h1", "h2", "h3", "h4", "h5", "h6"} and self.section_stack:
-            self.in_heading = True
-            self._heading_buf = []
-        elif tag == "pre" and self.section_stack:
-            self._in_pre = True
-
-    def handle_endtag(self, tag: str) -> None:
-        # Pop stack until matching tag
-        while self.tag_stack and self.tag_stack.pop() != tag:
-            pass
-
-        if tag == "title":
-            self.in_title = False
-        elif self.main_depth > 0 and len(self.tag_stack) < self.main_depth:
-            # Exited the main content div — clear any pending sections
-            self.main_depth = 0
-            self.section_stack.clear()
-        elif self.noise_depth > 0 and len(self.tag_stack) < self.noise_depth:
-            self.noise_depth = 0
-
-        if tag in {"h1", "h2", "h3", "h4", "h5", "h6"} and self.in_heading:
-            heading_text = self._clean_heading("".join(self._heading_buf))
-            if heading_text and self.section_stack:
-                current = self.section_stack[-1]
-                # Only use first heading as section name
-                if current.section == current.section_id:
-                    current.section = heading_text
-            self.in_heading = False
-
-        if tag == "pre" and self.section_stack:
-            self._in_pre = False
-            # Add explicit newline after pre block for readability
-            self.section_stack[-1].content_parts.append("\n")
-
-        if tag in {"p", "dd", "dt", "li", "div", "td"} and self.section_stack:
-            if not self._in_pre:
-                # Add space after block-level elements
-                self.section_stack[-1].content_parts.append(" ")
-
-        if tag == "section" and self.section_stack:
-            sec = self.section_stack.pop()
-            if self._in_pre:
-                content = "".join(sec.content_parts)
-            else:
-                content = self._clean_text("".join(sec.content_parts))
-            sec.content_parts = []
-            if content or sec.section:
-                sec.content_parts = [content]
-                self.sections.append(sec)
-
-    def handle_data(self, data: str) -> None:
-        if self.in_title:
-            self.doc_title += data
-        elif self.main_depth > 0 and self.noise_depth == 0 and self.section_stack:
-            current = self.section_stack[-1]
-            if self.in_heading:
-                self._heading_buf.append(data)
-            else:
-                if self._in_pre:
-                    current.content_parts.append(data)
-                else:
-                    current.content_parts.append(data)
-
-    def get_result(self) -> list[dict[str, str]]:
-        """Return parsed sections as list of dicts.
-
-        Sections are ordered by their appearance in the document
-        (outer sections before nested inner ones).
-        """
-        result: list[dict[str, str]] = []
-        for sec in sorted(self.sections, key=lambda s: s.order):
-            content = sec.content_parts[0] if sec.content_parts else ""
-            # Clean up title (drop "— GDAL documentation" suffix)
-            title = sec.title.split("—")[0].strip()
-            result.append(
-                {
-                    "title": title,
-                    "section": sec.section,
-                    "content": content,
-                }
-            )
-        return result
-
-
-# ---------------------------------------------------------------------------
-# Public API
+# HTML extraction
 # ---------------------------------------------------------------------------
 
 
 def extract_text_from_html(html_content: str) -> list[dict[str, str]]:
     """Extract structured text sections from GDAL Sphinx HTML.
+
+    Uses BeautifulSoup to parse the document, locate the main content
+    area, and split it into sections by ``<section>`` tags.
 
     Args:
         html_content: Raw HTML string.
@@ -219,11 +50,72 @@ def extract_text_from_html(html_content: str) -> list[dict[str, str]]:
     Returns:
         List of section dicts with keys: title, section, content.
 
-    Design: DC-0020
+    Design: DC-0020, ADR-0003
     """
-    parser = _GDALDocParser()
-    parser.feed(html_content)
-    return parser.get_result()
+    soup = BeautifulSoup(html_content, "html.parser")
+
+    # Document title
+    title = ""
+    title_tag = soup.find("title")
+    if title_tag:
+        title = title_tag.get_text().split("—")[0].strip()
+
+    # Locate main content (GDAL Sphinx uses role="main" or articleBody)
+    main = soup.find("div", role="main") or soup.find("div", itemprop="articleBody")
+    if not main:
+        return []
+
+    # Strip noise tags inside main content
+    for tag in main.find_all({"script", "style", "nav", "footer", "form", "noscript"}):
+        tag.decompose()
+
+    result: list[dict[str, str]] = []
+    for sec in main.find_all("section"):
+        heading = sec.find(["h1", "h2", "h3", "h4", "h5", "h6"])
+        section_name = (
+            heading.get_text(strip=True) if heading else str(sec.get("id", ""))
+        )
+        # Strip Unicode private-use characters (e.g. Font Awesome icons
+        # in Sphinx headerlink anchors) that the old HTMLParser cleaned.
+        section_name = "".join(
+            ch for ch in section_name if not (0xE000 <= ord(ch) <= 0xF8FF)
+        )
+
+        # Clone the section so we can decompose nested elements without
+        # mutating the original tree (find_all returns a snapshot but
+        # Tag.extract mutates the live DOM).
+        sec_copy = BeautifulSoup(str(sec), "html.parser").find("section")
+        if sec_copy is None:
+            continue
+
+        # Remove heading so its text doesn't duplicate section_name
+        h = sec_copy.find(["h1", "h2", "h3", "h4", "h5", "h6"])
+        if h:
+            h.decompose()
+
+        # Remove nested sections so their text doesn't leak into the
+        # parent content (matching the old HTMLParser behaviour where
+        # each section was independently extracted).
+        for nested in sec_copy.find_all("section"):
+            nested.decompose()
+
+        content = " ".join(sec_copy.get_text(separator=" ", strip=True).split())
+
+        if content or section_name:
+            result.append(
+                {
+                    "title": title,
+                    "section": section_name,
+                    "content": content,
+                }
+            )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Chunk splitting
+# ---------------------------------------------------------------------------
 
 
 def split_into_chunks(
@@ -322,6 +214,11 @@ def split_into_chunks(
     return chunks
 
 
+# ---------------------------------------------------------------------------
+# File listing helpers
+# ---------------------------------------------------------------------------
+
+
 def _list_html_files(
     source_dir: Path,
     include_patterns: list[str],
@@ -379,6 +276,11 @@ def _list_html_files(
     return sorted(result)
 
 
+# ---------------------------------------------------------------------------
+# JSON output builder
+# ---------------------------------------------------------------------------
+
+
 def _build_chunks_json(
     chunks: list[DocumentChunk],
     *,
@@ -411,6 +313,11 @@ def _build_chunks_json(
             for c in chunks
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 def preprocess_directory(

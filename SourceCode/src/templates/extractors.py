@@ -3,15 +3,16 @@
 Convert raw HTML/Markdown into clean, structured text suitable for LLM input.
 
 Design:
-    plan-j2-generate DC-0088
+    plan-j2-generate DC-0088, ADR-0003
 """
 
 import re
-from html.parser import HTMLParser
 from typing import ClassVar
 
+from bs4 import BeautifulSoup
 
-class HtmlExtractor(HTMLParser):
+
+class HtmlExtractor:
     """Extract clean text from HTML documents.
 
     Removes navigation, scripts, styles, and other noisy elements.
@@ -19,84 +20,27 @@ class HtmlExtractor(HTMLParser):
     tables, code blocks).
 
     Design:
-        DC-0088
+        DC-0088, ADR-0003
     """
 
-    NOISY_TAGS: ClassVar[set[str]] = {
-        "script",
-        "style",
-        "nav",
-        "footer",
-        "header",
-        "aside",
-        "noscript",
-        "iframe",
-        "embed",
-        "object",
-        "form",
-        "button",
-        "input",
-    }
+    NOISY_TAGS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "script",
+            "style",
+            "nav",
+            "footer",
+            "header",
+            "aside",
+            "noscript",
+            "iframe",
+            "embed",
+            "object",
+            "form",
+            "button",
+            "input",
+        }
+    )
     """Tags whose content is completely discarded."""
-
-    BLOCK_TAGS: ClassVar[set[str]] = {
-        "p",
-        "div",
-        "section",
-        "article",
-        "li",
-        "td",
-        "th",
-        "dd",
-        "dt",
-        "pre",
-        "blockquote",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "br",
-        "hr",
-        "tr",
-    }
-    """Tags that introduce line breaks in text output."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self._text_parts: list[str] = []
-        self._skip_depth = 0
-        self._last_tag: str | None = None
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self._last_tag = tag
-        if tag in self.NOISY_TAGS:
-            self._skip_depth += 1
-            return
-        if tag in self.BLOCK_TAGS and self._text_parts and not self._text_parts[-1].endswith("\n"):
-            self._text_parts.append("\n")
-        if tag == "br":
-            self._text_parts.append("\n")
-        if tag in ("td", "th") and self._text_parts:
-            self._text_parts.append(" ")
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in self.NOISY_TAGS and self._skip_depth > 0:
-            self._skip_depth -= 1
-            return
-        if tag in self.BLOCK_TAGS and self._text_parts and not self._text_parts[-1].endswith("\n"):
-            self._text_parts.append("\n")
-
-    def handle_data(self, data: str) -> None:
-        if self._skip_depth > 0:
-            return
-        # Collapse multiple whitespace, but preserve single spaces
-        cleaned = " ".join(data.split())
-        if cleaned:
-            self._text_parts.append(cleaned)
-            if self._last_tag not in self.BLOCK_TAGS:
-                self._text_parts.append(" ")
 
     def extract(self, html: str) -> str:
         """Extract clean text from HTML.
@@ -107,14 +51,27 @@ class HtmlExtractor(HTMLParser):
         Returns:
             Clean, newline-separated text with noisy elements removed.
         """
-        self._text_parts = []
-        self._skip_depth = 0
-        self._last_tag = None
-        self.feed(html)
-        self.close()
-        raw = "".join(self._text_parts)
-        # Collapse multiple consecutive newlines
-        return re.sub(r"\n{3,}", "\n\n", raw).strip()
+        if not html:
+            return ""
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        # Remove noisy tags and their entire subtree
+        for tag in soup.find_all(self.NOISY_TAGS):
+            tag.decompose()
+
+        # Replace <br> with newline so get_text honours it
+        for br in soup.find_all("br"):
+            br.replace_with("\n")
+
+        # Extract text with a newline between every element.  This gives
+        # block-level tags (p, div, li, td, pre, h1-h6, tr) natural
+        # separation while keeping inline tags contiguous.
+        text = soup.get_text(separator="\n")
+
+        # Normalise whitespace: collapse runs of spaces and newlines
+        lines = [" ".join(line.split()) for line in text.split("\n")]
+        return "\n".join(line for line in lines if line)
 
 
 class MarkdownExtractor:

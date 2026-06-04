@@ -971,8 +971,9 @@ CLI 层执行脚本
 **决策**: 运行时配置文件使用 JSON，位于 `SourceCode/config/config.json`。
 
 **理由**:
-- JSON 是 Python 标准库原生支持格式，零额外依赖（符合 P5）
-- 配置文件结构简单，无需 YAML 的锚点引用等高级特性
+- JSON 是 Python 标准库原生支持格式，文件格式本身零额外依赖（符合 P5）
+- 配置结构简单，无需 YAML 的锚点引用等高级特性
+- 校验与组装由 `pydantic` 处理（ADR-0004），不增加手写验证逻辑
 
 #### DC-0002: 配置项按功能域分层
 
@@ -1010,21 +1011,27 @@ CLI 层执行脚本
 ### 9.3 数据模型
 
 ```python
-from dataclasses import dataclass
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-@dataclass(frozen=True)
-class LLMConfig:
+class LLMConfig(BaseModel):
     """LLM 连接配置。"""
-    base_url: str
-    auth_key: str
-    model_name: str
+    model_config = ConfigDict(frozen=True)
+    base_url: str = Field(..., pattern=r"^https?://")
+    auth_key: str = Field(..., min_length=1)
+    model_name: str = Field(..., min_length=1)
 
 
-@dataclass(frozen=True)
-class Config:
+class Config(BaseModel):
     """全局配置根对象。"""
+    model_config = ConfigDict(frozen=True)
     llm: LLMConfig
+
+    @model_validator(mode="before")
+    @classmethod
+    def _apply_env_overrides(cls, data: dict) -> dict:
+        """Apply GISAGENT_* environment variable overrides."""
+        ...
 ```
 
 ### 9.4 公共 API
@@ -1037,7 +1044,7 @@ from typing import Optional
 def load_config(path: Optional[Path] = None) -> Config:
     """加载并校验配置文件，初始化全局单例。
 
-    Design: DC-0001, DC-0003, DC-0004, DC-0005
+    Design: DC-0001, DC-0003, DC-0004, DC-0005, ADR-0004
     """
 
 

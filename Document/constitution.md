@@ -369,7 +369,7 @@ def function_name(param: str, optional: int = 0) -> bool:
 ├─────────────────────────────────────┤
 │  应用层 (llm/)                      │  LLM 交互、意图识别、文档问答
 ├─────────────────────────────────────┤
-│  基础设施层 (外部依赖)               │  anthropic、jinja2、GDAL CLI
+│  基础设施层 (外部依赖)               │  anthropic、beautifulsoup4、jinja2、json5、pydantic、GDAL CLI
 └─────────────────────────────────────┘
 ```
 
@@ -495,7 +495,7 @@ pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 | P2 | **先展后行** | 交互层（CLI 或 UI）必须在调用执行层前向用户完整展示脚本内容，并获得用户明确确认 |
 | P3 | **最小权限** | 默认输出到工作空间内，输出文件加时间戳防覆盖；所有路径经规范化后使用 |
 | P4 | **模板知识唯一** | 用法指导类知识仅来源于 J2 模板元数据，基础概念类回答由 LLM 参数知识提供，禁止调用外部 API 获取知识 |
-| P5 | **极简依赖** | `pyproject.toml` 的生产依赖以 `anthropic`、`jinja2` 为主，不引入未经批准的第三方库 |
+| P5 | **极简依赖** | `pyproject.toml` 的生产依赖以 `anthropic`、`jinja2` 等已批准库为主（ADR-0002/ADR-0003/ADR-0004），不引入未经批准的第三方库 |
 
 ### 9.2 安全编码红线
 

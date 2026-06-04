@@ -1,14 +1,14 @@
 """Tests for config module.
 
-Design: DC-0001, DC-0002, DC-0003, DC-0004, DC-0005, ADR-0001
+Design: DC-0001, DC-0002, DC-0003, DC-0004, DC-0005, ADR-0004
 """
 
 import json
 import logging
-from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from config import Config, LLMConfig, get_config, load_config
 from config.loader import _clear_config_singleton
@@ -52,7 +52,7 @@ def clear_singleton():
 
 
 class TestDataModels:
-    """Tests for frozen dataclass models (C-02)."""
+    """Tests for frozen pydantic models (ADR-0004)."""
 
     def test_llm_config_creation(self) -> None:
         cfg = LLMConfig(
@@ -70,7 +70,7 @@ class TestDataModels:
 
     def test_immutability(self) -> None:
         cfg = LLMConfig(base_url="https://a.com", auth_key="k", model_name="m")
-        with pytest.raises(FrozenInstanceError):
+        with pytest.raises(ValidationError):
             cfg.base_url = "https://b.com"  # type: ignore[misc]
 
 
@@ -92,7 +92,7 @@ class TestLoadConfig:
     def test_missing_required_fields(self, tmp_path: Path) -> None:
         path = tmp_path / "bad.json"
         path.write_text(json.dumps({"llm": {}}))
-        with pytest.raises(ValueError, match="Missing required fields"):
+        with pytest.raises(ValueError, match="Config validation failed"):
             load_config(path)
 
     def test_missing_llm_section(self, tmp_path: Path) -> None:

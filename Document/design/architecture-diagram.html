@@ -310,7 +310,7 @@
 <body>
 <div class="container">
   <h1>GIS Agent 技术架构图</h1>
-  <p class="subtitle">三 TAB Electron 桌面架构 | spec v1.7.0 + plan-ux v1.13.0 | 2026-06-03</p>
+  <p class="subtitle">三 TAB Electron 桌面架构 | spec v1.7.0 + plan-ux v1.13.0 | 2026-06-04</p>
 
   <!-- 入口说明 -->
   <div class="entry-note">
@@ -318,7 +318,7 @@
     <div class="entry-grid">
       <div class="entry-card electron">
         <div class="entry-name">🖼️ Electron 桌面应用（唯一活跃入口）</div>
-        <div class="entry-desc">React + TypeScript + Vite 渲染器，FastAPI 后端作为子进程运行。支持文件对话框获取绝对路径。三 TAB 架构：Discovery / Q&A / Exec。通过 WebSocket 实现流式 Q&A 和实时执行日志。路由：/（MainPage）、/generator、/pipeline。</div>
+        <div class="entry-desc">React + TypeScript + Vite 渲染器，FastAPI 后端作为子进程运行。支持文件对话框获取绝对路径。三 TAB 架构：Discovery / Q&A / Exec。通过 WebSocket 实现流式 Q&A 和实时执行日志。路由：/（MainPage）、/generator、/pipeline。执行 cwd 为项目根目录，脚本临时写入 ./cache/。</div>
       </div>
       <div class="entry-card cli">
         <div class="entry-name">⌨️ CLI 命令行 REPL 【已废弃，代码保留】</div>
@@ -361,11 +361,27 @@
         </div>
       </div>
       <div class="module">
+        <div class="module-name"><span class="icon">🧩</span> Layout / NavSidebar</div>
+        <div class="module-desc">整体布局框架 + 导航侧边栏（路由入口、页面切换）。包裹三 TAB 内容区，提供统一的页面结构</div>
+        <div class="module-meta">
+          <span class="tag">Layout.tsx</span>
+          <span class="tag">NavSidebar.tsx</span>
+        </div>
+      </div>
+      <div class="module">
         <div class="module-name"><span class="icon">🖼️</span> Electron 主进程</div>
         <div class="module-desc">无边框窗口、Python 子进程生命周期、IPC 文件对话框、窗口控制按钮</div>
         <div class="module-meta">
           <span class="tag">DC-E07</span>
           <span class="tag">main.ts</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">📝</span> 共享组件</div>
+        <div class="module-desc">ChatMessage（消息气泡 + Markdown 渲染）、CmdEditor（Monaco 代码编辑器）、ParamForm（参数表单）、ScriptPreview（脚本预览）</div>
+        <div class="module-meta">
+          <span class="tag">ReactMarkdown</span>
+          <span class="tag">Monaco Editor</span>
         </div>
       </div>
     </div>
@@ -383,7 +399,7 @@
     <div class="modules">
       <div class="module">
         <div class="module-name"><span class="icon">🔗</span> 会话路由</div>
-        <div class="module-desc">POST /session, /intent, /lock, /params, /clear, /workspace, /diagnose, /export-script。HTTP fallback /chat 保留但前端不使用</div>
+        <div class="module-desc">POST /session, /intent, /lock, /params, /clear, /workspace, /diagnose, /export-script。HTTP fallback /chat 保留但前端使用 WebSocket</div>
         <div class="module-meta">
           <span class="tag">DC-UX-01</span>
           <span class="tag">DC-0098</span>
@@ -392,7 +408,7 @@
       </div>
       <div class="module">
         <div class="module-name"><span class="icon">⚡</span> WebSocket 处理器</div>
-        <div class="module-desc">流式 Q&A (/ws/chat，写回 qa_history) 和实时执行日志 (/ws/execute)。执行失败设置 ERROR_RECOVERY + 自动诊断</div>
+        <div class="module-desc">流式 Q&A (/ws/chat，写回 qa_history)、实时执行日志 (/ws/execute)、模板生成流 (/ws/generator/generate)。执行失败设置 ERROR_RECOVERY + 自动诊断</div>
         <div class="module-meta">
           <span class="tag">DC-UX-04</span>
           <span class="tag">DC-UX-05</span>
@@ -402,7 +418,7 @@
       </div>
       <div class="module">
         <div class="module-name"><span class="icon">📋</span> 模板 / Pipeline / 生成器</div>
-        <div class="module-desc">模板列表/详情/热重载、Pipeline 多步合并脚本预览与执行（/#/pipeline）、J2 模板生成器五步向导（/#/generator）</div>
+        <div class="module-desc">模板列表/详情/热重载、Pipeline 多步合并脚本预览（/#/pipeline）、J2 模板生成器（/#/generator）含文档解析 + 语法校验 + 保存重载</div>
         <div class="module-meta">
           <span class="tag">DC-0095</span>
           <span class="tag">DC-UX-02/06/07</span>
@@ -410,8 +426,16 @@
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">⚙️</span> 依赖注入</div>
-        <div class="module-desc">进程级单例管理：SessionManager、TemplateRegistry、ParamValidator、TemplateEngine、LLMClient、PromptBuilder</div>
+        <div class="module-name"><span class="icon">⚙️</span> 执行环境路由</div>
+        <div class="module-desc">POST /exec-env/verify（验证）、/session/{id}/exec-env（绑定会话）、/exec-env/default（持久化默认配置）。GET /exec-env/conda-envs（列出环境）</div>
+        <div class="module-meta">
+          <span class="tag">DC-0101~0106</span>
+          <span class="tag data">exec_env.py</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">🔧</span> 依赖注入</div>
+        <div class="module-desc">进程级单例管理：SessionManager、TemplateRegistry、ParamValidator、TemplateEngine、LLMClient、PromptBuilder + Config 加载</div>
         <div class="module-meta">
           <span class="tag">DC-UX-03</span>
           <span class="tag data">dependencies.py</span>
@@ -450,7 +474,7 @@
       </div>
       <div class="module">
         <div class="module-name"><span class="icon">📑</span> 模板注册表</div>
-        <div class="module-desc">接收 templates.scanner 扫描结果，内存字典索引。支持运行时重扫报（rescan）</div>
+        <div class="module-desc">接收 templates.scanner 扫描结果，内存字典索引。支持运行时重扫（rescan）</div>
         <div class="module-meta">
           <span class="tag">DC-0041</span>
           <span class="tag">DC-0095</span>
@@ -459,7 +483,7 @@
       </div>
       <div class="module">
         <div class="module-name"><span class="icon">🔍</span> 匹配引擎</div>
-        <div class="module-desc">统一的模板匹配评分：keywords=+3, concepts=+2, 基硎元数据=+1。被 API 和 Q&A 上下文选择复用</div>
+        <div class="module-desc">统一的模板匹配评分：keywords=+3, concepts=+2, 基础元数据=+1。被 API 和 Q&A 上下文选择复用</div>
         <div class="module-meta">
           <span class="tag">DC-0094</span>
           <span class="tag">DC-0098</span>
@@ -475,11 +499,28 @@
         </div>
       </div>
       <div class="module">
-        <div class="module-name"><span class="icon">📁</span> 工作空间管理</div>
-        <div class="module-desc">路径规范化、输出文件时间戳防覆盖、进程级单例。默认操作目录，不是安全边界</div>
+        <div class="module-name"><span class="icon">📁</span> 路径辅助工具</div>
+        <div class="module-desc">Workspace 类：路径规范化、输出文件名时间戳防覆盖。Session 中无 workspace 字段，脚本执行 cwd 为项目根目录，临时脚本写入 ./cache/（DC-0105）。非安全边界</div>
         <div class="module-meta">
           <span class="tag">DC-0010~0014</span>
-          <span class="tag data">Workspace</span>
+          <span class="tag">已弱化</span>
+          <span class="tag data">workspace.py</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">🖥️</span> 执行环境</div>
+        <div class="module-desc">ShellDetector（自动检测 shell）、CondaEnvDetector（推导环境变量）、EnvironmentBuilder（验证 + 构建）、ShellExecutor（脚本写入 + 异步执行）、ExecEnvDefaultStore（持久化默认配置）</div>
+        <div class="module-meta">
+          <span class="tag">DC-0101~0106</span>
+          <span class="tag">exec_env.py</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">🔧</span> 诊断上下文</div>
+        <div class="module-desc">build_diagnosis_context()：为 LLM 错误诊断构建上下文（模板信息 + 参数定义 + 当前值 + 渲染后脚本）</div>
+        <div class="module-meta">
+          <span class="tag">DC-0049</span>
+          <span class="tag">diagnosis.py</span>
         </div>
       </div>
     </div>
@@ -497,11 +538,12 @@
     <div class="modules">
       <div class="module">
         <div class="module-name"><span class="icon">🤖</span> LLM 客户端</div>
-        <div class="module-desc">anthropic SDK 封装，指数退避重试，Token 预算截断。chat() 用于结构化调用，chat_stream() 用于流式输出</div>
+        <div class="module-desc">anthropic SDK 封装，tenacity 声明式重试：4 attempts，1→2→4→8s 指数退避。chat() 结构化调用，chat_stream() 流式输出。自定义异常体系</div>
         <div class="module-meta">
           <span class="tag">DC-0030</span>
           <span class="tag">DC-0031</span>
           <span class="tag">DC-0068</span>
+          <span class="tag">ADR-0005</span>
           <span class="tag">LLMClient</span>
         </div>
       </div>
@@ -516,12 +558,38 @@
       </div>
       <div class="module">
         <div class="module-name"><span class="icon">🧠</span> 业务接口</div>
-        <div class="module-desc">classify_intent() · extract_params() · answer_question() · analyze_execution_error()。5 个独立场景，各有专用 Prompt 和处理逻辑</div>
+        <div class="module-desc">classify_intent() · extract_params() · answer_question() · analyze_execution_error()。各场景独立 Prompt + 处理逻辑，不传 history（DC-0106）</div>
         <div class="module-meta">
           <span class="tag">DC-0031</span>
           <span class="tag">DC-0036</span>
           <span class="tag">DC-0069</span>
           <span class="tag">DC-0071</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">🎯</span> 参数抽取</div>
+        <div class="module-desc">extract_params()：从用户输入中提取模板参数，缺失时追问。one-shot 决策，不传历史（DC-0106）</div>
+        <div class="module-meta">
+          <span class="tag">F3</span>
+          <span class="tag">params.py</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">🔍</span> 错误诊断</div>
+        <div class="module-desc">analyze_execution_error()：LLM 分析执行错误，输出根因 + 建议 + can_auto_fix。使用 json5 + _extract_json_block() 鲁棒解析</div>
+        <div class="module-meta">
+          <span class="tag">DC-0049</span>
+          <span class="tag">DC-0036</span>
+          <span class="tag">diagnosis.py</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">✨</span> 模板生成引擎</div>
+        <div class="module-desc">generate_template_stream/sync() → parse_generated_response() → sanitize_params() → auto_complete_params() → assemble_j2_body()。两步 LLM 工作流（生成 + 审查）</div>
+        <div class="module-meta">
+          <span class="tag">DC-0094</span>
+          <span class="tag">DC-0095</span>
+          <span class="tag">template_generator.py</span>
         </div>
       </div>
     </div>
@@ -569,6 +637,30 @@
           <span class="tag">scanner.py</span>
         </div>
       </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">🔧</span> 配置系统</div>
+        <div class="module-desc">Pydantic BaseModel 验证配置，GISAGENT_* 环境变量自动覆盖 JSON 文件值</div>
+        <div class="module-meta">
+          <span class="tag">ADR-0004</span>
+          <span class="tag">config/</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">📚</span> RAG 预处理</div>
+        <div class="module-desc">BeautifulSoup 解析 GDAL HTML 文档 → 语义 chunk 分割 → JSON chunks（开发时工具，不运行时加载）</div>
+        <div class="module-meta">
+          <span class="tag">ADR-0003</span>
+          <span class="tag">rag/</span>
+        </div>
+      </div>
+      <div class="module">
+        <div class="module-name"><span class="icon">🛠️</span> J2 批量生成工具</div>
+        <div class="module-desc">scripts/generate/：extractor.py（HTML 解析）、queue.py（批量队列）、state.py（生成状态机）。开发时专用</div>
+        <div class="module-meta">
+          <span class="tag">开发工具</span>
+          <span class="tag">scripts/generate/</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -600,14 +692,14 @@
       <div class="flow-num">4</div>
       <div class="flow-content">
         <div class="flow-title">Pipeline 多步执行</div>
-        <div class="flow-detail">用户进入 /#/pipeline → 添加多个步骤模板 + 自动关联参数 → POST /pipeline 预览合并脚本 → WS /ws/pipeline-execute/{id} 执行多步合并脚本 → 复用单步执行的 WebSocket 基础设施</div>
+        <div class="flow-detail">用户进入 /#/pipeline → 添加多个步骤模板 + 自动关联参数 → POST /pipeline 预览合并脚本 → 复用 /ws/execute WebSocket 执行多步合并脚本 → 流式日志推送</div>
       </div>
     </div>
     <div class="flow-step">
       <div class="flow-num">5</div>
       <div class="flow-content">
         <div class="flow-title">GeneratorPage 模板生成器</div>
-        <div class="flow-detail">用户进入 /#/generator → 五步向导：文档输入 → 配置 → Monaco 代码编辑器预览（Jinja2 语法高亮 + 实时校验）→ 审查 → 保存 → 后端热重载 rescan() → 新模板立即可用</div>
+        <div class="flow-detail">用户进入 /#/generator → 文档输入（支持多文件 HTML/Markdown）→ POST /generator/parse-document 清洗 → WS /ws/generator/generate 流式 LLM 生成 → Monaco 代码编辑器预览 → ScriptSecurityChecker 安全校验 → Jinja2 语法校验 → POST /generator/save 保存 → 后端热重载 rescan()</div>
       </div>
     </div>
   </div>
@@ -626,7 +718,7 @@
       </div>
       <div class="security-item">
         <div class="p-id">P3 — 最小权限</div>
-        <div class="p-desc">默认输出到工作空间，输出文件自动加时间戳防覆盖。路径经规范化后使用。workspace 是默认操作目录，不是安全边界。绝对路径直接放行。</div>
+        <div class="p-desc">脚本临时写入 ./cache/ 目录（DC-0105），不污染用户数据区。输出路径由用户指定，绝对路径直接放行。时间戳防覆盖由前端控制。路径经 normalize 后使用。</div>
       </div>
       <div class="security-item">
         <div class="p-id">P4 — 模板知识唯一</div>
@@ -634,7 +726,7 @@
       </div>
       <div class="security-item">
         <div class="p-id">P5 — 最小依赖</div>
-        <div class="p-desc">生产依赖仅锁定 anthropic、jinja2 两个库。FastAPI / uvicorn 为 UI 可选 dev 依赖。降低供应链攻击面。</div>
+        <div class="p-desc">生产依赖锁定 7 个库：anthropic、beautifulsoup4、jinja2、json5、pydantic≥2.0、pydantic-settings≥2.0、tenacity≥8.0。FastAPI / uvicorn 为 dev 依赖。降低供应链攻击面。</div>
       </div>
     </div>
   </div>

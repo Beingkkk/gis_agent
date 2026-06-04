@@ -301,7 +301,7 @@
 <body>
 <div class="container">
   <h1>GIS Agent 场景-需求映射对齐图</h1>
-  <p class="subtitle">Electron 桌面应用 · 三 TAB 架构 · 功能映射 · 需求追溯 | spec v1.7.0 + plan-ux v1.13.0 | 2026-06-03</p>
+  <p class="subtitle">Electron 桌面应用 · 三 TAB 架构 · 功能映射 · 需求追溯 | spec v1.7.0 + plan-ux v1.13.0 | 2026-06-04</p>
 
   <!-- 场景1: 启动与配置 -->
   <div class="scenario type-basic">
@@ -319,7 +319,7 @@
         </div>
         <div class="msg msg-agent">
           <div class="msg-avatar">A</div>
-          <div class="msg-content">欢迎使用 GIS Agent！<br>📁 工作空间: ./data<br>📋 可用模板: 12 个<br>输入 /help 查看帮助</div>
+          <div class="msg-content">欢迎使用 GIS Agent！<br>📋 可用模板: 12 个<br>⚙️ 执行环境: 系统默认 (PowerShell)<br>输入 /help 查看帮助</div>
         </div>
         <div class="state-flow">
           <span class="state-badge active">IDLE</span>
@@ -331,15 +331,15 @@
         <div class="mapping-label">需求映射</div>
         <div class="req-row">
           <span class="req-id func">F7</span>
-          <span class="req-desc">启动时指定工作空间，作为默认 cwd 和输出文件基准目录。数据路径可以在任意位置</span>
+          <span class="req-desc">启动时自动检测 exec_env（Shell + Conda + GDAL），无需手动配置工作目录。数据路径可以在任意位置</span>
         </div>
         <div class="req-row">
           <span class="req-id func">F6</span>
-          <span class="req-desc">支持 <code>--dry-run</code> 空跑模式，只展示不执行</span>
+          <span class="req-desc">脚本预览态：ExecTab 内置命令预览，只展示不执行。CLI <code>--dry-run</code> 参数已废弃</span>
         </div>
         <div class="req-row">
           <span class="req-id workspace">W1-W3</span>
-          <span class="req-desc">工作空间初始化、路径规范化。workspace 是默认操作目录，不是安全边界</span>
+          <span class="req-desc">Workspace 类仅提供路径规范化辅助（resolve_path + 时间戳防覆盖）。Session 中无 workspace 字段，脚本临时写入 ./cache/，执行 cwd 为项目根目录</span>
         </div>
       </div>
     </div>
@@ -447,8 +447,8 @@
         </div>
         <div class="state-flow">
           <span class="state-badge active">QATab</span>
-          <span class="state-badge">→ POST /chat</span>
-          <span class="state-badge">→ LLM 回答 → 保持状态</span>
+          <span class="state-badge">→ WS /ws/chat</span>
+          <span class="state-badge">→ LLM 流式回答 → 写回 qa_history</span>
         </div>
       </div>
       <div class="mapping">
@@ -473,7 +473,7 @@
   <div class="scenario type-exec">
     <div class="scenario-header">
       <div class="scenario-icon">⚡</div>
-      <div class="scenario-title">场景四：ExecTab 脚本执行与工作空间管理</div>
+      <div class="scenario-title">场景四：ExecTab 脚本执行与导出</div>
       <div class="scenario-type-badge">脚本执行</div>
     </div>
     <div class="scenario-body">
@@ -493,11 +493,11 @@
         </div>
         <div class="msg msg-user">
           <div class="msg-avatar">U</div>
-          <div class="msg-content">切换工作空间到 /data/processed</div>
+          <div class="msg-content">导出脚本到 C:\data\processed</div>
         </div>
         <div class="msg msg-agent">
           <div class="msg-avatar">A</div>
-          <div class="msg-content">已切换工作空间至 /data/processed。<br>会话状态保留，下次执行输出将存放在新目录。</div>
+          <div class="msg-content">✅ 脚本已导出至 C:\data\processed\script_shp2geojson_1718001234.ps1</div>
         </div>
         <div class="state-flow">
           <span class="state-badge">SCRIPT_PREVIEW</span>
@@ -519,15 +519,15 @@
         </div>
         <div class="req-row">
           <span class="req-id workspace">W1</span>
-          <span class="req-desc">生成脚本和输出文件默认放置在工作空间下（可覆盖）</span>
+          <span class="req-desc">脚本临时写入 ./cache/ 目录（DC-0105），不污染用户数据区。输出路径由用户指定</span>
         </div>
         <div class="req-row">
           <span class="req-id workspace">W2</span>
-          <span class="req-desc">脚本执行时将工作空间作为进程的当前目录（cwd）</span>
+          <span class="req-desc">脚本执行 cwd 为项目根目录 Path(".")，不是 workspace。exec_env 控制环境变量和 shell</span>
         </div>
         <div class="req-row">
           <span class="req-id principle">P3</span>
-          <span class="req-desc">输出文件默认加时间戳防覆盖，绝对路径直接放行</span>
+          <span class="req-desc">输出文件时间戳防覆盖由前端控制，绝对路径直接放行。路径经 normalize 后使用</span>
         </div>
       </div>
     </div>
@@ -610,7 +610,7 @@
           <div class="msg-avatar">A</div>
           <div class="msg-content">
             🔍 自动诊断结果：
-            <div class="msg-script" style="color:#68d391;">根因：输入文件不存在（路径相对当前工作空间未找到）<br>建议：使用绝对路径 C:\data\roads.shp<br>可自动修复：是<br><br>【修复命令参考】<br>```bash<br>ogr2ogr -f "GeoJSON" "C:\data\roads_out.json" "C:\data\roads.shp"<br>```</div>
+            <div class="msg-script" style="color:#68d391;">根因：输入文件不存在（路径相对项目根目录未找到）<br>建议：使用绝对路径 C:\data\roads.shp<br>可自动修复：是<br><br>【修复命令参考】<br>```bash<br>ogr2ogr -f "GeoJSON" "C:\data\roads_out.json" "C:\data\roads.shp"<br>```</div>
           </div>
         </div>
         <div class="state-flow">
@@ -679,7 +679,7 @@
         </div>
         <div class="req-row">
           <span class="req-id principle">P3</span>
-          <span class="req-desc">脚本临时写入 ./cache/（项目相对路径），不污染工作空间；导出脚本通过"导出脚本"按钮显式保存</span>
+          <span class="req-desc">脚本临时写入 ./cache/（项目相对路径），不污染用户数据区；导出脚本通过"导出脚本"按钮显式保存</span>
         </div>
       </div>
     </div>
@@ -807,17 +807,24 @@
         <div class="msg msg-agent">
           <div class="msg-avatar">A</div>
           <div class="msg-content">
-            五步向导：<br>
-            Step 1: 文档输入 ✓<br>
-            Step 2: 配置（模板 ID / 参数定义）✓<br>
+            已解析 2 个文件（HTML + Markdown），清洗后 3,200 chars，约 800 tokens：<br>
+            → 准备 WS /ws/generator/generate 流式生成...
+          </div>
+        </div>
+        <div class="msg msg-agent">
+          <div class="msg-avatar">A</div>
+          <div class="msg-content">
+            📝 流式生成中...（chunk 实时展示）<br>
+            Step 1: 文档解析 ✓<br>
+            Step 2: LLM 流式生成 ✓<br>
             Step 3: Monaco 代码编辑器预览（Jinja2 语法高亮 + 实时校验）<br>
-            Step 4: 审查<br>
+            Step 4: ScriptSecurityChecker 安全校验 + Jinja2 语法校验 ✓<br>
             Step 5: 保存
           </div>
         </div>
         <div class="msg msg-user">
           <div class="msg-avatar">U</div>
-          <div class="msg-content">Step 3 中修改模板，实时校验通过</div>
+          <div class="msg-content">在编辑器中修改模板，实时校验通过</div>
         </div>
         <div class="msg msg-agent">
           <div class="msg-avatar">A</div>
@@ -828,7 +835,9 @@
         <div class="state-flow">
           <span class="state-badge">GeneratorPage</span>
           <span class="state-badge">→</span>
-          <span class="state-badge active">LLM 生成 + 审查</span>
+          <span class="state-badge active">POST /generator/parse-document</span>
+          <span class="state-badge">→</span>
+          <span class="state-badge active">WS /ws/generator/generate</span>
           <span class="state-badge">→</span>
           <span class="state-badge">POST /generator/save → rescan()</span>
         </div>
@@ -837,7 +846,7 @@
         <div class="mapping-label">需求映射</div>
         <div class="req-row">
           <span class="req-id func">F4</span>
-          <span class="req-desc">模板生成器：从 GDAL HTML 文档自动生成 .j2 模板，两步 LLM 工作流（生成 → 审查），Monaco 编辑器实时校验（DC-UX-07）</span>
+          <span class="req-desc">模板生成器：多文件 HTML/Markdown 文档输入 → 清洗合并 → WS 流式 LLM 生成 → Monaco 编辑器实时校验 + ScriptSecurityChecker 安全校验（DC-UX-07）</span>
         </div>
         <div class="req-row">
           <span class="req-id func">F2</span>
@@ -888,7 +897,7 @@
         </tr>
         <tr>
           <td class="tid">F6</td>
-          <td>安全与隔离：脚本预览态（原 --dry-run CLI 参数已废弃，预览功能内置于 ExecTab）</td>
+          <td>脚本预览态：ExecTab 内置命令预览，只展示不执行。CLI --dry-run 参数已废弃</td>
           <td>场景四</td>
         </tr>
         <tr>
@@ -934,7 +943,7 @@
         </tr>
         <tr>
           <td class="tid">P3</td>
-          <td>最小权限：默认输出到工作空间，时间戳防覆盖，路径规范化。workspace 是默认操作目录，不是安全边界</td>
+          <td>最小权限：脚本临时写入 ./cache/，输出路径由用户指定，绝对路径直接放行。路径经 normalize 后使用</td>
           <td>所有场景</td>
         </tr>
         <tr>
@@ -944,23 +953,23 @@
         </tr>
         <tr>
           <td class="tid">P5</td>
-          <td>最小依赖（anthropic, jinja2）</td>
+          <td>最小依赖：anthropic、beautifulsoup4、jinja2、json5、pydantic≥2.0、pydantic-settings≥2.0、tenacity≥8.0</td>
           <td>全部</td>
         </tr>
         <tr>
           <td rowspan="3" style="font-weight:700;color:#0987a0;background:#e6fffa;">约束</td>
           <td class="tid">W1</td>
-          <td>脚本输出文件默认放置在工作空间（可覆盖为绝对路径）</td>
+          <td>脚本临时写入 ./cache/ 目录（DC-0105），不污染用户数据区。导出脚本通过 IPC 对话框显式保存</td>
           <td>所有执行场景</td>
         </tr>
         <tr>
           <td class="tid">W2</td>
-          <td>GDAL 命令在工作空间内执行（cwd）</td>
+          <td>脚本执行 cwd 为项目根目录 Path(".")，exec_env 控制环境变量和 shell</td>
           <td>所有执行场景</td>
         </tr>
         <tr>
           <td class="tid">W3</td>
-          <td>路径规范化：所有路径经 resolve() 规范化后使用。绝对路径直接放行</td>
+          <td>路径规范化：所有路径经 resolve() 规范化后使用。绝对路径直接放行，相对路径基于项目根目录</td>
           <td>所有场景</td>
         </tr>
       </tbody>

@@ -1,15 +1,22 @@
 """LLM client wrapper around anthropic SDK.
 
-Design: DC-0030, DC-0031, DC-0033, DC-0034
+Design: DC-0030, DC-0031, DC-0033, DC-0034, ADR-0005
 """
 
 import json
 import logging
-import time
 from collections.abc import Iterator
-from typing import List, Optional
+from typing import List
 
 import anthropic
+from tenacity import (
+    RetryCallState,
+    RetryError,
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from config import get_config
 from llm.exceptions import (
@@ -24,17 +31,60 @@ from llm.models import Message
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Retry policy helpers (ADR-0005)
+# ---------------------------------------------------------------------------
+
+
+def _should_retry(exc: BaseException) -> bool:
+    """Return True if the exception is transient and should be retried."""
+    if isinstance(
+        exc,
+        (
+            anthropic.APIConnectionError,
+            anthropic.APITimeoutError,
+            anthropic.RateLimitError,
+        ),
+    ):
+        return True
+    if isinstance(exc, anthropic.APIStatusError):
+        status = getattr(exc, "status_code", 0)
+        return status == 429 or status >= 500
+    return False
+
+
+def _log_retry_attempt(retry_state: RetryCallState) -> None:
+    """Log retry attempts in a format compatible with the original loop."""
+    outcome = retry_state.outcome
+    exc = outcome.exception() if outcome is not None else None
+    attempt = retry_state.attempt_number
+
+    if isinstance(exc, anthropic.APIConnectionError):
+        logger.warning("LLM connection error (attempt %d/4): %s", attempt, exc)
+    elif isinstance(exc, anthropic.APITimeoutError):
+        logger.warning("LLM timeout (attempt %d/4): %s", attempt, exc)
+    elif isinstance(exc, anthropic.RateLimitError):
+        logger.warning("LLM rate limit (attempt %d/4): %s", attempt, exc)
+    elif isinstance(exc, anthropic.APIStatusError):
+        status = getattr(exc, "status_code", 0)
+        if status == 429:
+            logger.warning("LLM rate limit 429 (attempt %d/4)", attempt)
+        elif status >= 500:
+            logger.warning(
+                "LLM server error %d (attempt %d/4)", status, attempt
+            )
+
+
 class LLMClient:
     """LLM client encapsulating anthropic SDK.
 
     Process-level singleton accessed via constructor.
 
     Design:
-        DC-0030, DC-0031, DC-0034
+        DC-0030, DC-0031, DC-0034, ADR-0005
     """
 
     MAX_RETRIES: int = 3
-    BASE_DELAY: float = 1.0
     TOKEN_LIMIT: int = 8000
     SYSTEM_PROMPT_RESERVE: int = 2000
     MAX_INPUT_TOKENS: int = 2000
@@ -78,7 +128,7 @@ class LLMClient:
             LLMAuthError: Authentication error (401/403).
 
         Design:
-            DC-0033, DC-0034
+            DC-0033, DC-0034, ADR-0005
         """
         # Determine current input: if explicit, pop last message
         api_messages = list(messages)
@@ -95,101 +145,11 @@ class LLMClient:
         # Build API message list
         api_msg_list = [{"role": m.role, "content": m.content} for m in truncated]
 
-        # Retry loop
-        delay = self.BASE_DELAY
-        last_error: Optional[Exception] = None
-
-        for attempt in range(self.MAX_RETRIES + 1):
-            try:
-                return self._call_api(system_prompt, api_msg_list, temperature)
-            except anthropic.APIConnectionError as exc:
-                last_error = exc
-                logger.warning(
-                    "LLM connection error (attempt %d/%d): %s",
-                    attempt + 1,
-                    self.MAX_RETRIES + 1,
-                    exc,
-                )
-                if attempt < self.MAX_RETRIES:
-                    time.sleep(delay)
-                    delay *= 2
-                continue
-            except anthropic.APITimeoutError as exc:
-                last_error = exc
-                logger.warning(
-                    "LLM timeout (attempt %d/%d): %s",
-                    attempt + 1,
-                    self.MAX_RETRIES + 1,
-                    exc,
-                )
-                if attempt < self.MAX_RETRIES:
-                    time.sleep(delay)
-                    delay *= 2
-                continue
-            except anthropic.RateLimitError as exc:
-                last_error = exc
-                logger.warning(
-                    "LLM rate limit (attempt %d/%d): %s",
-                    attempt + 1,
-                    self.MAX_RETRIES + 1,
-                    exc,
-                )
-                if attempt < self.MAX_RETRIES:
-                    time.sleep(delay)
-                    delay *= 2
-                continue
-            except anthropic.APIStatusError as exc:
-                status = getattr(exc, "status_code", 0)
-                if status == 429:
-                    last_error = exc
-                    logger.warning(
-                        "LLM rate limit 429 (attempt %d/%d)",
-                        attempt + 1,
-                        self.MAX_RETRIES + 1,
-                    )
-                    if attempt < self.MAX_RETRIES:
-                        time.sleep(delay)
-                        delay *= 2
-                    continue
-                if status in (401, 403):
-                    logger.error("LLM authentication failed: %s", exc)
-                    raise LLMAuthError(f"Authentication failed: {exc}") from exc
-                if status == 400:
-                    body = getattr(exc, "body", None) or {}
-                    if isinstance(body, dict):
-                        err_msg = json.dumps(body)
-                    else:
-                        err_msg = str(body)
-                    if "context" in err_msg.lower() or "length" in err_msg.lower():
-                        logger.error("LLM context length exceeded: %s", exc)
-                        raise LLMContextError(
-                            f"Context length exceeded: {exc}"
-                        ) from exc
-                    logger.error("LLM bad request: %s", exc)
-                    raise LLMResponseError(f"Bad request: {exc}") from exc
-                if status >= 500:
-                    last_error = exc
-                    logger.warning(
-                        "LLM server error %d (attempt %d/%d)",
-                        status,
-                        attempt + 1,
-                        self.MAX_RETRIES + 1,
-                    )
-                    if attempt < self.MAX_RETRIES:
-                        time.sleep(delay)
-                        delay *= 2
-                    continue
-                logger.error("LLM API error %d: %s", status, exc)
-                raise LLMResponseError(f"API error {status}: {exc}") from exc
-            except anthropic.AuthenticationError as exc:
-                logger.error("LLM authentication error: %s", exc)
-                raise LLMAuthError(f"Authentication failed: {exc}") from exc
-            except anthropic.PermissionDeniedError as exc:
-                logger.error("LLM permission denied: %s", exc)
-                raise LLMAuthError(f"Permission denied: {exc}") from exc
-
-        # All retries exhausted
-        if last_error is not None:
+        # Call API with tenacity-managed retries for transient failures
+        try:
+            return self._chat_with_retry(system_prompt, api_msg_list, temperature)
+        except RetryError as exc:
+            last_error = exc.last_attempt.exception()
             if isinstance(last_error, anthropic.RateLimitError):
                 raise LLMRateLimitError(
                     f"Rate limit after {self.MAX_RETRIES} retries: {last_error}"
@@ -198,7 +158,54 @@ class LLMClient:
                 f"Connection failed after {self.MAX_RETRIES} retries: {last_error}"
             ) from last_error
 
-        raise LLMConnectionError("Unknown connection failure after retries")
+    @retry(
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+        retry=retry_if_exception(_should_retry),
+        before_sleep=_log_retry_attempt,
+    )
+    def _chat_with_retry(
+        self,
+        system_prompt: str,
+        api_messages: List[dict[str, str]],
+        temperature: float,
+    ) -> str:
+        """Single API call wrapped with retry policy.
+
+        Non-transient 4xx errors are converted to domain exceptions immediately
+        and are not retried.
+        """
+        try:
+            return self._call_api(system_prompt, api_messages, temperature)
+        except anthropic.APIStatusError as exc:
+            status = getattr(exc, "status_code", 0)
+            if status == 429 or status >= 500:
+                # Let tenacity handle retries for these status codes
+                raise
+            if status in (401, 403):
+                logger.error("LLM authentication failed: %s", exc)
+                raise LLMAuthError(f"Authentication failed: {exc}") from exc
+            if status == 400:
+                body = getattr(exc, "body", None) or {}
+                if isinstance(body, dict):
+                    err_msg = json.dumps(body)
+                else:
+                    err_msg = str(body)
+                if "context" in err_msg.lower() or "length" in err_msg.lower():
+                    logger.error("LLM context length exceeded: %s", exc)
+                    raise LLMContextError(
+                        f"Context length exceeded: {exc}"
+                    ) from exc
+                logger.error("LLM bad request: %s", exc)
+                raise LLMResponseError(f"Bad request: {exc}") from exc
+            logger.error("LLM API error %d: %s", status, exc)
+            raise LLMResponseError(f"API error {status}: {exc}") from exc
+        except anthropic.AuthenticationError as exc:
+            logger.error("LLM authentication error: %s", exc)
+            raise LLMAuthError(f"Authentication failed: {exc}") from exc
+        except anthropic.PermissionDeniedError as exc:
+            logger.error("LLM permission denied: %s", exc)
+            raise LLMAuthError(f"Permission denied: {exc}") from exc
 
     def _truncate_messages(
         self,

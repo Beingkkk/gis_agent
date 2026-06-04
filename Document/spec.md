@@ -125,7 +125,7 @@
 | GDAL CLI 工具 | `ogr2ogr`、`gdalwarp`、`gdal_translate` 等 | 随 Conda 包提供 |
 | LLM API | Claude 兼容 API | 支持切换本地模型 |
 | 模板引擎 | **Jinja2** | 脚本渲染与知识元数据载体 |
-| 核心依赖包 | `anthropic`、`beautifulsoup4`、`jinja2`、`json5`、`pydantic` | 五项生产第三方库（P5 约束，json5 见 ADR-0002，pydantic 见 ADR-0004） |
+| 核心依赖包 | `anthropic`、`beautifulsoup4`、`jinja2`、`json5`、`pydantic`、`tenacity` | 六项生产第三方库（P5 约束，json5 见 ADR-0002，pydantic 见 ADR-0004，tenacity 见 ADR-0005） |
 | Electron 桌面应用后端 | `fastapi`、`uvicorn[standard]`、`websockets` | 仅用于 UI 模式，放入 `dev` 依赖组 |
 
 ### 4.2 LLM 使用边界
@@ -263,7 +263,7 @@ Agent: [生成脚本并请求确认]
 | P2 | **先展后行** | 任何脚本必须向用户完整展示内容，获得明确确认后才执行。 | 误操作、不可逆数据丢失 |
 | P3 | **最小权限** | 默认在工作空间内操作，输出文件默认加时间戳防覆盖；支持外部数据路径。 | 文件被覆盖 |
 | P4 | **模板知识唯一** | 用法指导类知识仅来源于 J2 模板元数据，不混合外部网络内容。基础概念类回答由 LLM 参数知识提供。 | 回答不可靠、与系统行动能力脱节 |
-| P5 | **依赖极简** | 生产运行时依赖锁定为 `anthropic`、`beautifulsoup4`、`jinja2`、`json5`、`pydantic`（ADR-0002/ADR-0003/ADR-0004 批准）。Electron 后端所需的 `fastapi` 等库作为可选 `dev` 依赖。不引入未经批准的第三方库。 | 部署困难、维护成本上升 |
+| P5 | **依赖极简** | 生产运行时依赖锁定为 `anthropic`、`beautifulsoup4`、`jinja2`、`json5`、`pydantic`、`tenacity`（ADR-0002/ADR-0003/ADR-0004/ADR-0005 批准）。Electron 后端所需的 `fastapi` 等库作为可选 `dev` 依赖。不引入未经批准的第三方库。 | 部署困难、维护成本上升 |
 
 ---
 
@@ -284,7 +284,7 @@ Agent: [生成脚本并请求确认]
 |------|------|
 | 启动时间 | 后端 < 3 秒 |
 | 响应延迟 | 简单意图识别 < 2 秒；文档问答 < 5 秒 |
-| 生产依赖数量 | ≤ 6 个（`anthropic`、`beautifulsoup4`、`jinja2`、`json5`、`pydantic`）；UI 可选依赖不纳入生产计数 |
+| 生产依赖数量 | ≤ 7 个（`anthropic`、`beautifulsoup4`、`jinja2`、`json5`、`pydantic`、`tenacity`）；UI 可选依赖不纳入生产计数 |
 
 ---
 
@@ -325,3 +325,4 @@ Agent: [生成脚本并请求确认]
 | v1.7.0 | 2026-06-03 | **CLI 层正式废弃**：§1.1 改为"Electron 桌面应用为唯一活跃入口"；§1.2 移除 CLI 并行支持描述；F5 移除 CLI Y/N 确认；P5 移除"CLI 模式不加载"；§7.2 移除 CLI 启动时间指标。CLI 代码保留但不再维护（constitution.md §6.1 已标注） |
 | v1.8.0 | 2026-06-04 | **引入 `json5` 生产依赖（ADR-0002）**：§4.1 核心依赖包增加 `json5`；§6 P5 更新为三项生产库；§7.2 生产依赖上限调整为 ≤3 个。用于替代自研 LLM JSON 容错解析逻辑，覆盖裸键、单引号、尾随逗号、未转义换行等破损模式 |
 | v1.9.0 | 2026-06-04 | **引入 `beautifulsoup4`（ADR-0003）和 `pydantic`（ADR-0004）生产依赖**：§4.1 核心依赖包分别增加 `beautifulsoup4` 和 `pydantic`；§6 P5 更新为六项生产库；§7.2 生产依赖上限调整为 ≤6 个。`beautifulsoup4` 替代手写 HTMLParser 状态机（260 行 → 70 行）；`pydantic` 替代手写配置验证和组装逻辑（200 行 → 50 行） |
+| v1.10.0 | 2026-06-04 | **引入 `tenacity` 生产依赖（ADR-0005）**：§4.1 核心依赖包增加 `tenacity`；§6 P5 更新为七项生产库；§7.2 生产依赖上限调整为 ≤7 个。`tenacity` 声明式重试装饰器替代 `llm/client.py` 中约 85 行手写重试循环 |

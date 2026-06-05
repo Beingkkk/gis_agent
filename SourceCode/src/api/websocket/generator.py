@@ -184,6 +184,10 @@ async def handle_generator_websocket(websocket: WebSocket) -> None:
                     "stage": "generation",
                 }
             )
-            await websocket.close()
         except Exception:
             pass
+        finally:
+            try:
+                await websocket.close()
+            except Exception:
+                pass

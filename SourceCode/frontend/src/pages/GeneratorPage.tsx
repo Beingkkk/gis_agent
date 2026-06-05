@@ -223,26 +223,36 @@ export default function GeneratorPage() {
       }
 
       ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data)
-        switch (msg.type) {
-          case 'chunk':
-            setStreamedText((prev) => prev + msg.content)
-            break
-          case 'done':
-            setGenerated(msg.result)
-            setEditedBody(msg.result.body)
-            setIsEditing(false)
-            setInlineValidation({ status: 'none', errors: [], checkedBody: '' })
-            setValidation(null)
-            setStep(3)
-            setIsGenerating(false)
-            ws.close()
-            break
-          case 'error':
-            setErrorMsg(`生成失败: ${msg.message}`)
-            setIsGenerating(false)
-            ws.close()
-            break
+        try {
+          const msg = JSON.parse(event.data)
+          switch (msg.type) {
+            case 'chunk':
+              setStreamedText((prev) => prev + msg.content)
+              break
+            case 'done':
+              setGenerated(msg.result)
+              setEditedBody(msg.result.body)
+              setIsEditing(false)
+              setInlineValidation({ status: 'none', errors: [], checkedBody: '' })
+              setValidation(null)
+              setStep(3)
+              setIsGenerating(false)
+              ws.close()
+              break
+            case 'error':
+              setErrorMsg(`生成失败: ${msg.message || '未知错误'}`)
+              setIsGenerating(false)
+              ws.close()
+              break
+            default:
+              console.warn('收到未知类型的 WebSocket 消息:', msg.type)
+              break
+          }
+        } catch (parseErr) {
+          console.error('WebSocket 消息解析失败:', parseErr)
+          setErrorMsg('收到无效的服务器响应，请重试')
+          setIsGenerating(false)
+          ws.close()
         }
       }
 
@@ -251,8 +261,12 @@ export default function GeneratorPage() {
         setIsGenerating(false)
       }
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setIsGenerating(false)
+        // 只有非 clean close 且没有已显示的错误时才设置兜底提示
+        if (!event.wasClean && event.code !== 1000) {
+          setErrorMsg((prev) => prev || '连接意外中断，请重试')
+        }
         wsRef.current = null
       }
     } catch (e: any) {
@@ -313,6 +327,14 @@ export default function GeneratorPage() {
       setIsLoading(false)
     }
   }, [effectiveBody])
+
+  const handleResetBody = () => {
+    if (!generated) return
+    setEditedBody(generated.body)
+    setEditorLineCount(generated.body.split('\n').length)
+    setInlineValidation({ status: 'none', errors: [], checkedBody: '' })
+    setErrorMsg(null)
+  }
 
   const handleSave = async () => {
     if (!generated || !effectiveBody) return
@@ -840,6 +862,13 @@ export default function GeneratorPage() {
                     )}
 
                     <div className="flex justify-end gap-2">
+                      <button
+                        onClick={handleResetBody}
+                        disabled={!generated || editedBody === generated.body}
+                        className="rounded-md border border-gray-300 px-4 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        恢复原始
+                      </button>
                       <button
                         onClick={handleRevalidate}
                         disabled={isLoading}

@@ -171,6 +171,7 @@ async def handle_generator_websocket(websocket: WebSocket) -> None:
                 },
             }
         )
+        await websocket.close()
 
     except WebSocketDisconnect:
         logger.debug("Generator WebSocket disconnected by client")

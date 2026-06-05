@@ -211,6 +211,7 @@ export default function GeneratorPage() {
 
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
+      let completed = false
 
       ws.onopen = () => {
         ws.send(
@@ -230,6 +231,7 @@ export default function GeneratorPage() {
               setStreamedText((prev) => prev + msg.content)
               break
             case 'done':
+              completed = true
               setGenerated(msg.result)
               setEditedBody(msg.result.body)
               setIsEditing(false)
@@ -240,6 +242,7 @@ export default function GeneratorPage() {
               ws.close()
               break
             case 'error':
+              completed = true
               setErrorMsg(`生成失败: ${msg.message || '未知错误'}`)
               setIsGenerating(false)
               ws.close()
@@ -263,8 +266,8 @@ export default function GeneratorPage() {
 
       ws.onclose = (event) => {
         setIsGenerating(false)
-        // 只有非 clean close 且没有已显示的错误时才设置兜底提示
-        if (!event.wasClean && event.code !== 1000) {
+        // 只有非 clean close、未正常结束、且没有已显示错误时才兜底提示
+        if (!completed && !event.wasClean && event.code !== 1000) {
           setErrorMsg((prev) => prev || '连接意外中断，请重试')
         }
         wsRef.current = null

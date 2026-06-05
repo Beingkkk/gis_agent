@@ -822,24 +822,55 @@ frontend/
 
 ```
 SourceCode/src/
-├── api/                            # 新增：HTTP + WebSocket 适配层
+├── api/                            # HTTP + WebSocket 适配层
 │   ├── __init__.py
 │   ├── main.py                     # FastAPI app 实例，CORS，路由注册
+│   ├── __main__.py                 # `python -m api` 入口
 │   ├── routes/
 │   │   ├── __init__.py
-│   │   ├── session.py              # 会话状态流转 API
+│   │   ├── session.py              # 会话状态流转 API（意图匹配、参数、执行触发、诊断、导出脚本）
 │   │   ├── templates.py            # 模板查询 API
 │   │   ├── pipeline.py             # Pipeline 合并脚本 API
-│   │   └── generator.py            # J2 模板生成器 API
+│   │   ├── generator.py            # J2 模板生成器 API（解析、校验、保存）
+│   │   └── exec_env.py             # 执行环境验证与配置 API
 │   ├── websocket/
 │   │   ├── __init__.py
 │   │   ├── chat.py                 # Q&A 流式 WS
-│   │   └── execute.py              # 执行日志流式 WS
-│   └── dependencies.py             # FastAPI Depends：Session 获取、Workspace 初始化
-├── core/                           # 完全复用，不修改
-├── llm/                            # 完全复用，不修改
-├── templates/                      # 完全复用，不修改
-└── ...
+│   │   ├── execute.py              # 执行日志流式 WS
+│   │   ├── generator.py            # 模板生成流式 WS
+│   │   └── batch_convert.py        # 批量转换流式 WS
+│   └── dependencies.py             # FastAPI Depends：单例管理（registry/validator/engine/llm/prompts）
+├── core/                           # 业务逻辑核心
+│   ├── models.py                   # Session/TemplateDef/ParamDef 数据模型
+│   ├── registry.py                 # TemplateRegistry（内存索引 + 热重载）
+│   ├── validator.py                # ParamValidator（校验器链）
+│   ├── matching.py                 # score_template_match() 统一评分
+│   ├── processor.py                # SessionProcessor（CLI 遗留，不再维护）
+│   ├── workspace.py                # 路径规范化辅助
+│   ├── diagnosis.py                # build_diagnosis_context()
+│   └── exec_env.py                 # ShellDetector / CondaEnvDetector / EnvironmentBuilder / ShellExecutor
+├── llm/                            # LLM 交互层
+│   ├── client.py                   # LLMClient（anthropic SDK 封装 + 重试）
+│   ├── prompts.py                  # PromptBuilder（5 个场景 Prompt）
+│   ├── intent.py                   # classify_intent()
+│   ├── params.py                   # extract_params()
+│   ├── qa.py                       # answer_question()
+│   ├── diagnosis.py                # analyze_execution_error()
+│   ├── template_generator.py       # generate_template_stream() + assemble_j2_body()
+│   ├── batch_convert.py            # build_batch_convert_prompt()
+│   ├── models.py                   # Message / ErrorDiagnosis 数据模型
+│   └── exceptions.py               # LLM 异常体系
+├── templates/                      # Jinja2 模板引擎
+│   ├── engine.py                   # TemplateEngine（渲染 + 安全校验）
+│   ├── scanner.py                  # scan_templates()（.j2 注释头解析）
+│   └── extractors.py               # 模板变量提取辅助
+├── config/                         # 配置系统
+│   ├── __init__.py
+│   ├── loader.py                   # load_config() / get_config()
+│   └── models.py                   # pydantic Config 模型
+└── rag/                            # RAG 预处理（开发时工具）
+    ├── __init__.py
+    └── preprocess.py               # GDAL HTML 文档解析 + chunk 分割
 ```
 
 ---
@@ -880,14 +911,9 @@ VITE_API_PORT=18000
 
 ---
 
-## 8. 与 CLI 的兼容性
+## 8. 与 CLI 的关系
 
-UX 方案**不删除**现有 CLI 代码。`cli/` 目录保持完整，与 `api/` 并行存在：
-
-- `python start_cli.py` → 启动命令行版本
-- `python start_api.py` → 启动 API 服务（由 Electron 内部调用）
-
-两套入口共享 core/llm/templates，互不干扰。CLI 的维护成本不增加。
+CLI 代码已于 constitution.md v1.5.0 正式废弃并删除。`cli/` 目录不再存在，`start_cli.py` 已移除。所有交互通过 Electron 桌面应用进行。API 层（`api/`）为唯一活跃入口，由 Electron 主进程作为 Python 子进程启动。
 
 ---
 

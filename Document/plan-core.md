@@ -13,11 +13,11 @@
 
 ### 1.1 模块职责
 
-实现 GIS Agent 的核心业务逻辑：交互状态机、模板注册表管理、参数校验链、会话上下文维护。本模块是**CLI 层与 LLM/rag 层之间的协调中枢**，将 LLM 的"意图分类"和"参数抽取"能力转化为结构化的任务描述，供模板引擎消费。
+实现 GIS Agent 的核心业务逻辑：交互状态机、模板注册表管理、参数校验链、会话上下文维护。本模块是**API 层与 LLM 层之间的协调中枢**，将 LLM 的"意图分类"和"参数抽取"能力转化为结构化的任务描述，供模板引擎消费。
 
 ### 1.2 所属架构层次
 
-核心层（`core/`）。可依赖 llm 层和 rag 层，被 CLI 层依赖。
+核心层（`core/`）。可依赖 llm 层和 templates/ 层，被 api/ 层依赖。
 
 ### 1.3 对应需求项
 
@@ -867,10 +867,10 @@ CLI 层执行脚本
 
 | 接口 | 使用方 |
 |------|--------|
-| `SessionProcessor.process()` | `cli/`（主循环每轮调用） |
-| `TemplateRegistry` | `cli/`（启动时初始化）、`llm/`（获取可用模板列表） |
+| `SessionProcessor.process()` | `api/`（HTTP 请求处理中调用） |
+| `TemplateRegistry` | `api/`（启动时初始化）、`llm/`（获取可用模板列表） |
 | `ParamValidator` | `SessionProcessor` 内部使用 |
-| `Session`, `SessionState` | `cli/`（主循环状态判断） |
+| `Session`, `SessionState` | `api/`（路由状态判断） |
 | `TemplateDef`, `ParamDef` | `templates/`（模板渲染时读取参数） |
 
 ---

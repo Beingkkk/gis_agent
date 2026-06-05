@@ -1,7 +1,7 @@
 """Core data models for GIS Agent.
 
 Provides TemplateDef, ParamDef, SessionState, and Session dataclasses
-used by core/, templates/, and cli/ modules.
+used by core/, api/, llm/, and templates/ modules.
 
 Public API:
     ParamDef — parameter definition

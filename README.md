@@ -2,7 +2,7 @@
 
 基于自然语言的 GDAL 数据处理助手。接受中文需求描述，生成安全可审查的批处理脚本，经确认后执行。
 
-**Electron 桌面应用**为唯一活跃交互入口。命令行 REPL（`cli/`）代码保留但不再维护（参见 [constitution.md §6.1](Document/constitution.md)）。
+**Electron 桌面应用**为唯一活跃交互入口。CLI 代码已删除（参见 [constitution.md §6.1](Document/constitution.md)）。
 
 ## 核心能力
 
@@ -10,9 +10,11 @@
 |------|------|
 | 任务脚本化 | 自然语言需求 → 两阶段意图匹配 → Jinja2 模板渲染 → 可执行脚本 |
 | 模板知识 | 模板内置 `@concept`/`@note`/`@common_error` 元数据，辅助使用和错误诊断 |
-| 安全执行 | 路径规范化、执行前强制确认、脚本安全扫描、输出文件时间戳防覆盖 |
+| 安全执行 | 路径规范化、执行前强制确认、脚本安全扫描、临时脚本写入 `./cache/` |
 | Pipeline 多步 | 多模板步骤串行编排，步骤间参数自动关联，合并为单脚本执行 |
-| 模板生成器 | 从 GDAL HTML 文档自动生成 `.j2` 模板（LLM 驱动生成 → 审查 → 保存） |
+| 模板生成器 | 从 GDAL HTML 文档自动生成 `.j2` 模板（LLM 驱动生成 → Monaco 编辑 → 安全校验 → 保存） |
+| 批量转换 | 单文件脚本一键转换为遍历目录的批量脚本（WebSocket 流式） |
+| 执行环境配置 | Shell/Conda 自动检测与验证，支持 bash/cmd/PowerShell，配置持久化 |
 
 ## 环境准备
 
@@ -122,13 +124,9 @@ npm run electron:build
 
 > **端口配置**：后端端口硬编码为 `18000`，由 Electron 主进程与 Python 子进程约定，无需用户配置。
 
-### ~~命令行入口~~ 【已废弃，代码保留】
+### ~~命令行入口~~ 【已删除】
 
-```bash
-# 仍可运行，但不再维护
-cd SourceCode
-python start_cli.py
-```
+CLI 代码已于 2026-06-03 删除。所有交互通过 Electron 桌面应用进行。
 
 参见 [constitution.md §6.1](Document/constitution.md)。
 
@@ -180,11 +178,11 @@ gis-agent/
 ├── SourceCode/
 │   ├── src/
 │   │   ├── api/           # API 层：FastAPI + WebSocket 适配（Electron 后端）
-│   │   ├── cli/           # ~~CLI 层~~ 【已废弃，代码保留】
 │   │   ├── core/          # 核心层：状态机、模板注册表、参数校验、匹配引擎
-│   │   ├── llm/           # LLM 层：意图分类、参数抽取、问答、错误诊断
+│   │   ├── llm/           # LLM 层：意图分类、参数抽取、问答、错误诊断、模板生成
 │   │   ├── templates/     # 模板引擎：Jinja2 渲染、扫描器、安全校验
-│   │   └── config/        # 配置加载
+│   │   ├── config/        # 配置加载与校验
+│   │   └── rag/           # RAG 预处理（开发时工具，不运行时加载）
 │   ├── frontend/          # 前端（React + TypeScript + Vite + Electron）
 │   │   ├── electron/      # Electron 主进程与预加载脚本
 │   │   │   ├── main.ts    # 主进程：无边框窗口 + Python 子进程 + IPC
@@ -201,11 +199,12 @@ gis-agent/
 │   │   └── vite.config.ts
 │   ├── tests/unit/        # 单元测试
 │   ├── tests/integration/ # 集成测试（含共享 fixture）
+│   ├── scripts/           # 开发辅助脚本（J2 批量生成、E2E 测试等）
 │   ├── data/
 │   │   └── templates/     # .j2 模板文件（vector/raster/general）
-│   ├── config/            # 运行时配置（config.json）
+│   ├── cache/             # 脚本执行临时文件目录（自动创建）
+│   ├── config/            # 运行时配置（config.json，gitignored）
 │   ├── start_api.py       # API 服务启动脚本（由 Electron 内部调用）
-│   ├── start_cli.py       # ~~CLI 启动脚本~~ 【已废弃】
 │   └── pyproject.toml
 └── README.md
 ```
@@ -259,6 +258,3 @@ python scripts/generate_templates.py \
 
 本项目遵循规范驱动设计（Specification-Driven Design）流程。编码前必须先完成对应模块的 plan 设计文档，详见 [Document/constitution.md](Document/constitution.md)。
 
----
-
-内部工具，单人维护，零外部服务依赖。

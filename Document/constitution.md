@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 |------|------|
 | 项目代号 | `gis-agent` |
-| 版本 | v1.3.0 |
+| 版本 | v1.6.0 |
 | 效力 | **最高约束**，所有开发活动必须遵守 |
 | 适用范围 | 本项目全部设计文档与源代码 |
 
@@ -76,12 +76,15 @@ gis-agent/
 │   └── references/         # 外部参考资料（HTML 原始文档等），不纳入 Git
 │
 ├── SourceCode/             # 源码、开发资源
-│   ├── src/                # 源代码目录
-│   │   ├── core/           # 核心领域逻辑（模板引擎、安全层、工作空间）
-│   │   ├── llm/            # LLM 交互层（意图识别、参数抽取、问答、错误诊断）
-│   │   ├── api/            # HTTP + WebSocket 适配层（浏览器 UI 后端）
-│   │   └── templates/      # Jinja2 模板文件（*.j2）
-│   ├── frontend/           # 浏览器前端（React + TypeScript + Vite）
+│   ├── src/                # 源代码目录（Python 后端）
+│   │   ├── api/            # HTTP + WebSocket 适配层（FastAPI）
+│   │   ├── core/           # 核心业务逻辑（状态机、模板注册表、参数校验、匹配引擎）
+│   │   ├── llm/            # LLM 交互层（意图识别、参数抽取、问答、错误诊断、模板生成）
+│   │   ├── templates/      # Jinja2 模板引擎（渲染、扫描器、安全校验）
+│   │   ├── config/         # 配置加载与校验
+│   │   └── rag/            # RAG 预处理（开发时工具，不运行时加载）
+│   ├── frontend/           # Electron 前端（React + TypeScript + Vite）
+│   │   ├── electron/       # Electron 主进程与预加载脚本
 │   │   ├── src/            # 前端源码
 │   │   ├── index.html
 │   │   └── vite.config.ts
@@ -89,9 +92,13 @@ gis-agent/
 │   │   ├── unit/           # 单元测试
 │   │   ├── integration/    # 集成测试
 │   │   └── fixtures/       # 测试数据与 mock 文件
-│   ├── scripts/            # 开发辅助脚本（初始化、构建等）
-│   ├── docs/               # 源码级文档（README、API 文档）
+│   ├── scripts/            # 开发辅助脚本（J2 批量生成、E2E 测试等）
+│   ├── data/               # 运行时数据（.j2 模板文件、exec_env_default.json）
+│   │   └── templates/      # Jinja2 模板文件（*.j2），按 vector/raster/general 子目录组织
+│   ├── cache/              # 脚本执行临时文件目录（自动创建）
+│   ├── config/             # 运行时配置（config.json，gitignored）
 │   ├── tasks/              # 实现任务集合（由 plan 拆分的可执行任务清单）
+│   ├── start_api.py        # API 服务启动脚本（由 Electron 内部调用）
 │   └── pyproject.toml      # 项目配置与依赖声明
 │
 └── .gitignore
@@ -518,7 +525,16 @@ pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 | 产品需求规格 | `Document/spec.md` | 需求基线，所有设计的源头 |
 | ~~RAG 模块设计~~ | ~~`Document/plan-rag.md`~~ | ~~已废弃，见 ADR-0001~~ |
 | ~~交互模块设计~~ | ~~`Document/plan-cli.md`~~ | ~~已删除~~ |
+| Electron 桌面外壳设计 | `Document/plan-electron.md` | Electron 主进程 + Python 子进程生命周期 |
+| 核心模块设计 | `Document/plan-core.md` | 状态机、模板注册表、参数校验、匹配引擎 |
+| LLM 模块设计 | `Document/plan-llm.md` | 意图分类、参数抽取、问答、错误诊断 |
+| 模板引擎设计 | `Document/plan-templates.md` | Jinja2 渲染、扫描器、安全校验 |
+| 模板生成器设计 | `Document/plan-j2-generate.md` | J2 模板生成器（开发时工具） |
+| 执行环境设计 | `Document/plan-exec-env.md` | Shell/Conda 检测、脚本执行、环境配置 |
+| 批量转换设计 | `Document/plan-batch-convert.md` | 批量脚本转换（WebSocket 流式） |
 | Electron UI 模块设计 | `Document/plan-ux.md` | React + FastAPI Electron 桌面应用设计 |
+| 架构图 | `Document/design/architecture-diagram.html` | 技术架构分层图 |
+| 场景-需求映射 | `Document/design/scenario-requirements-mapping.html` | 场景对话流与需求追溯图 |
 
 ### 10.2 宪法修订记录
 
@@ -530,6 +546,7 @@ pytest tests/unit/ --cov=src --cov-report=term-missing --cov-fail-under=80
 | v1.3.0 | 2026-06-01 | **新增 CODE-5 流式交互强制 WebSocket 约束**：§5.2 新增 `CODE-5`（禁止用 HTTP 长等待替代 WebSocket）；§6.4 新增协议选择原则表，明确 HTTP vs WebSocket 场景边界；追溯接口对齐审计中发现的 Q&A HTTP 超时问题 | - |
 | v1.4.0 | 2026-06-03 | **CLI 层废弃**：§6.1 分层架构标注 CLI 层为已废弃；§6.2 DEP-1/5/7 更新；§10.1 移除不存在的 plan-architecture.md / plan-security.md 引用，归档 plan-cli.md | - |
 | v1.5.0 | 2026-06-03 | **CLI 代码删除**：§2.1 移除 `cli/` 目录；§6.1 移除 CLI 层；§6.2 移除 DEP-1/5/7 中 CLI 相关约束；§10.1 更新 plan-cli.md 状态为已删除 | - |
+| v1.6.0 | 2026-06-05 | **文档对齐正式第一版**：§2.1 修正目录结构（scripts/docs/tasks 移至 SourceCode/ 根目录；新增 data/、cache/、config/ 目录；src/ 下新增 config/、rag/；修正 templates/ 为引擎源码）；§10.1 更新外部引用（移除已废弃的 plan-rag.md/plan-cli.md，新增 plan-electron.md/plan-exec-env.md/plan-batch-convert.md）；补充 Document/design/ 下的 HTML 架构图与场景映射图引用 | - |
 
 ---
 

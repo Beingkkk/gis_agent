@@ -3,8 +3,8 @@
 | 项目 | 内容 |
 |------|------|
 | 版本 | v1.0.0 |
-| 状态 | 草案 |
-| 日期 | 2026-06-04 |
+| 状态 | 设计基线（已实现） |
+| 日期 | 2026-06-05 |
 
 ---
 
@@ -18,9 +18,9 @@
 
 ## 2. 设计决策
 
-### DC-0113: 简化方案 — LLM 回答直接展示，不做脚本替换
+### DC-0113: 简化方案 — WebSocket 流式输出，不做脚本替换
 
-**决策**: 前端点击【批量指令】后，调用后端接口获取 LLM 回答，直接在下方 Markdown 面板展示。用户自行复制脚本内容，粘贴到执行窗口。不做自动替换、不做成功/失败分支。
+**决策**: 前端点击【批量指令】后，通过 WebSocket `/ws/batch-convert/{session_id}` 连接后端，后端流式推送 LLM 生成的批量脚本建议，直接在下方 Markdown 面板展示。用户自行复制脚本内容。不做自动替换、不做成功/失败分支。
 
 **理由**: 改动最小，失败无影响，用户完全掌控。
 
@@ -29,22 +29,30 @@
 ## 3. 接口定义
 
 ```python
-# api/routes/session.py
+# api/websocket/batch_convert.py
 
-@router.post("/session/{session_id}/batch-convert")
-async def batch_convert(session_id: str, request: BatchConvertRequest) -> BatchConvertResponse:
-    """将单文件脚本提交给 LLM，获取批量遍历脚本建议。"""
+async def handle_batch_convert_websocket(websocket: WebSocket, session_id: str) -> None:
+    """Batch convert WebSocket handler.
+
+    Receives start message, streams LLM response chunks back as
+    {type: "chunk", content: "..."} frames, followed by
+    {type: "done", content: "..."} or {type: "error", message: "..."}.
+    """
 
 class BatchConvertRequest(BaseModel):
-    script: str           # 当前渲染后的单文件脚本
-    template_id: str      # 模板 ID
-    params: dict[str, str]  # 用户实际参数值
-
-class BatchConvertResponse(BaseModel):
-    content: str  # LLM 原始回答（Markdown 格式）
+    script: str              # 当前渲染后的单文件脚本
+    template_name: str       # 模板名称
+    params_meta: list[dict]  # 参数定义元数据
+    params_values: dict      # 用户实际参数值
 ```
 
 **Prompt 输入**：模板元数据（参数定义 + 实际值）+ 渲染后脚本。
+
+**WebSocket 协议**：
+- Client→Server: `{"type": "start", "script": "...", "template_name": "...", ...}`
+- Server→Client chunk: `{"type": "chunk", "content": "..."}`
+- Server→Client done: `{"type": "done", "content": "..."}`
+- Server→Client error: `{"type": "error", "message": "..."}`
 
 ---
 

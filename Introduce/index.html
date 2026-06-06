@@ -745,7 +745,7 @@
       );
 
       // ===== Scene 1: Intro 0-5s =====
-      tl.to("#scene-intro", { opacity: 1, duration: 0.01 }, 0);
+      tl.set("#scene-intro", { opacity: 1 }, 0);
       tl.fromTo("#intro-logo",
         { opacity: 0, scale: 0.7 },
         { opacity: 1, scale: 1, duration: 0.7, ease: "back.out(1.5)" }, 0.2);
@@ -761,7 +761,7 @@
       tl.to("#scene-intro", { opacity: 0, duration: 0.4, ease: "power1.in" }, 4.5);
 
       // ===== Scene 2: Pain -> Solution 5-10s =====
-      tl.to("#scene-pain", { opacity: 1, duration: 0.01 }, 5);
+      tl.set("#scene-pain", { opacity: 1 }, 5);
       tl.fromTo("#pain-badge",
         { opacity: 0, y: 15 },
         { opacity: 1, y: 0, duration: 0.4, ease: "power2.out" }, 5.1);
@@ -780,7 +780,7 @@
       tl.to("#scene-pain", { opacity: 0, duration: 0.4, ease: "power1.in" }, 9.5);
 
       // ===== Scene 3: Workflow 10-28s =====
-      tl.to("#scene-workflow", { opacity: 1, duration: 0.01 }, 10);
+      tl.set("#scene-workflow", { opacity: 1 }, 10);
       tl.fromTo("#wf-badge",
         { opacity: 0, y: 10 },
         { opacity: 1, y: 0, duration: 0.3, ease: "power2.out" }, 10.05);
@@ -839,7 +839,7 @@
       tl.to("#scene-workflow", { opacity: 0, duration: 0.4, ease: "power1.in" }, 27.5);
 
       // ===== Scene 4: Generator 28-40s =====
-      tl.to("#scene-generator", { opacity: 1, duration: 0.01 }, 28);
+      tl.set("#scene-generator", { opacity: 1 }, 28);
       tl.fromTo("#gen-badge",
         { opacity: 0, y: 10 },
         { opacity: 1, y: 0, duration: 0.3, ease: "power2.out" }, 28.05);
@@ -891,7 +891,7 @@
       tl.to("#scene-generator", { opacity: 0, duration: 0.4, ease: "power1.in" }, 39.5);
 
       // ===== Scene 5: Extensions 40-45s =====
-      tl.to("#scene-extend", { opacity: 1, duration: 0.01 }, 40);
+      tl.set("#scene-extend", { opacity: 1 }, 40);
       tl.fromTo("#ext-badge",
         { opacity: 0, y: 10 },
         { opacity: 1, y: 0, duration: 0.3, ease: "power2.out" }, 40.1);
@@ -910,7 +910,7 @@
       tl.to("#scene-extend", { opacity: 0, duration: 0.4, ease: "power1.in" }, 44.5);
 
       // ===== Scene 6: Outro 45-50s =====
-      tl.to("#scene-outro", { opacity: 1, duration: 0.01 }, 45);
+      tl.set("#scene-outro", { opacity: 1 }, 45);
       tl.fromTo("#outro-logo",
         { opacity: 0, scale: 0.7 },
         { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.5)" }, 45.2);

@@ -1,0 +1,934 @@
+<!doctype html>
+<html lang="zh-CN" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #0a0e1a;
+        font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: #e2e8f0;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* ====== Persistent backdrop - tech dark style ====== */
+      .stage {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(1200px 900px at 10% 10%, rgba(59, 130, 246, 0.08), transparent 60%),
+          radial-gradient(1000px 800px at 90% 90%, rgba(6, 182, 212, 0.06), transparent 60%),
+          radial-gradient(800px 600px at 50% 50%, rgba(59, 130, 246, 0.03), transparent 50%),
+          linear-gradient(180deg, #0a0e1a 0%, #0f172a 50%, #0a0e1a 100%);
+      }
+
+      /* Tech grid overlay */
+      .tech-grid {
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(59, 130, 246, 0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(59, 130, 246, 0.04) 1px, transparent 1px);
+        background-size: 60px 60px;
+        pointer-events: none;
+      }
+      .tech-grid::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(ellipse at center, transparent 30%, #0a0e1a 85%);
+        pointer-events: none;
+      }
+
+      /* Glowing orbs */
+      .glow-orb {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(80px);
+        pointer-events: none;
+      }
+      .glow-orb.b1 { top: -100px; left: -100px; width: 500px; height: 500px; background: rgba(59, 130, 246, 0.12); }
+      .glow-orb.b2 { bottom: -80px; right: -80px; width: 400px; height: 400px; background: rgba(6, 182, 212, 0.1); }
+      .glow-orb.b3 { top: 50%; left: 50%; width: 300px; height: 300px; background: rgba(59, 130, 246, 0.06); transform: translate(-50%, -50%); }
+
+      /* Scan lines */
+      .scan-line {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.15), transparent);
+      }
+      .scan-line.top { top: 120px; }
+      .scan-line.bot { bottom: 100px; }
+
+      /* Brand bar */
+      .brand {
+        position: absolute;
+        top: 36px;
+        left: 80px;
+        right: 80px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        z-index: 100;
+      }
+      .brand-logo {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, #3b82f6, #06b6d4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+      }
+      .brand-logo img { width: 24px; height: 24px; }
+      .brand-name {
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 3px;
+        color: #e2e8f0;
+      }
+      .brand-tag {
+        margin-left: auto;
+        font-size: 13px;
+        letter-spacing: 2px;
+        color: rgba(148, 163, 184, 0.6);
+        padding: 4px 14px;
+        border-radius: 20px;
+        border: 1px solid rgba(59, 130, 246, 0.2);
+        background: rgba(59, 130, 246, 0.05);
+      }
+
+      /* Progress track */
+      .progress-track {
+        position: absolute;
+        left: 80px;
+        right: 80px;
+        bottom: 52px;
+        height: 2px;
+        background: rgba(59, 130, 246, 0.1);
+        border-radius: 2px;
+        z-index: 100;
+      }
+      .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #3b82f6, #06b6d4);
+        width: 0;
+        border-radius: 2px;
+        box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+      }
+      .footer-info {
+        position: absolute;
+        bottom: 24px;
+        right: 80px;
+        font-size: 12px;
+        letter-spacing: 2px;
+        color: rgba(148, 163, 184, 0.4);
+        z-index: 100;
+      }
+
+      /* ====== Scene shell ====== */
+      .scene {
+        position: absolute;
+        inset: 0;
+        padding: 140px 100px 120px;
+        opacity: 0;
+      }
+
+      /* ====== Shared components ====== */
+      .section-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 20px;
+        border-radius: 24px;
+        background: rgba(59, 130, 246, 0.08);
+        border: 1px solid rgba(59, 130, 246, 0.2);
+        font-size: 14px;
+        letter-spacing: 3px;
+        color: #60a5fa;
+        margin-bottom: 24px;
+      }
+      .section-title {
+        font-size: 52px;
+        font-weight: 800;
+        letter-spacing: 4px;
+        line-height: 1.2;
+        color: #f1f5f9;
+      }
+      .section-title .accent {
+        background: linear-gradient(135deg, #3b82f6, #06b6d4);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .section-desc {
+        font-size: 22px;
+        line-height: 1.6;
+        letter-spacing: 1px;
+        color: rgba(148, 163, 184, 0.8);
+        margin-top: 12px;
+      }
+
+      /* ====== Scene 1: Intro ====== */
+      .intro {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+      }
+      .intro-logo-wrap {
+        width: 120px;
+        height: 120px;
+        border-radius: 28px;
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(6, 182, 212, 0.15));
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 60px rgba(59, 130, 246, 0.2), inset 0 0 30px rgba(59, 130, 246, 0.05);
+        margin-bottom: 40px;
+      }
+      .intro-logo-wrap img { width: 64px; height: 64px; }
+      .intro h1 {
+        font-size: 100px;
+        font-weight: 900;
+        letter-spacing: 16px;
+        line-height: 1.1;
+        color: #f8fafc;
+        text-align: center;
+      }
+      .intro .sub {
+        margin-top: 28px;
+        font-size: 26px;
+        letter-spacing: 6px;
+        color: rgba(148, 163, 184, 0.7);
+      }
+      .intro .tagline {
+        margin-top: 36px;
+        font-size: 20px;
+        letter-spacing: 4px;
+        color: #60a5fa;
+        padding: 12px 32px;
+        border-radius: 30px;
+        border: 1px solid rgba(59, 130, 246, 0.25);
+        background: rgba(59, 130, 246, 0.06);
+      }
+
+      /* ====== Scene 2: Pain -> Solution ====== */
+      .pain-solution {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 60px;
+        height: 100%;
+      }
+      .pain-box, .solution-box {
+        width: 420px;
+        padding: 40px;
+        border-radius: 20px;
+        position: relative;
+      }
+      .pain-box {
+        background: rgba(239, 68, 68, 0.05);
+        border: 1px solid rgba(239, 68, 68, 0.15);
+      }
+      .solution-box {
+        background: rgba(59, 130, 246, 0.05);
+        border: 1px solid rgba(59, 130, 246, 0.2);
+      }
+      .pain-box .box-label, .solution-box .box-label {
+        font-size: 14px;
+        letter-spacing: 3px;
+        margin-bottom: 16px;
+      }
+      .pain-box .box-label { color: #f87171; }
+      .solution-box .box-label { color: #60a5fa; }
+      .pain-box .box-title, .solution-box .box-title {
+        font-size: 28px;
+        font-weight: 700;
+        line-height: 1.4;
+        margin-bottom: 16px;
+      }
+      .pain-box .box-title { color: #fca5a5; }
+      .solution-box .box-title { color: #93c5fd; }
+      .pain-box .box-desc, .solution-box .box-desc {
+        font-size: 18px;
+        line-height: 1.7;
+        color: rgba(148, 163, 184, 0.7);
+      }
+      .code-snippet {
+        margin-top: 20px;
+        padding: 16px 20px;
+        border-radius: 12px;
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(239, 68, 68, 0.1);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 13px;
+        line-height: 1.8;
+        color: #fca5a5;
+      }
+      .input-demo {
+        margin-top: 20px;
+        padding: 16px 20px;
+        border-radius: 12px;
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(59, 130, 246, 0.15);
+        font-size: 18px;
+        color: #93c5fd;
+      }
+      .arrow-connector {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+      }
+      .arrow-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #3b82f6, #06b6d4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        color: #fff;
+        box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+      }
+      .arrow-text {
+        font-size: 14px;
+        letter-spacing: 2px;
+        color: #60a5fa;
+      }
+
+      /* ====== Scene 3: Workflow ====== */
+      .workflow-header {
+        display: flex;
+        align-items: baseline;
+        gap: 24px;
+        margin-bottom: 24px;
+      }
+      .workflow-header .section-title { flex: 1; }
+      .workflow-example {
+        font-size: 16px;
+        color: rgba(148, 163, 184, 0.6);
+        letter-spacing: 1px;
+      }
+      .workflow-example .highlight {
+        color: #60a5fa;
+        font-family: "JetBrains Mono", monospace;
+      }
+      .screenshot-stage {
+        display: flex;
+        align-items: center;
+        gap: 40px;
+        height: 520px;
+      }
+      .screenshot-card {
+        flex: 1;
+        height: 100%;
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid rgba(59, 130, 246, 0.15);
+        background: rgba(15, 23, 42, 0.5);
+        box-shadow: 0 8px 40px rgba(0, 0, 0, 0.3), 0 0 20px rgba(59, 130, 246, 0.05);
+        position: relative;
+      }
+      .screenshot-card img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        padding: 8px;
+      }
+      .workflow-caption {
+        width: 320px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .step-indicator {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .step-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: rgba(59, 130, 246, 0.2);
+        transition: background 0.3s;
+      }
+      .step-dot.active { background: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.6); }
+      .step-title {
+        font-size: 24px;
+        font-weight: 700;
+        color: #f1f5f9;
+        line-height: 1.4;
+      }
+      .step-desc {
+        font-size: 16px;
+        line-height: 1.7;
+        color: rgba(148, 163, 184, 0.7);
+      }
+      .step-meta {
+        margin-top: auto;
+        padding: 14px 18px;
+        border-radius: 12px;
+        background: rgba(59, 130, 246, 0.06);
+        border: 1px solid rgba(59, 130, 246, 0.1);
+        font-size: 14px;
+        color: rgba(148, 163, 184, 0.6);
+        font-family: "JetBrains Mono", monospace;
+      }
+      .step-meta .path { color: #60a5fa; }
+
+      /* Workflow sub-scenes */
+      .wf-sub {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* ====== Scene 4: Generator ====== */
+      .generator-stage {
+        display: flex;
+        align-items: center;
+        gap: 40px;
+        height: 520px;
+        margin-top: 20px;
+      }
+      .generator-info {
+        width: 340px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .gen-step-num {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(6, 182, 212, 0.1));
+        border: 1px solid rgba(59, 130, 246, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        font-weight: 700;
+        color: #60a5fa;
+      }
+      .gen-step-title {
+        font-size: 26px;
+        font-weight: 700;
+        color: #f1f5f9;
+        line-height: 1.4;
+      }
+      .gen-step-desc {
+        font-size: 16px;
+        line-height: 1.7;
+        color: rgba(148, 163, 184, 0.7);
+      }
+
+      /* ====== Scene 5: Extensions ====== */
+      .extend-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 32px;
+        margin-top: 40px;
+        height: 400px;
+        align-items: center;
+      }
+      .extend-card {
+        padding: 40px 32px;
+        border-radius: 20px;
+        background: rgba(15, 23, 42, 0.4);
+        border: 1px solid rgba(59, 130, 246, 0.12);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 20px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+      }
+      .extend-icon {
+        width: 64px;
+        height: 64px;
+        border-radius: 18px;
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(6, 182, 212, 0.08));
+        border: 1px solid rgba(59, 130, 246, 0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        color: #60a5fa;
+      }
+      .extend-title {
+        font-size: 24px;
+        font-weight: 700;
+        color: #f1f5f9;
+        letter-spacing: 2px;
+      }
+      .extend-desc {
+        font-size: 16px;
+        line-height: 1.7;
+        color: rgba(148, 163, 184, 0.65);
+      }
+
+      /* ====== Scene 6: Outro ====== */
+      .outro {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+      }
+      .outro-logo-wrap {
+        width: 100px;
+        height: 100px;
+        border-radius: 24px;
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(6, 182, 212, 0.1));
+        border: 1px solid rgba(59, 130, 246, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 40px rgba(59, 130, 246, 0.15);
+        margin-bottom: 32px;
+      }
+      .outro-logo-wrap img { width: 52px; height: 52px; }
+      .outro h2 {
+        font-size: 56px;
+        font-weight: 800;
+        letter-spacing: 8px;
+        color: #f8fafc;
+      }
+      .outro .tag-line {
+        margin-top: 20px;
+        font-size: 24px;
+        letter-spacing: 4px;
+        color: rgba(148, 163, 184, 0.7);
+      }
+      .outro .cta {
+        margin-top: 36px;
+        padding: 14px 48px;
+        border-radius: 30px;
+        background: linear-gradient(135deg, #3b82f6, #06b6d4);
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 4px;
+        color: #fff;
+        box-shadow: 0 4px 20px rgba(59, 130, 246, 0.4);
+      }
+      .outro .copyright {
+        margin-top: 48px;
+        font-size: 14px;
+        letter-spacing: 2px;
+        color: rgba(148, 163, 184, 0.4);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage" id="main-stage" data-composition-id="main" data-width="1920" data-height="1080" data-start="0">
+      <!-- Tech grid background -->
+      <div class="tech-grid"></div>
+
+      <!-- Glowing orbs -->
+      <div class="glow-orb b1"></div>
+      <div class="glow-orb b2"></div>
+      <div class="glow-orb b3"></div>
+
+      <!-- Scan lines -->
+      <div class="scan-line top"></div>
+      <div class="scan-line bot"></div>
+
+      <!-- Brand bar (persistent) -->
+      <div class="brand">
+        <div class="brand-logo"><img src="./assets/icon.png" alt="GIS Agent" /></div>
+        <div class="brand-name">GIS Agent</div>
+        <div class="brand-tag">v1.0.0</div>
+      </div>
+
+      <!-- Progress track (persistent) -->
+      <div class="progress-track">
+        <div class="progress-fill" id="progress"></div>
+      </div>
+      <div class="footer-info">GIS Agent — 自然语言 GIS 数据处理助手</div>
+
+      <!-- ====== Scene 1: Intro 0-5s ====== -->
+      <div class="scene intro clip" id="scene-intro" data-start="0" data-duration="5" data-track-index="1">
+        <div class="intro-logo-wrap" id="intro-logo">
+          <img src="./assets/icon.png" alt="GIS Agent" />
+        </div>
+        <h1 id="intro-title">GIS Agent</h1>
+        <div class="sub" id="intro-sub">自然语言 · GIS 数据处理助手</div>
+        <div class="tagline" id="intro-tag">一句话，搞定复杂 GDAL 命令</div>
+      </div>
+
+      <!-- ====== Scene 2: Pain -> Solution 5-10s ====== -->
+      <div class="scene clip" id="scene-pain" data-start="5" data-duration="5" data-track-index="2">
+        <div style="display:flex; flex-direction:column; align-items:center; margin-bottom:40px;">
+          <div class="section-badge" id="pain-badge">痛点与方案</div>
+          <div class="section-title" id="pain-title">告别命令行，拥抱<span class="accent">自然语言</span></div>
+        </div>
+        <div class="pain-solution" id="pain-content">
+          <div class="pain-box" id="pain-box">
+            <div class="box-label">传统方式</div>
+            <div class="box-title">GDAL 命令复杂难记</div>
+            <div class="box-desc">参数繁多、格式各异，每次使用都要查文档</div>
+            <div class="code-snippet">
+              ogr2ogr -f GeoJSON<br/>
+              &nbsp;&nbsp;-t_srs EPSG:4326<br/>
+              &nbsp;&nbsp;-s_srs EPSG:3857<br/>
+              &nbsp;&nbsp;output.geojson input.shp
+            </div>
+          </div>
+          <div class="arrow-connector" id="pain-arrow">
+            <div class="arrow-icon">&#10132;</div>
+            <div class="arrow-text">一句话</div>
+          </div>
+          <div class="solution-box" id="solution-box">
+            <div class="box-label">GIS Agent</div>
+            <div class="box-title">说一句话，自动匹配</div>
+            <div class="box-desc">系统自动理解意图，匹配最佳 GDAL 工具模板</div>
+            <div class="input-demo">"把 roads.shp 转成 GeoJSON"</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== Scene 3: Core Workflow 10-28s ====== -->
+      <div class="scene clip" id="scene-workflow" data-start="10" data-duration="18" data-track-index="3">
+        <div class="workflow-header">
+          <div>
+            <div class="section-badge" id="wf-badge">核心工作流</div>
+            <div class="section-title" id="wf-title">从需求到结果，<span class="accent">只需五步</span></div>
+          </div>
+          <div class="workflow-example" id="wf-example">
+            示例：<span class="highlight">roads.shp</span> &#8594; <span class="highlight">roads.geojson</span>
+          </div>
+        </div>
+        <div class="screenshot-stage">
+          <div class="screenshot-card" id="wf-screenshot">
+            <!-- Sub-scene 1: Launch -->
+            <div class="wf-sub" id="wf-sub1">
+              <img src="./assets/1.%E8%BD%AF%E4%BB%B6%E5%90%AF%E5%8A%A8%E5%88%9D%E5%A7%8B.png" alt="启动界面" />
+            </div>
+            <!-- Sub-scene 2: Match -->
+            <div class="wf-sub" id="wf-sub2">
+              <img src="./assets/4.%E6%84%8F%E5%9B%BE%E8%AF%86%E5%88%AB%E7%AD%9B%E9%80%89%EF%BC%88shp%E8%BD%ACgeojson%EF%BC%89.png" alt="意图识别" />
+            </div>
+            <!-- Sub-scene 3: QA -->
+            <div class="wf-sub" id="wf-sub3">
+              <img src="./assets/5.%E5%9F%BA%E4%BA%8E%E6%A8%A1%E6%9D%BF%E9%97%AE%E7%AD%94.png" alt="参数问答" />
+            </div>
+            <!-- Sub-scene 4: Generate -->
+            <div class="wf-sub" id="wf-sub4">
+              <img src="./assets/6.%E6%A8%A1%E6%9D%BF%E5%86%85%E5%A1%AB%E5%85%A5%E6%95%B0%E6%8D%AE%E7%94%9F%E6%88%90%E6%8C%87%E4%BB%A4.png" alt="指令生成" />
+            </div>
+            <!-- Sub-scene 5: Diagnose -->
+            <div class="wf-sub" id="wf-sub5">
+              <img src="./assets/7.%E6%8C%87%E4%BB%A4%E6%89%A7%E8%A1%8C%E9%94%99%E8%AF%AF%E4%B8%80%E9%94%AE%E8%AF%8A%E6%96%AD%E4%BF%AE%E5%A4%8D.png" alt="错误诊断" />
+            </div>
+            <!-- Sub-scene 6: Success -->
+            <div class="wf-sub" id="wf-sub6">
+              <img src="./assets/8.%E6%8C%87%E4%BB%A4%E6%89%A7%E8%A1%8C%E6%88%90%E5%8A%9F.png" alt="执行成功" />
+            </div>
+          </div>
+          <div class="workflow-caption" id="wf-caption">
+            <div class="step-indicator" id="wf-dots">
+              <div class="step-dot" id="dot-1"></div>
+              <div class="step-dot" id="dot-2"></div>
+              <div class="step-dot" id="dot-3"></div>
+              <div class="step-dot" id="dot-4"></div>
+              <div class="step-dot" id="dot-5"></div>
+              <div class="step-dot" id="dot-6"></div>
+            </div>
+            <div class="step-title" id="wf-step-title">启动应用</div>
+            <div class="step-desc" id="wf-step-desc">打开 GIS Agent，浏览 GDAL 工具模板库，选择需要的处理任务</div>
+            <div class="step-meta" id="wf-step-meta">
+              输入文件：<span class="path">roads.shp</span><br/>
+              输出文件：<span class="path">roads.geojson</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== Scene 4: Template Generator 28-40s ====== -->
+      <div class="scene clip" id="scene-generator" data-start="28" data-duration="12" data-track-index="4">
+        <div style="display:flex; flex-direction:column; align-items:flex-start;">
+          <div class="section-badge" id="gen-badge">模板工厂</div>
+          <div class="section-title" id="gen-title">从文档到模板，<span class="accent">AI 全自动</span></div>
+        </div>
+        <div class="generator-stage">
+          <div class="generator-info" id="gen-info">
+            <div class="gen-step-num" id="gen-num">1</div>
+            <div class="gen-step-title" id="gen-step-title">导入 GDAL 官方文档</div>
+            <div class="gen-step-desc" id="gen-step-desc">支持 HTML、Markdown 格式，一键导入 GDAL 工具说明</div>
+          </div>
+          <div class="screenshot-card" id="gen-screenshot" style="flex:1;">
+            <div class="wf-sub" id="gen-sub1" style="opacity:1;">
+              <img src="./assets/9.%E5%B7%A5%E5%85%B7%E6%96%87%E6%A1%A3%E5%AF%BC%E5%85%A5%EF%BC%88html%E6%88%96md%29.png" alt="文档导入" />
+            </div>
+            <div class="wf-sub" id="gen-sub2">
+              <img src="./assets/10.%E6%A8%A1%E6%9D%BF%E7%94%9F%E6%88%90%E7%BB%93%E6%9E%9C.png" alt="生成结果" />
+            </div>
+            <div class="wf-sub" id="gen-sub3">
+              <img src="./assets/11.%E6%A8%A1%E6%9D%BF%E7%BC%96%E8%BE%91.png" alt="模板编辑" />
+            </div>
+            <div class="wf-sub" id="gen-sub4">
+              <img src="./assets/12.%E6%A8%A1%E6%9D%BF%E5%AE%A1%E6%A0%B8%E6%88%90%E5%8A%9F%E4%BF%9D%E5%AD%98.png" alt="审核保存" />
+            </div>
+            <div class="wf-sub" id="gen-sub5">
+              <img src="./assets/13.%E6%A8%A1%E6%9D%BF%E5%BA%93%E6%9F%A5%E6%89%BE%E9%AA%8C%E8%AF%81.png" alt="模板验证" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== Scene 5: Extensions 40-45s ====== -->
+      <div class="scene clip" id="scene-extend" data-start="40" data-duration="5" data-track-index="5">
+        <div style="display:flex; flex-direction:column; align-items:center; margin-bottom:20px;">
+          <div class="section-badge" id="ext-badge">更多能力</div>
+          <div class="section-title" id="ext-title">不止于<span class="accent">数据处理</span></div>
+        </div>
+        <div class="extend-grid" id="ext-grid">
+          <div class="extend-card" id="ext-card1">
+            <div class="extend-icon">&#128230;</div>
+            <div class="extend-title">脚本导出</div>
+            <div class="extend-desc">一键导出为 .bat / .sh 脚本，离线复用，无需重复配置</div>
+          </div>
+          <div class="extend-card" id="ext-card2">
+            <div class="extend-icon">&#128260;</div>
+            <div class="extend-title">批量指令</div>
+            <div class="extend-desc">多步骤流水线编排，参数自动传递，一键执行复杂任务链</div>
+          </div>
+          <div class="extend-card" id="ext-card3">
+            <div class="extend-icon">&#9881;</div>
+            <div class="extend-title">环境配置</div>
+            <div class="extend-desc">自动发现 Python/Conda 环境，零配置启动，开箱即用</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== Scene 6: Outro 45-50s ====== -->
+      <div class="scene outro clip" id="scene-outro" data-start="45" data-duration="5" data-track-index="6">
+        <div class="outro-logo-wrap" id="outro-logo">
+          <img src="./assets/icon.png" alt="GIS Agent" />
+        </div>
+        <h2 id="outro-title">GIS Agent</h2>
+        <div class="tag-line" id="outro-tag">让 GIS 数据处理更简单</div>
+        <div class="cta" id="outro-cta">立即体验</div>
+        <div class="copyright" id="outro-copy">GIS Agent v1.0.0</div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      // ===== Persistent backdrop motion =====
+      tl.to("#main-stage .glow-orb.b1", { x: 30, y: 20, duration: 50, ease: "sine.inOut" }, 0);
+      tl.to("#main-stage .glow-orb.b2", { x: -20, y: -15, duration: 50, ease: "sine.inOut" }, 0);
+      tl.to("#main-stage .glow-orb.b3", { x: 15, y: -25, duration: 50, ease: "sine.inOut" }, 0);
+      tl.fromTo("#progress",
+        { width: 0 },
+        { width: "100%", duration: 48, ease: "none" },
+        0
+      );
+
+      // ===== Scene 1: Intro 0-5s =====
+      tl.to("#scene-intro", { opacity: 1, duration: 0.01 }, 0);
+      tl.fromTo("#intro-logo",
+        { opacity: 0, scale: 0.7 },
+        { opacity: 1, scale: 1, duration: 0.7, ease: "back.out(1.5)" }, 0.2);
+      tl.fromTo("#intro-title",
+        { opacity: 0, y: 30 },
+        { opacity: 1, y: 0, duration: 0.8, ease: "power3.out" }, 0.6);
+      tl.fromTo("#intro-sub",
+        { opacity: 0, y: 20 },
+        { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" }, 1.2);
+      tl.fromTo("#intro-tag",
+        { opacity: 0, y: 15, scale: 0.95 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "power2.out" }, 1.8);
+      tl.to("#scene-intro", { opacity: 0, duration: 0.4, ease: "power1.in" }, 4.5);
+
+      // ===== Scene 2: Pain -> Solution 5-10s =====
+      tl.to("#scene-pain", { opacity: 1, duration: 0.01 }, 5);
+      tl.fromTo("#pain-badge",
+        { opacity: 0, y: 15 },
+        { opacity: 1, y: 0, duration: 0.4, ease: "power2.out" }, 5.1);
+      tl.fromTo("#pain-title",
+        { opacity: 0, y: 20 },
+        { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 5.3);
+      tl.fromTo("#pain-box",
+        { opacity: 0, x: -40, scale: 0.95 },
+        { opacity: 1, x: 0, scale: 1, duration: 0.7, ease: "power2.out" }, 5.8);
+      tl.fromTo("#pain-arrow",
+        { opacity: 0, scale: 0.5 },
+        { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.7)" }, 6.5);
+      tl.fromTo("#solution-box",
+        { opacity: 0, x: 40, scale: 0.95 },
+        { opacity: 1, x: 0, scale: 1, duration: 0.7, ease: "power2.out" }, 5.8);
+      tl.to("#scene-pain", { opacity: 0, duration: 0.4, ease: "power1.in" }, 9.5);
+
+      // ===== Scene 3: Workflow 10-28s =====
+      tl.to("#scene-workflow", { opacity: 1, duration: 0.01 }, 10);
+      tl.fromTo("#wf-badge",
+        { opacity: 0, y: 10 },
+        { opacity: 1, y: 0, duration: 0.3, ease: "power2.out" }, 10.05);
+      tl.fromTo("#wf-title",
+        { opacity: 0, y: 15 },
+        { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 10.2);
+      tl.fromTo("#wf-example",
+        { opacity: 0 },
+        { opacity: 1, duration: 0.4, ease: "power2.out" }, 10.5);
+      tl.fromTo("#wf-screenshot",
+        { opacity: 0, scale: 0.95 },
+        { opacity: 1, scale: 1, duration: 0.6, ease: "power2.out" }, 10.4);
+      tl.fromTo("#wf-caption",
+        { opacity: 0, x: 30 },
+        { opacity: 1, x: 0, duration: 0.6, ease: "power2.out" }, 10.6);
+
+      // Workflow sub-scenes
+      const wfSteps = [
+        { id: "wf-sub1", dot: "dot-1", title: "启动应用", desc: "打开 GIS Agent，浏览 GDAL 工具模板库，选择需要的处理任务" },
+        { id: "wf-sub2", dot: "dot-2", title: "智能匹配", desc: "输入 \"把 shp 转成 geojson\"，系统自动匹配最佳 GDAL 工具模板" },
+        { id: "wf-sub3", dot: "dot-3", title: "参数问答", desc: "交互式问答确认参数，自动识别输入路径和输出格式" },
+        { id: "wf-sub4", dot: "dot-4", title: "指令生成", desc: "一键生成完整 GDAL 脚本，预览确认后执行" },
+        { id: "wf-sub5", dot: "dot-5", title: "错误诊断", desc: "执行异常自动触发 AI 诊断，给出修复建议与命令参考" },
+        { id: "wf-sub6", dot: "dot-6", title: "执行成功", desc: "roads.shp 成功转换为 roads.geojson，结果一目了然" }
+      ];
+
+      // First sub-scene visible immediately
+      tl.set("#wf-sub1", { opacity: 1 }, 10.8);
+      tl.set("#dot-1", { background: "#3b82f6", boxShadow: "0 0 8px rgba(59,130,246,0.6)" }, 10.8);
+
+      // Sub-scene transitions
+      for (let i = 0; i < wfSteps.length - 1; i++) {
+        const t = 12.0 + i * 2.6;
+        const curr = wfSteps[i];
+        const next = wfSteps[i + 1];
+
+        // Fade out current
+        tl.to("#" + curr.id, { opacity: 0, duration: 0.3, ease: "power1.in" }, t);
+        tl.to("#" + curr.dot, { background: "rgba(59,130,246,0.2)", boxShadow: "none", duration: 0.2 }, t);
+
+        // Fade in next
+        tl.to("#" + next.id, { opacity: 1, duration: 0.3, ease: "power2.out" }, t + 0.15);
+        tl.to("#" + next.dot, { background: "#3b82f6", boxShadow: "0 0 8px rgba(59,130,246,0.6)", duration: 0.2 }, t + 0.15);
+
+        // Update caption text
+        tl.to("#wf-step-title", { opacity: 0, duration: 0.15, ease: "power1.in" }, t + 0.05);
+        tl.to("#wf-step-title", { opacity: 1, duration: 0.15, ease: "power2.out", onStart: function() {
+          document.getElementById("wf-step-title").textContent = next.title;
+        }}, t + 0.25);
+        tl.to("#wf-step-desc", { opacity: 0, duration: 0.15, ease: "power1.in" }, t + 0.1);
+        tl.to("#wf-step-desc", { opacity: 1, duration: 0.15, ease: "power2.out", onStart: function() {
+          document.getElementById("wf-step-desc").textContent = next.desc;
+        }}, t + 0.3);
+      }
+
+      tl.to("#scene-workflow", { opacity: 0, duration: 0.4, ease: "power1.in" }, 27.5);
+
+      // ===== Scene 4: Generator 28-40s =====
+      tl.to("#scene-generator", { opacity: 1, duration: 0.01 }, 28);
+      tl.fromTo("#gen-badge",
+        { opacity: 0, y: 10 },
+        { opacity: 1, y: 0, duration: 0.3, ease: "power2.out" }, 28.05);
+      tl.fromTo("#gen-title",
+        { opacity: 0, y: 15 },
+        { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 28.2);
+      tl.fromTo("#gen-info",
+        { opacity: 0, x: -30 },
+        { opacity: 1, x: 0, duration: 0.6, ease: "power2.out" }, 28.4);
+      tl.fromTo("#gen-screenshot",
+        { opacity: 0, scale: 0.95 },
+        { opacity: 1, scale: 1, duration: 0.6, ease: "power2.out" }, 28.4);
+
+      // Generator sub-scenes
+      const genSteps = [
+        { sub: "gen-sub1", num: "1", title: "导入 GDAL 官方文档", desc: "支持 HTML、Markdown 格式，一键导入 GDAL 工具说明" },
+        { sub: "gen-sub2", num: "2", title: "AI 自动生成模板", desc: "基于文档内容，自动生成 Jinja2 模板与参数定义" },
+        { sub: "gen-sub3", num: "3", title: "人工审核编辑", desc: "可视化编辑器修改模板，安全校验器保障脚本安全" },
+        { sub: "gen-sub4", num: "3", title: "审核通过保存", desc: "安全检查通过后保存，模板库实时更新" },
+        { sub: "gen-sub5", num: "4", title: "模板库即时验证", desc: "保存后在模板库中搜索验证，立即可用" }
+      ];
+
+      // First visible
+      tl.set("#gen-sub1", { opacity: 1 }, 28.6);
+
+      for (let i = 0; i < genSteps.length - 1; i++) {
+        const t = 29.5 + i * 2.4;
+        const curr = genSteps[i];
+        const next = genSteps[i + 1];
+
+        tl.to("#" + curr.sub, { opacity: 0, duration: 0.3, ease: "power1.in" }, t);
+        tl.to("#" + next.sub, { opacity: 1, duration: 0.3, ease: "power2.out" }, t + 0.15);
+
+        // Update info
+        tl.to("#gen-num", { opacity: 0, scale: 0.8, duration: 0.15, ease: "power1.in" }, t + 0.05);
+        tl.to("#gen-num", { opacity: 1, scale: 1, duration: 0.15, ease: "back.out(1.5)", onStart: function() {
+          document.getElementById("gen-num").textContent = next.num;
+        }}, t + 0.25);
+        tl.to("#gen-step-title", { opacity: 0, y: -8, duration: 0.15, ease: "power1.in" }, t + 0.08);
+        tl.to("#gen-step-title", { opacity: 1, y: 0, duration: 0.15, ease: "power2.out", onStart: function() {
+          document.getElementById("gen-step-title").textContent = next.title;
+        }}, t + 0.28);
+        tl.to("#gen-step-desc", { opacity: 0, y: -5, duration: 0.15, ease: "power1.in" }, t + 0.12);
+        tl.to("#gen-step-desc", { opacity: 1, y: 0, duration: 0.15, ease: "power2.out", onStart: function() {
+          document.getElementById("gen-step-desc").textContent = next.desc;
+        }}, t + 0.32);
+      }
+
+      tl.to("#scene-generator", { opacity: 0, duration: 0.4, ease: "power1.in" }, 39.5);
+
+      // ===== Scene 5: Extensions 40-45s =====
+      tl.to("#scene-extend", { opacity: 1, duration: 0.01 }, 40);
+      tl.fromTo("#ext-badge",
+        { opacity: 0, y: 10 },
+        { opacity: 1, y: 0, duration: 0.3, ease: "power2.out" }, 40.1);
+      tl.fromTo("#ext-title",
+        { opacity: 0, y: 15 },
+        { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 40.3);
+      tl.fromTo("#ext-card1",
+        { opacity: 0, y: 30, scale: 0.92 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "power2.out" }, 40.6);
+      tl.fromTo("#ext-card2",
+        { opacity: 0, y: 30, scale: 0.92 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "power2.out" }, 40.9);
+      tl.fromTo("#ext-card3",
+        { opacity: 0, y: 30, scale: 0.92 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "power2.out" }, 41.2);
+      tl.to("#scene-extend", { opacity: 0, duration: 0.4, ease: "power1.in" }, 44.5);
+
+      // ===== Scene 6: Outro 45-50s =====
+      tl.to("#scene-outro", { opacity: 1, duration: 0.01 }, 45);
+      tl.fromTo("#outro-logo",
+        { opacity: 0, scale: 0.7 },
+        { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.5)" }, 45.2);
+      tl.fromTo("#outro-title",
+        { opacity: 0, y: 20 },
+        { opacity: 1, y: 0, duration: 0.7, ease: "power3.out" }, 45.6);
+      tl.fromTo("#outro-tag",
+        { opacity: 0, y: 15 },
+        { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 46.2);
+      tl.fromTo("#outro-cta",
+        { opacity: 0, y: 15, scale: 0.95 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "power2.out" }, 46.7);
+      tl.fromTo("#outro-copy",
+        { opacity: 0 },
+        { opacity: 1, duration: 0.4, ease: "power2.out" }, 47.3);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

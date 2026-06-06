@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GIS Agent (`gis-agent`) is a natural-language assistant for GIS data processing using GDAL tools. It accepts Chinese requests, maps them to predefined Jinja2 templates, generates batch scripts, and executes them only after explicit user confirmation.
 
-The **Electron desktop app** (`frontend/` + `api/`) is the sole active user entry point. The project follows Specification-Driven Design: no functional code without a preceding `Document/plan-{module}.md` (see `constitution.md` RED-1).
+The **Electron desktop app** (`frontend/` + `api/`) is the sole active user entry point. Packaged as v1.0.0 (NSIS installer + portable exe) via `scripts/build-electron.ps1`.
+
+The project follows Specification-Driven Design: no functional code without a preceding `Document/plan-{module}.md` (see `constitution.md` RED-1).
 
 **Local config**: `CLAUDE.local.md` (project root, not checked in) contains environment-specific paths and is loaded alongside this file.
 
@@ -48,6 +50,8 @@ Templates (templates/)  → Jinja2 engine, .j2 scanner, script security checker
 - `templates/` may depend on `core/` (models).
 - `scripts/generate/` is a development-time tool, not a runtime layer.
 - External library types must not leak upward through layer boundaries.
+
+**Packaged runtime layout**: After `electron-builder`, Python resources (`src/`, `data/`, `config/`, `start_api.py`) are copied into `dist/electron/win-unpacked/SourceCode/` to preserve `Path(__file__)` traversals. `main.ts` uses `app.getPath('exe')` / `SourceCode` in production, and `__dirname/../..` in dev.
 
 **Key design patterns**:
 - GDAL commands are rendered from Jinja2 templates in `data/templates/` — **never** string-concatenated (P1).
@@ -137,7 +141,9 @@ If `.codegraph/` does not exist, ask: *"Want me to run `codegraph init -i` to bu
 
 ## Environment
 
-**Conda environment**: `gis-agent` at `C:\Users\PC\.conda\envs\gis-agent` (Python 3.11.15). `conda activate` does not work in this bash shell; always invoke the environment Python directly:
+**Python interpreter**: `electron/main.ts` resolves Python automatically via `resolvePythonPath()` — priority: `GISAGENT_PYTHON_PATH` env var → `config.json` → `python_path` → system PATH (`python` / `python3`) → all conda/anaconda environments (scanned and dependency-checked). No hard-coded conda path.
+
+For development, invoke the `gis-agent` conda Python directly (bash does not support `conda activate`):
 
 ```bash
 "/c/Users/PC/.conda/envs/gis-agent/python" --version
@@ -197,12 +203,29 @@ cd SourceCode/frontend
 
 npm install
 npm run electron:dev     # Vite + Electron concurrently
-npm run electron:build   # production build
+npm run electron:build   # Vite build + electron-builder (NSIS + portable)
 
 # Type check
 ./node_modules/.bin/tsc --noEmit -p tsconfig.json
 ./node_modules/.bin/tsc -p electron/tsconfig.json --noEmit
 ```
+
+### Electron Packaging
+
+One-click build (from repo root):
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/build-electron.ps1
+```
+
+Requires:
+- `SourceCode/src/icon.png` ≥ 256×256 (Windows icon requirement)
+- `scripts/electron-v{version}-win32-x64.zip` cached locally (set `ELECTRON_CACHE=scripts/`)
+
+Outputs to `dist/electron/`:
+- `win-unpacked/` — portable directory (run `GIS Agent.exe` directly)
+- `GIS Agent Setup 1.0.0.exe` — NSIS installer
+- `GIS Agent Portable 1.0.0.exe` — single-file portable
 
 ## Tool Configuration
 
@@ -253,6 +276,9 @@ npm run electron:build   # production build
 | `frontend/src/hooks/useSession.ts` | Zustand store; `setDiagnosisFallback()` prevents permanent diagnosis spinner |
 | `frontend/src/pages/MainPage.tsx` | Three-TAB orchestrator: WebSocket execution, state refresh, export flow |
 | `frontend/src/api/client.ts` | Axios with dynamic absolute baseURL via IPC |
+| `frontend/electron-builder.json5` | Electron-builder config: NSIS + portable, output to `../../dist/electron` |
+| `scripts/build-electron.ps1` | One-click build: Vite → electron-builder → copy `SourceCode/` externals |
+| `src/config/models.py` | Config pydantic models; `python_path` field for Electron mode |
 
 ## When Working on This Repo
 
@@ -261,6 +287,30 @@ npm run electron:build   # production build
 - `PromptBuilder` has exactly **5 scenario-specific methods**; do not add catch-all prompts.
 - `Document/Resource/` and `SourceCode/config/config.json` are gitignored; never commit them.
 - Script execution writes to `./cache/`; users export explicitly via "Export Script".
+- Packaged artifacts (`dist/electron/`, `scripts/*.zip`) are gitignored; never commit them.
+- `vite.config.ts` must keep `base: './'` for `file://` protocol compatibility (Electron production).
+- `main.ts` `resolveAppRoot()` must preserve `SourceCode/` directory level so Python `Path(__file__)` traversals remain valid after packaging.
+
+## Electron Packaging
+
+`electron-builder` packages the frontend (`dist/` + `dist-electron/`) into `app.asar`. Python code and data are **not** bundled into the asar; the build script copies them as external resources.
+
+**Why `SourceCode/` is preserved in the package**: Python files (`config/loader.py`, `api/main.py`) use `Path(__file__)` with hard-coded `../..` traversals that expect a `SourceCode/` parent. The build script creates `win-unpacked/SourceCode/` and copies `src/`, `data/`, `config/`, `start_api.py` into it. `main.ts` uses `path.dirname(app.getPath('exe'))/SourceCode` in production.
+
+**Python auto-discovery in production** (`main.ts`):
+1. `GISAGENT_PYTHON_PATH` env var
+2. `config.json` → `python_path`
+3. System PATH (`python` / `python3`)
+4. All conda/anaconda environments under `~/.conda/envs/`, `~/anaconda3/envs/`, etc.
+
+Each candidate is dependency-checked (`import fastapi, uvicorn, jinja2, pydantic, anthropic`). The first passing candidate wins. If none pass, the first found candidate is returned and an error dialog guides the user to install deps.
+
+**Build script flow** (`scripts/build-electron.ps1`):
+1. Check icon (`src/icon.png` ≥ 256×256)
+2. `npm run build` (Vite) → `dist/`
+3. `tsc -p electron/tsconfig.json` → `dist-electron/`
+4. `electron-builder --config electron-builder.json5` → `dist/electron/win-unpacked/`
+5. `robocopy` Python externals → `win-unpacked/SourceCode/`
 
 ## Adding New Templates
 

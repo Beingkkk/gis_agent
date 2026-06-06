@@ -38,6 +38,11 @@ class Config(BaseModel):
 
     model_config = ConfigDict(frozen=True)
     llm: LLMConfig
+    python_path: str | None = Field(
+        default=None,
+        description="Path to Python executable for Electron mode. "
+        " Falls back to GISAGENT_PYTHON_PATH env var, then PATH search.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -58,4 +63,10 @@ class Config(BaseModel):
                     llm[key] = env_val
             data = dict(data)
             data["llm"] = llm
+
+            # GISAGENT_PYTHON_PATH overrides config.python_path
+            env_python = os.environ.get("GISAGENT_PYTHON_PATH")
+            if env_python is not None:
+                data["python_path"] = env_python
+
         return data

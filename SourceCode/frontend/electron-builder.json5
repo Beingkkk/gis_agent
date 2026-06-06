@@ -1,0 +1,38 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "productName": "GIS Agent",
+  "appId": "com.gisagent.desktop",
+  "copyright": "Copyright © 2026",
+  "directories": {
+    "output": "../../dist/electron"
+  },
+  "files": [
+    "dist/**/*",
+    "dist-electron/**/*"
+  ],
+  "asar": true,
+  "win": {
+    "icon": "../src/icon.png",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "GIS Agent",
+    "artifactName": "${productName} Setup ${version}.${ext}"
+  },
+  "portable": {
+    "artifactName": "${productName} Portable ${version}.${ext}"
+  }
+}

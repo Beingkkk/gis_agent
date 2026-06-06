@@ -4,6 +4,7 @@
     "auth_key": "",
     "model_name": "K2.6"
   },
+  "python_path": null,
   "workspace": {
     "default_path": ".",
     "allow_parent_access": false

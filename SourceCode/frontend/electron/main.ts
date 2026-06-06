@@ -1,16 +1,159 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import path from 'path'
-import { spawn, ChildProcess } from 'child_process'
+import { spawn, spawnSync, ChildProcess } from 'child_process'
+import fs from 'fs'
+import os from 'os'
 
 // ─── Configuration ───────────────────────────────────────────
 
-const PYTHON_PATH =
-  process.platform === 'win32'
-    ? 'C:/Users/PC/.conda/envs/gis-agent/python.exe'
-    : '/Users/PC/.conda/envs/gis-agent/bin/python'
-
 const BACKEND_PORT = 18000
 const BACKEND_URL = `http://localhost:${BACKEND_PORT}`
+
+/**
+ * Resolve Python executable path with fallback chain.
+ *
+ * Explicit config (env var / config.json) takes precedence and is returned
+ * as-is.  When auto-discovering, every candidate is dependency-checked and
+ * the first one with all required packages wins.
+ *
+ * Design: DC-E03
+ */
+function resolvePythonPath(): string | null {
+  const isWin = process.platform === 'win32'
+  const exeName = isWin ? 'python.exe' : 'python'
+
+  // 1. Environment variable — explicit, return as-is
+  const envPath = process.env.GISAGENT_PYTHON_PATH
+  if (envPath && fs.existsSync(envPath)) {
+    return envPath
+  }
+
+  // 2. config.json → python_path — explicit, return as-is
+  try {
+    const configPath = path.join(APP_ROOT, 'config', 'config.json')
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, 'utf-8')
+      const cfg = JSON.parse(raw)
+      if (cfg.python_path && fs.existsSync(cfg.python_path)) {
+        return cfg.python_path
+      }
+    }
+  } catch {
+    // ignore parse errors
+  }
+
+  // 3. Auto-discover — collect ALL candidates, then pick first with deps
+  const candidates: string[] = []
+
+  // 3a. System PATH
+  const pathNames = isWin
+    ? ['python.exe', 'python3.exe']
+    : ['python3', 'python']
+  for (const name of pathNames) {
+    const found = findInPath(name)
+    if (found) candidates.push(found)
+  }
+
+  // 3b. Common conda / anaconda directories
+  const home = os.homedir()
+  const condaDirs: string[] = []
+  if (isWin) {
+    condaDirs.push(
+      path.join(home, '.conda', 'envs'),
+      path.join(home, 'anaconda3', 'envs'),
+      path.join(home, 'miniconda3', 'envs'),
+      'C:\\ProgramData\\anaconda3\\envs',
+      'C:\\ProgramData\\miniconda3\\envs',
+    )
+  } else {
+    condaDirs.push(
+      path.join(home, '.conda', 'envs'),
+      path.join(home, 'anaconda3', 'envs'),
+      path.join(home, 'miniconda3', 'envs'),
+      '/opt/conda/envs',
+    )
+  }
+
+  for (const envsDir of condaDirs) {
+    if (!fs.existsSync(envsDir)) continue
+    try {
+      const envs = fs.readdirSync(envsDir, { withFileTypes: true })
+      for (const entry of envs) {
+        if (!entry.isDirectory()) continue
+        const pythonExe = path.join(envsDir, entry.name, exeName)
+        if (fs.existsSync(pythonExe)) {
+          candidates.push(pythonExe)
+        }
+      }
+    } catch {
+      // ignore permission errors
+    }
+  }
+
+  // Deduplicate while preserving order
+  const seen = new Set<string>()
+  for (const p of candidates) {
+    if (seen.has(p)) continue
+    seen.add(p)
+    if (verifyPythonDeps(p) === null) {
+      return p
+    }
+  }
+
+  // Fallback: return first candidate even if deps missing (error dialog will guide user)
+  return candidates[0] ?? null
+}
+
+/**
+ * Find an executable name in the system PATH.
+ */
+function findInPath(name: string): string | null {
+  const isWin = process.platform === 'win32'
+  const pathDirs = (process.env.PATH || '').split(isWin ? ';' : ':')
+  for (const dir of pathDirs) {
+    if (!dir) continue
+    const full = path.join(dir, name)
+    if (fs.existsSync(full)) {
+      return full
+    }
+  }
+  return null
+}
+
+/**
+ * Verify that the found Python has the required packages installed.
+ */
+function verifyPythonDeps(pythonPath: string): string | null {
+  try {
+    const result = spawnSync(pythonPath, [
+      '-c',
+      'import fastapi, uvicorn, jinja2, pydantic, anthropic; print("OK")',
+    ], { encoding: 'utf-8', timeout: 5000 })
+    if (result.status === 0 && result.stdout.includes('OK')) {
+      return null
+    }
+    return result.stderr || '缺少必需的 Python 依赖包'
+  } catch (err: any) {
+    return err.message || '依赖验证失败'
+  }
+}
+
+/**
+ * Resolve the application root directory for locating Python backend resources.
+ *
+ * Design: DC-E03
+ *   - Dev mode:  __dirname is dist-electron/, root is ../../ (SourceCode/)
+ *   - Packaged:  resources live in a SourceCode/ sibling of the exe so that
+ *     Python's Path(__file__) hard-coded traversals remain valid.
+ */
+function resolveAppRoot(): string {
+  if (!app.isPackaged) {
+    return path.join(__dirname, '../..')
+  }
+  return path.join(path.dirname(app.getPath('exe')), 'SourceCode')
+}
+
+const APP_ROOT = resolveAppRoot()
 
 // ─── State ───────────────────────────────────────────────────
 
@@ -104,10 +247,30 @@ function isStartupMessage(text: string): boolean {
  */
 function startPythonBackend(): Promise<void> {
   return new Promise((resolve, reject) => {
-    const scriptPath = path.join(__dirname, '../../start_api.py')
+    const pythonPath = resolvePythonPath()
+    if (!pythonPath) {
+      reject(new Error('未找到 Python 解释器'))
+      return
+    }
 
-    pythonProcess = spawn(PYTHON_PATH, [scriptPath], {
-      cwd: path.join(__dirname, '../..'),
+    // resolvePythonPath() already validates deps for auto-discovered candidates,
+    // but fallback may return a candidate with missing deps — double-check here.
+    const depError = verifyPythonDeps(pythonPath)
+    if (depError) {
+      reject(
+        new Error(
+          `Python 依赖检查失败 (${path.basename(pythonPath)})\n${depError}`,
+        ),
+      )
+      return
+    }
+
+    console.log('[Electron] Using Python:', pythonPath)
+
+    const scriptPath = path.join(APP_ROOT, 'start_api.py')
+
+    pythonProcess = spawn(pythonPath, [scriptPath], {
+      cwd: APP_ROOT,
       env: {
         ...process.env,
         PYTHONIOENCODING: 'utf-8',
@@ -315,9 +478,17 @@ app.whenReady().then(async () => {
     console.log('[Electron] Python backend started successfully at', BACKEND_URL)
   } catch (err) {
     console.error('[Electron] Failed to start Python backend:', err)
+    const isDev = !app.isPackaged
+    const detected = resolvePythonPath()
+    const detectedInfo = detected
+      ? `检测到的 Python: ${detected}`
+      : '未检测到 Python 解释器'
+    const pythonHelp = isDev
+      ? '开发模式: 请确保当前 conda 环境已激活 (gis-agent)'
+      : `生产模式: 请确保目标电脑已安装 Python 3.11+ 及依赖包。\n\nPython 搜索顺序:\n1. 环境变量 GISAGENT_PYTHON_PATH\n2. config.json → python_path\n3. 系统 PATH 中的 python/python3\n4. 常见 conda/anaconda 环境目录\n\n快速修复:\n- 设置环境变量: GISAGENT_PYTHON_PATH=C:\\path\\to\\python.exe\n- 或在 config.json 中添加: "python_path": "C:\\\\path\\\\to\\\\python.exe"`
     dialog.showErrorBox(
       '后端启动失败',
-      `无法启动 Python 后端服务。请检查：\n1. gis-agent conda 环境已安装\n2. 端口 ${BACKEND_PORT} 未被占用\n3. config.json 配置正确`
+      `${err instanceof Error ? err.message : String(err)}\n\n${detectedInfo}\n\n${pythonHelp}\n\n端口: ${BACKEND_PORT}`
     )
   }
 

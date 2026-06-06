@@ -263,3 +263,6 @@ SourceCode/frontend/yarn.lock
 SourceCode/frontend/.env
 SourceCode/frontend/vite.config.js
 SourceCode/frontend/tsconfig.node.tsbuildinfo
+
+# Electron build cache (downloaded binaries)
+scripts/*.zip
